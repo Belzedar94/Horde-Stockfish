@@ -16,6 +16,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <algorithm>
 #include <cstdlib>
 #include <cassert>
 #include <cmath>
@@ -66,6 +67,11 @@ namespace {
             fen += token + " ";
     else
         return;
+
+    // OpenBench and Lichess expose Horde pawns as physical P pieces. The
+    // Hordetest evaluator uses H only as the legacy white-pawn feature role.
+    if (Options["UCI_Variant"] == "hordetest")
+        std::replace(fen.begin(), fen.end(), 'P', 'H');
 
     states = StateListPtr(new std::deque<StateInfo>(1)); // Drop old and create a new one
     pos.set(variants.find(Options["UCI_Variant"])->second, fen, Options["UCI_Chess960"], &states->back(), Threads.main(), sfen);
@@ -358,7 +364,7 @@ void UCI::loop(int argc, char* argv[]) {
                                            CurrentProtocol == USI  ? "minishogi"
                                          : CurrentProtocol == UCCI || CurrentProtocol == UCI_CYCLONE ? "minixiangqi"
 #endif
-                                                           : "chess");
+                                                           : "hordetest");
           Options["UCI_Variant"].set_default(defaultVariant);
           std::istringstream ss("startpos");
           position(pos, ss, states);

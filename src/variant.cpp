@@ -1973,6 +1973,18 @@ void VariantMap::init() {
     add("janggimodern", janggi_modern_variant());
     add("janggicasual", janggi_casual_variant());
 #endif
+
+    // Keep the formal Hordetest baseline self-contained. OpenBench private
+    // artifacts contain one executable, so the frozen variant definition must
+    // not depend on a sidecar file at runtime.
+    std::istringstream hordetestConfig(
+        "[hordetest:horde]\n"
+        "customPiece1 = h:fmWfceFifmnD\n"
+        "pawnTypes = ph\n"
+        "doubleStepRegionWhite = *1 *2\n"
+        "startFen = rnbqkbnr/pppppppp/8/1HH2HH1/HHHHHHHH/HHHHHHHH/HHHHHHHH/HHHHHHHH w kq - 0 1\n"
+        "pieceToCharTable = PNBRQH...............Kpnbrqh...............k\n");
+    parse_istream<false>(hordetestConfig);
 }
 
 
