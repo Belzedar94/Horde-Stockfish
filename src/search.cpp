@@ -192,6 +192,10 @@ void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+    hordeTelemetry.reset(bool(options["HordeSearchTelemetry"]));
+#endif
+
     // Non-main threads go directly to iterative_deepening()
     if (!is_mainthread())
     {
@@ -237,6 +241,20 @@ void Search::Worker::start_searching() {
 
     // Wait until all threads have finished
     threads.wait_for_search_finished();
+
+#if defined(HORDE_SEARCH_TELEMETRY)
+    if (hordeTelemetry.enabled())
+    {
+        HordeSearchTelemetry aggregate;
+        aggregate.reset(true);
+        for (const auto& thread : threads)
+            aggregate.merge(thread->worker->hordeTelemetry);
+
+        sync_cout_start();
+        aggregate.write(std::cout, threads.size(), elapsed());
+        sync_cout_end();
+    }
+#endif
 
     // When playing in 'nodes as time' mode, subtract the searched nodes from
     // the available ones before exiting.
@@ -761,6 +779,12 @@ Value Search::Worker::search(
     bestValue     = -VALUE_INFINITE;
     maxValue      = VALUE_INFINITE;
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+    HordeSearchMetrics* hordeMetrics      = hordeTelemetry.enter(pos, depth);
+    bool                hordeLmpTriggered = false;
+    int                 hordeBestMoveRank = 0;
+#endif
+
     ss->followPV = rootNode
                 || ((ss - 1)->followPV
                     && (static_cast<usize>(ss->ply - 1) < lastIterationIdxPV.size()
@@ -1003,9 +1027,21 @@ Value Search::Worker::search(
     }
 
     // Step 9. Null move search with verification search
+#if defined(HORDE_SEARCH_TELEMETRY)
+    if (hordeMetrics)
+    {
+        ++hordeMetrics->nmpConsidered;
+        if (!pos.non_pawn_material(us))
+            ++hordeMetrics->nmpPawnOnlyBlocked;
+    }
+#endif
     if (cutNode && ss->staticEval >= beta - 13 * depth - 47 * improving + 365 && !excludedMove
         && pos.non_pawn_material(us) && ss->ply >= nmpMinPly && beta >= -2000)
     {
+#if defined(HORDE_SEARCH_TELEMETRY)
+        if (hordeMetrics)
+            ++hordeMetrics->nmpTried;
+#endif
         assert((ss - 1)->currentMove != Move::null());
 
         // Null move dynamic reduction based on depth
@@ -1020,7 +1056,13 @@ Value Search::Worker::search(
         if (nullValue >= beta && !is_win(nullValue))
         {
             if (nmpMinPly || depth < 16)
+            {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                if (hordeMetrics)
+                    ++hordeMetrics->nmpCutoffs;
+#endif
                 return nullValue;
+            }
 
             assert(!nmpMinPly);  // Recursive verification is not allowed
 
@@ -1033,7 +1075,13 @@ Value Search::Worker::search(
             nmpMinPly = 0;
 
             if (v >= beta)
+            {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                if (hordeMetrics)
+                    ++hordeMetrics->nmpCutoffs;
+#endif
                 return nullValue;
+            }
         }
     }
 
@@ -1055,6 +1103,10 @@ Value Search::Worker::search(
         // probCut there
         && !(is_valid(ttData.value) && ttData.value < probCutBeta))
     {
+#if defined(HORDE_SEARCH_TELEMETRY)
+        if (hordeMetrics)
+            ++hordeMetrics->probCutTried;
+#endif
         assert(probCutBeta < VALUE_INFINITE && probCutBeta > beta);
 
         MovePicker mp(pos, ttData.move, probCutBeta - ss->staticEval, &captureHistory);
@@ -1068,6 +1120,11 @@ Value Search::Worker::search(
                 continue;
 
             assert(pos.capture_stage(move));
+
+#if defined(HORDE_SEARCH_TELEMETRY)
+            if (hordeMetrics)
+                ++hordeMetrics->probCutMoves;
+#endif
 
             do_move(pos, move, st, ss);
 
@@ -1088,7 +1145,13 @@ Value Search::Worker::search(
                                probCutDepth + 1, move, unadjustedStaticEval, tt.generation());
 
                 if (!is_decisive(value))
+                {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                        ++hordeMetrics->probCutCutoffs;
+#endif
                     return value - (probCutBeta - beta);
+                }
             }
         }
     }
@@ -1132,6 +1195,11 @@ moves_loop:  // When in check, search starts here
         if (rootNode && !std::count(rootMoves.begin() + pvIdx, rootMoves.begin() + pvLast, move))
             continue;
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+        if (hordeMetrics)
+            ++hordeMetrics->legalMoves;
+#endif
+
         ss->moveCount = ++moveCount;
 
         if (rootNode && is_mainthread() && nodes > NODES_LIMIT_OUTPUT)
@@ -1147,6 +1215,11 @@ moves_loop:  // When in check, search starts here
         movedPiece = pos.moved_piece(move);
         givesCheck = pos.gives_check(move);
         const bool extinctionCapture = pos.is_horde_extinction_capture(move);
+
+#if defined(HORDE_SEARCH_TELEMETRY)
+        if (hordeMetrics && extinctionCapture)
+            ++hordeMetrics->extinctionCapturesSeen;
+#endif
 
         // Calculate new depth for this move
         newDepth = depth - 1;
@@ -1166,7 +1239,20 @@ moves_loop:  // When in check, search starts here
         {
             // Skip quiet moves if movecount exceeds our threshold
             if (moveCount >= (3 + depth * depth) / (2 - improving))
+            {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                if (hordeMetrics && !hordeLmpTriggered)
+                {
+                    ++hordeMetrics->lmpTriggered;
+                    hordeLmpTriggered = true;
+                    for (Move candidate : MoveList<LEGAL>(pos))
+                        if (candidate.type_of() == NORMAL && !pos.capture_stage(candidate)
+                            && pos.moved_piece(candidate) == W_PAWN)
+                            ++hordeMetrics->quietPawnSkipCandidates;
+                }
+#endif
                 mp.skip_quiet_moves();
+            }
 
             // Reduced depth of the next LMR search
             int lmrDepth = newDepth - r / 1024;
@@ -1183,7 +1269,13 @@ moves_loop:  // When in check, search starts here
                                         + PieceValue[capturedPiece] + 134 * captHist / 1024;
 
                     if (futilityValue <= alpha)
+                    {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                        if (hordeMetrics)
+                            ++hordeMetrics->captureFutilityPrunes;
+#endif
                         continue;
+                    }
                 }
 
                 // SEE based pruning for captures and checks
@@ -1192,7 +1284,13 @@ moves_loop:  // When in check, search starts here
                 if (!extinctionCapture
                     && (alpha >= VALUE_DRAW || pos.non_pawn_material(us) != PieceValue[movedPiece])
                     && !pos.see_ge(move, -margin))
+                {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                        ++hordeMetrics->captureSeePrunes;
+#endif
                     continue;
+                }
             }
             else if (!ss->followPV || !PvNode)
             {
@@ -1203,7 +1301,17 @@ moves_loop:  // When in check, search starts here
 
                 // Continuation history based pruning
                 if (history < -4136 * depth)
+                {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                    {
+                        ++hordeMetrics->quietHistoryPrunes;
+                        if (movedPiece == W_PAWN)
+                            ++hordeMetrics->quietPawnPrunes;
+                    }
+#endif
                     continue;
+                }
 
                 history += 69 * mainHistory[us][move.raw()] / 32;
 
@@ -1221,6 +1329,14 @@ moves_loop:  // When in check, search starts here
                     if (bestValue <= futilityValue && !is_decisive(bestValue)
                         && !is_win(futilityValue))
                         bestValue = futilityValue;
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                    {
+                        ++hordeMetrics->quietFutilityPrunes;
+                        if (movedPiece == W_PAWN)
+                            ++hordeMetrics->quietPawnPrunes;
+                    }
+#endif
                     continue;
                 }
 
@@ -1228,7 +1344,17 @@ moves_loop:  // When in check, search starts here
 
                 // Prune moves with negative SEE
                 if (!pos.see_ge(move, -23 * lmrDepth * lmrDepth))
+                {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                    {
+                        ++hordeMetrics->quietSeePrunes;
+                        if (movedPiece == W_PAWN)
+                            ++hordeMetrics->quietPawnPrunes;
+                    }
+#endif
                     continue;
+                }
             }
         }
 
@@ -1304,6 +1430,14 @@ moves_loop:  // When in check, search starts here
         u64 nodeCount = rootNode ? u64(nodes) : 0;
 
         // Step 16. Make the move
+#if defined(HORDE_SEARCH_TELEMETRY)
+        if (hordeMetrics)
+        {
+            ++hordeMetrics->searchedMoves;
+            if (extinctionCapture)
+                ++hordeMetrics->extinctionCapturesSearched;
+        }
+#endif
         do_move(pos, move, st, givesCheck, ss);
 
         // Add extension to new depth
@@ -1360,6 +1494,15 @@ moves_loop:  // When in check, search starts here
             // std::clamp has been replaced by a more robust implementation.
             Depth d = std::max(1, std::min(newDepth - r / 1024, newDepth + 2)) + PvNode;
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+            if (hordeMetrics)
+            {
+                ++hordeMetrics->lmrSearches;
+                if (d < newDepth)
+                    ++hordeMetrics->lmrReductions;
+            }
+#endif
+
             ss->reduction = newDepth - d;
             value         = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, d, true);
             ss->reduction = 0;
@@ -1376,7 +1519,13 @@ moves_loop:  // When in check, search starts here
                 newDepth += doDeeperSearch - doShallowerSearch;
 
                 if (newDepth > d)
+                {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                        ++hordeMetrics->lmrResearches;
+#endif
                     value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, newDepth, !cutNode);
+                }
 
                 // Post LMR continuation history updates
                 update_continuation_histories(ss, movedPiece, move.to_sq(), 1334);
@@ -1399,6 +1548,10 @@ moves_loop:  // When in check, search starts here
         // otherwise let the parent node fail low with value <= alpha and try another move.
         if (PvNode && (moveCount == 1 || value > alpha))
         {
+#if defined(HORDE_SEARCH_TELEMETRY)
+            if (hordeMetrics && moveCount > 1)
+                ++hordeMetrics->pvResearches;
+#endif
             (ss + 1)->pv = &pv;
             (ss + 1)->pv->clear();
 
@@ -1508,11 +1661,19 @@ moves_loop:  // When in check, search starts here
             {
                 bestMove = move;
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+                hordeBestMoveRank = moveCount;
+#endif
+
                 if (PvNode && !rootNode)  // Update pv even in fail-high case
                     ss->pv->update(move, (ss + 1)->pv);
 
                 if (value >= beta)
                 {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                        ++hordeMetrics->failHighs;
+#endif
                     // (*Scaler) Infrequent and small updates scale well
                     ss->cutoffCnt += (extension < 2) || PvNode;
                     assert(value >= beta);  // Fail high
@@ -1545,6 +1706,14 @@ moves_loop:  // When in check, search starts here
     // return a fail low score.
 
     assert(moveCount || !ss->inCheck || excludedMove || !MoveList<LEGAL>(pos).size());
+
+#if defined(HORDE_SEARCH_TELEMETRY)
+    if (hordeMetrics && hordeBestMoveRank)
+    {
+        ++hordeMetrics->bestMoveSamples;
+        hordeMetrics->bestMoveRankSum += hordeBestMoveRank;
+    }
+#endif
 
     // Adjust best value for fail high cases
     if (bestValue >= beta && !is_decisive(bestValue) && !is_decisive(alpha))
@@ -1673,6 +1842,13 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
     ss->inCheck = pos.checkers();
     moveCount   = 0;
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+    HordeSearchMetrics* hordeMetrics      = hordeTelemetry.enter(pos, 0);
+    int                 hordeBestMoveRank = 0;
+    if (hordeMetrics)
+        ++hordeMetrics->qNodes;
+#endif
+
     // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
     if (PvNode && selDepth < ss->ply + 1)
         selDepth = ss->ply + 1;
@@ -1735,6 +1911,10 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
         // Stand pat. Return immediately if static value is at least beta
         if (bestValue >= beta)
         {
+#if defined(HORDE_SEARCH_TELEMETRY)
+            if (hordeMetrics)
+                ++hordeMetrics->qStandPatCutoffs;
+#endif
             if (!is_decisive(bestValue))
                 bestValue = (441 * bestValue + 583 * beta) / 1024;
 
@@ -1769,9 +1949,19 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
         if (!pos.legal(move))
             continue;
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+        if (hordeMetrics)
+            ++hordeMetrics->legalMoves;
+#endif
+
         givesCheck = pos.gives_check(move);
         capture    = pos.capture_stage(move);
         const bool extinctionCapture = pos.is_horde_extinction_capture(move);
+
+#if defined(HORDE_SEARCH_TELEMETRY)
+        if (hordeMetrics && extinctionCapture)
+            ++hordeMetrics->extinctionCapturesSeen;
+#endif
 
         moveCount++;
 
@@ -1783,7 +1973,17 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
                 && move.type_of() != PROMOTION)
             {
                 if (moveCount > 2)
+                {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                    {
+                        ++hordeMetrics->qMoveCountPrunes;
+                        if (!capture && pos.moved_piece(move) == W_PAWN)
+                            ++hordeMetrics->quietPawnPrunes;
+                    }
+#endif
                     continue;
+                }
 
                 Value futilityValue = futilityBase + PieceValue[pos.piece_on(move.to_sq())];
 
@@ -1792,6 +1992,14 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
                 if (futilityValue <= alpha)
                 {
                     bestValue = std::max(bestValue, futilityValue);
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                    {
+                        ++hordeMetrics->qFutilityPrunes;
+                        if (!capture && pos.moved_piece(move) == W_PAWN)
+                            ++hordeMetrics->quietPawnPrunes;
+                    }
+#endif
                     continue;
                 }
 
@@ -1800,20 +2008,52 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
                 if (!pos.see_ge(move, alpha - futilityBase))
                 {
                     bestValue = std::max(bestValue, std::min(alpha, futilityBase));
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                    {
+                        ++hordeMetrics->qSeePrunes;
+                        if (!capture && pos.moved_piece(move) == W_PAWN)
+                            ++hordeMetrics->quietPawnPrunes;
+                    }
+#endif
                     continue;
                 }
             }
 
             // Skip non-captures
             if (!capture)
+            {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                if (hordeMetrics)
+                {
+                    ++hordeMetrics->qNonCapturePrunes;
+                    if (pos.moved_piece(move) == W_PAWN)
+                        ++hordeMetrics->quietPawnPrunes;
+                }
+#endif
                 continue;
+            }
 
             // Do not search moves with bad enough SEE values
             if (!pos.see_ge(move, -74))
+            {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                if (hordeMetrics)
+                    ++hordeMetrics->qSeePrunes;
+#endif
                 continue;
+            }
         }
 
         // Step 7. Make and search the move
+#if defined(HORDE_SEARCH_TELEMETRY)
+        if (hordeMetrics)
+        {
+            ++hordeMetrics->searchedMoves;
+            if (extinctionCapture)
+                ++hordeMetrics->extinctionCapturesSearched;
+        }
+#endif
         do_move(pos, move, st, givesCheck, ss);
 
         value = -qsearch<nodeType>(pos, ss + 1, -beta, -alpha);
@@ -1830,16 +2070,34 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
             {
                 bestMove = move;
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+                hordeBestMoveRank = moveCount;
+#endif
+
                 if (PvNode)  // Update pv even in fail-high case
                     ss->pv->update(move, (ss + 1)->pv);
 
                 if (value < beta)  // Update alpha here!
                     alpha = value;
                 else
+                {
+#if defined(HORDE_SEARCH_TELEMETRY)
+                    if (hordeMetrics)
+                        ++hordeMetrics->failHighs;
+#endif
                     break;  // Fail high
+                }
             }
         }
     }
+
+#if defined(HORDE_SEARCH_TELEMETRY)
+    if (hordeMetrics && hordeBestMoveRank)
+    {
+        ++hordeMetrics->bestMoveSamples;
+        hordeMetrics->bestMoveRankSum += hordeBestMoveRank;
+    }
+#endif
 
     // Step 9. Check for mate and stalemate
     // All legal moves have been searched. A special case: if we are

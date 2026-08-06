@@ -80,6 +80,24 @@ jobs:
       - name: Verify Run 6B fail-closed loading
         run: python3 tests/horde_network_contract.py src/stockfish
 
+  search-telemetry:
+    name: Linux Horde search telemetry
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Build the instrumented engine
+        run: >-
+          make -j2 -C src ARCH=x86-64
+          EXTRACXXFLAGS=-DHORDE_SEARCH_TELEMETRY build
+      - name: Verify switch-zero bench
+        run: python3 tests/horde_bench.py src/stockfish --runs 1
+      - name: Verify opt-in telemetry
+        run: python3 tests/horde_search_telemetry.py src/stockfish
+      - name: Compile the telemetry test
+        run: python3 -m py_compile tests/horde_search_telemetry.py
+
   legacy-parity:
     name: Run 6B differential and determinism gates
     runs-on: ubuntu-24.04

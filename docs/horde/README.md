@@ -17,6 +17,8 @@ Horde-Stockfish without losing rule, source or network provenance.
   integrity, rules, search, performance, strength and packaging gates.
 - [V1 compatibility receipt](v1-compatibility-receipt.md) — completed rules,
   Run 6B parity, incremental, determinism and benchmark evidence.
+- [Search telemetry](search-telemetry.md) — opt-in Horde pruning and branching
+  counters for instrumented builds.
 - [Fixtures](fixtures/README.md) — pinned Lichess perft and its exact HordeTest
   `P`-to-`H` translation.
 

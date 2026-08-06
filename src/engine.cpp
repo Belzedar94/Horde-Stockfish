@@ -127,6 +127,10 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
 
     options.add("UCI_ShowWDL", Option(false));
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+    options.add("HordeSearchTelemetry", Option(false));
+#endif
+
     options.add(  //
       "SyzygyPath",
       Option("", [](const Option&) { return "Syzygy tablebases are disabled for Horde."; }));
