@@ -21,6 +21,8 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <memory>
 #include <optional>
 #include <type_traits>
 #include <vector>
@@ -109,37 +111,23 @@ void Network::load(const fs::path& rootDirectory, fs::path evalfilePath, EvalFil
 }
 
 bool Network::save(const EvalFile& evalFile, const std::optional<fs::path>& filename) const {
-    if (!evalFile.current.has_value())
-    {
-        sync_cout << "Failed to export a net. No network file is currently loaded. "
-                     "Please load a network file first."
-                  << sync_endl;
-        return false;
-    }
-
-    if (!filename.has_value() && evalFile.current != evalFile.defaultName)
-    {
-        sync_cout << "Failed to export a net. A non-embedded net can only be "
-                     "saved if the filename is specified"
-                  << sync_endl;
-        return false;
-    }
-
-    fs::path      actualFilename = filename.value_or(evalFile.defaultName);
-    std::ofstream stream(actualFilename, std::ios_base::binary);
-
-    bool saved = save(stream, evalFile.netDescription);
-
-    sync_cout << (saved ? "Network saved successfully to " + actualFilename.string()
-                        : "Failed to export a net")
+    (void) evalFile;
+    (void) filename;
+    sync_cout << "Exporting the registered Run 6B network is disabled; use the canonical "
+                 "manifested artifact instead."
               << sync_endl;
-
-    return saved;
+    return false;
 }
 
 NetworkOutput Network::evaluate(const Position&    pos,
                                 AccumulatorStack&  accumulatorStack,
                                 AccumulatorCaches& cache) const {
+
+    if (hordeLegacyNetwork.loaded())
+    {
+        const auto [psqt, positional] = evaluate_raw(pos, accumulatorStack, cache);
+        return {static_cast<Value>(psqt / 16), static_cast<Value>(positional / 16)};
+    }
 
     constexpr u64 alignment = CacheLineSize;
 
@@ -157,26 +145,33 @@ NetworkOutput Network::evaluate(const Position&    pos,
 }
 
 
+RawNetworkOutput Network::evaluate_raw(const Position& pos,
+                                       AccumulatorStack&,
+                                       AccumulatorCaches&,
+                                       int bucket) const {
+    return hordeLegacyNetwork.evaluate_raw(pos, bucket);
+}
+
+
 void Network::verify(const std::function<void(std::string_view)>& f,
                      const EvalFile&                              evalFile,
                      fs::path                                     evalfilePath) const {
     if (evalfilePath.empty())
         evalfilePath = evalFile.defaultName;
 
-    if (evalFile.current != evalfilePath)
+    if (evalFile.current != evalfilePath || !hordeLegacyNetwork.loaded())
     {
         if (f)
         {
-            std::string msg1 =
-              "Network evaluation parameters compatible with the engine must be available.";
+            std::string msg1 = "The registered HORDETEST_HP_LEGACY_V1 Run 6B network must be "
+                               "available.";
             std::string msg2 =
               "The network file " + evalfilePath.string() + " was not loaded successfully.";
             std::string msg3 = "The UCI option EvalFile might need to specify the full path, "
                                "including the directory name, to the network file.";
-            std::string msg4 = "The default net can be downloaded from: "
-                               "https://tests.stockfishchess.org/api/nn/"
-                             + std::string(evalFile.defaultName);
-            std::string msg5 = "The engine will be terminated now.";
+            std::string msg4 = "Unregistered networks are rejected even when their NNUE header "
+                               "hashes match.";
+            std::string msg5 = "Search was not started.";
 
             std::string msg = "ERROR: " + msg1 + '\n' + "ERROR: " + msg2 + '\n' + "ERROR: " + msg3
                             + '\n' + "ERROR: " + msg4 + '\n' + "ERROR: " + msg5 + '\n';
@@ -189,13 +184,8 @@ void Network::verify(const std::function<void(std::string_view)>& f,
 
     if (f)
     {
-        usize size = sizeof(featureTransformer) + sizeof(NetworkArchitecture) * LayerStacks;
-        f("NNUE evaluation using " + evalfilePath.string() + " ("
-          + std::to_string(size / (1024 * 1024)) + "MiB, ("
-          + std::to_string(featureTransformer.InputDimensions) + ", "
-          + std::to_string(network[0].TransformedFeatureDimensions) + ", "
-          + std::to_string(network[0].FC_0_OUTPUTS) + ", " + std::to_string(network[0].FC_1_OUTPUTS)
-          + ", 1))");
+        f("NNUE evaluation using " + evalfilePath.string() + " [" + HordeLegacyNetwork::SchemaName
+          + ", SHA-256 " + HordeLegacyNetwork::Sha256 + ", (896, 1024, 16, 32, 1)]");
     }
 }
 
@@ -203,6 +193,20 @@ void Network::verify(const std::function<void(std::string_view)>& f,
 NnueEvalTrace Network::trace_evaluate(const Position&    pos,
                                       AccumulatorStack&  accumulatorStack,
                                       AccumulatorCaches& cache) const {
+
+    if (hordeLegacyNetwork.loaded())
+    {
+        NnueEvalTrace trace{};
+        trace.correctBucket = hordeLegacyNetwork.bucket_for(pos);
+        for (int bucket = 0; bucket < int(HordeLegacyNetwork::LayerStacks); ++bucket)
+        {
+            const auto [materialist, positional] =
+              evaluate_raw(pos, accumulatorStack, cache, bucket);
+            trace.psqt[bucket]       = static_cast<Value>(materialist / 16);
+            trace.positional[bucket] = static_cast<Value>(positional / 16);
+        }
+        return trace;
+    }
 
     constexpr u64 alignment = CacheLineSize;
 
@@ -229,41 +233,39 @@ NnueEvalTrace Network::trace_evaluate(const Position&    pos,
 
 void Network::load_external(const fs::path& dir, const fs::path& evalfilePath, EvalFile& evalFile) {
     std::ifstream stream(dir / evalfilePath, std::ios::binary);
-    auto          description = load(stream);
+    if (!stream)
+        return;
 
-    if (description.has_value())
+    const std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(stream), {}};
+    auto                             candidate = std::make_unique<Network>();
+    std::string                      description;
+    if (candidate->hordeLegacyNetwork.load(bytes.data(), bytes.size(), description))
     {
+        candidate->initialize();
+        *this                   = std::move(*candidate);
         evalFile.current        = evalfilePath;
-        evalFile.netDescription = description.value();
+        evalFile.netDescription = std::move(description);
     }
+    else
+        sync_cout << "info string Rejected EvalFile: " << description << sync_endl;
 }
 
 
 void Network::load_internal(EvalFile& evalFile) {
-    // C++ way to prepare a buffer for a memory stream
-    class MemoryBuffer: public std::basic_streambuf<char> {
-       public:
-        MemoryBuffer(char* p, usize n) {
-            setg(p, p, p + n);
-            setp(p, p + n);
-        }
-    };
-
 #ifdef UNIVERSAL_BINARY_MACOS_X86_SLICE
     if (gEmbeddedNNUEData == nullptr)  // failed embedded load
         return;
 #endif
 
-    MemoryBuffer buffer(const_cast<char*>(reinterpret_cast<const char*>(gEmbeddedNNUEData)),
-                        usize(gEmbeddedNNUESize));
-
-    std::istream stream(&buffer);
-    auto         description = load(stream);
-
-    if (description.has_value())
+    auto        candidate = std::make_unique<Network>();
+    std::string description;
+    if (candidate->hordeLegacyNetwork.load(gEmbeddedNNUEData, usize(gEmbeddedNNUESize),
+                                           description))
     {
+        candidate->initialize();
+        *this                   = std::move(*candidate);
         evalFile.current        = evalFile.defaultName;
-        evalFile.netDescription = description.value();
+        evalFile.netDescription = std::move(description);
     }
 }
 
@@ -277,16 +279,25 @@ bool Network::save(std::ostream& stream, const std::string& netDescription) cons
 
 
 std::optional<std::string> Network::load(std::istream& stream) {
-    initialize();
-    std::string description;
+    if (!stream)
+        return std::nullopt;
 
-    return read_parameters(stream, description) ? std::make_optional(description) : std::nullopt;
+    const std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(stream), {}};
+    std::string                      description;
+    if (!hordeLegacyNetwork.load(bytes.data(), bytes.size(), description))
+        return std::nullopt;
+
+    initialize();
+    return description;
 }
 
 
 usize Network::get_content_hash() const {
     if (!initialized)
         return 0;
+
+    if (hordeLegacyNetwork.loaded())
+        return hordeLegacyNetwork.content_hash();
 
     usize h = 0;
     hash_combine(h, featureTransformer);

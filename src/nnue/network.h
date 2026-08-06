@@ -33,6 +33,7 @@
 #include "nnue_architecture.h"
 #include "nnue_feature_transformer.h"
 #include "nnue_misc.h"
+#include "horde_legacy_network.h"
 
 namespace Stockfish {
 class Position;
@@ -43,7 +44,8 @@ namespace Stockfish::Eval::NNUE {
 class AccumulatorStack;
 struct AccumulatorCaches;
 
-using NetworkOutput = std::tuple<Value, Value>;
+using NetworkOutput    = std::tuple<Value, Value>;
+using RawNetworkOutput = HordeLegacyNetwork::RawOutput;
 
 // The network must be a trivial type, i.e. the memory must be in-line.
 // This is required to allow sharing the network via shared memory, as
@@ -68,6 +70,11 @@ class Network {
     NetworkOutput evaluate(const Position&    pos,
                            AccumulatorStack&  accumulatorStack,
                            AccumulatorCaches& cache) const;
+
+    RawNetworkOutput evaluate_raw(const Position&    pos,
+                                  AccumulatorStack&  accumulatorStack,
+                                  AccumulatorCaches& cache,
+                                  int                bucket = -1) const;
 
 
     void verify(const std::function<void(std::string_view)>& f,
@@ -98,6 +105,9 @@ class Network {
 
     // Evaluation function
     NetworkArchitecture network[LayerStacks];
+
+    // Registered compatibility backend for the canonical Run 6B network.
+    HordeLegacyNetwork hordeLegacyNetwork;
 
     bool initialized = false;
 

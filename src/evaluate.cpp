@@ -47,20 +47,23 @@ Value Eval::evaluate(const Eval::NNUE::Network&     network,
 
     assert(!pos.checkers());
 
-    auto [psqt, positional] = network.evaluate(pos, accumulators, caches);
+    // Modern Stockfish optimism is calibrated for its current orthodox net.
+    // Run 6B instead keeps the Fairy-Stockfish legacy blend and scale.
+    (void) optimism;
+    const auto [rawPsqt, rawPositional] = network.evaluate_raw(pos, accumulators, caches);
 
-    Value nnue = psqt + positional;
+    const int deltaNpm = std::abs(int(pos.non_pawn_material(WHITE) - pos.non_pawn_material(BLACK)));
+    const int entertainment = deltaNpm <= BishopValue - KnightValue ? 7 : 0;
+    const int blendedRaw =
+      ((128 - entertainment) * rawPsqt + (128 + entertainment) * rawPositional) / 128;
 
-    // Blend optimism and eval with nnue complexity
-    int nnueComplexity = std::abs(psqt - positional);
-    optimism += optimism * i64(nnueComplexity) / 476;
-    nnue -= nnue * i64(nnueComplexity) / 18236;
+    const int scale = 903 + 32 * pos.count<PAWN>() + 32 * pos.non_pawn_material() / 1024;
+    int       v     = (blendedRaw / 16) * scale / 1024;
 
-    int material = 534 * pos.count<PAWN>() + pos.non_pawn_material();
-    int v        = (nnue * i64(77871 + material) + optimism * i64(7191 + material)) / 77871;
-
-    // Damp down the evaluation linearly when shuffling
-    v -= v * pos.rule50_count() / 199;
+    // Horde uses the automatic move-count draw contract rather than the
+    // orthodox net's 199-ply calibration. Search-terminal handling owns the
+    // exact draw boundary; this only smooths evaluations approaching it.
+    v -= v * std::min(pos.rule50_count(), 200) / 200;
 
     // Guarantee evaluation does not hit the tablebase range
     v = std::clamp(v, VALUE_TB_LOSS_IN_MAX_PLY + 1, VALUE_TB_WIN_IN_MAX_PLY - 1);
@@ -86,8 +89,10 @@ std::string Eval::trace(Position& pos, const Eval::NNUE::Network& network) {
 
     ss << std::showpoint << std::showpos << std::fixed << std::setprecision(2) << std::setw(15);
 
-    auto [psqt, positional] = network.evaluate(pos, *accumulators, *caches);
-    Value v                 = psqt + positional;
+    const auto [rawPsqt, rawPositional] = network.evaluate_raw(pos, *accumulators, *caches);
+    Value v                             = Value((rawPsqt + rawPositional) / 16);
+    ss << "Horde legacy raw NNUE: psqt " << rawPsqt << ", positional " << rawPositional
+       << ", total " << rawPsqt + rawPositional << '\n';
     ss << "NNUE evaluation          " << v << " (side to move, internal units)\n";
     v = pos.side_to_move() == WHITE ? v : -v;
     ss << "NNUE evaluation        " << 0.01 * UCIEngine::to_cp(v, pos) << " (white side)\n";
