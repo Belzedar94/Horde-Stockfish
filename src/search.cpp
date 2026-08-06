@@ -204,16 +204,9 @@ void Search::Worker::start_searching() {
     tt.new_search();
     main_manager()->updates.onStart();
 
-    if (auto terminalValue = rootPos.horde_terminal_value(0))
+    if (auto terminal = rootPos.outcome(0))
     {
-        main_manager()->updates.onUpdateNoMoves({0, {*terminalValue, rootPos}});
-        main_manager()->updates.onBestmove(UCIEngine::move(Move::none()), "");
-        return;
-    }
-
-    if (rootPos.horde_is_fortress())
-    {
-        main_manager()->updates.onUpdateNoMoves({0, {VALUE_DRAW, rootPos}});
+        main_manager()->updates.onUpdateNoMoves({0, {terminal->result, rootPos}});
         main_manager()->updates.onBestmove(UCIEngine::move(Move::none()), "");
         return;
     }
@@ -783,8 +776,8 @@ Value Search::Worker::search(
 
     if (!rootNode)
     {
-        if (auto terminalValue = pos.horde_terminal_value(ss->ply))
-            return *terminalValue;
+        if (auto terminal = pos.outcome(ss->ply))
+            return terminal->result;
 
         // Step 2. Check for aborted search and immediate draw
         if (threads.stop.load(std::memory_order_relaxed) || pos.is_draw(ss->ply)
@@ -1153,6 +1146,7 @@ moves_loop:  // When in check, search starts here
         capture    = pos.capture_stage(move);
         movedPiece = pos.moved_piece(move);
         givesCheck = pos.gives_check(move);
+        const bool extinctionCapture = pos.is_horde_extinction_capture(move);
 
         // Calculate new depth for this move
         newDepth = depth - 1;
@@ -1183,7 +1177,7 @@ moves_loop:  // When in check, search starts here
                 int   captHist = captureHistory[movedPiece][move.to_sq()][type_of(capturedPiece)];
 
                 // Futility pruning for captures
-                if (!givesCheck && lmrDepth < 8)
+                if (!extinctionCapture && !givesCheck && lmrDepth < 8)
                 {
                     Value futilityValue = ss->staticEval + 234 + 247 * lmrDepth
                                         + PieceValue[capturedPiece] + 134 * captHist / 1024;
@@ -1195,7 +1189,8 @@ moves_loop:  // When in check, search starts here
                 // SEE based pruning for captures and checks
                 // Avoid pruning sacrifices of our last piece for stalemate
                 int margin = 177 * depth + captHist * 34 / 1024;
-                if ((alpha >= VALUE_DRAW || pos.non_pawn_material(us) != PieceValue[movedPiece])
+                if (!extinctionCapture
+                    && (alpha >= VALUE_DRAW || pos.non_pawn_material(us) != PieceValue[movedPiece])
                     && !pos.see_ge(move, -margin))
                     continue;
             }
@@ -1682,8 +1677,8 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
     if (PvNode && selDepth < ss->ply + 1)
         selDepth = ss->ply + 1;
 
-    if (auto terminalValue = pos.horde_terminal_value(ss->ply))
-        return *terminalValue;
+    if (auto terminal = pos.outcome(ss->ply))
+        return terminal->result;
 
     // Step 2. Check for an immediate draw or maximum ply reached
     if (pos.is_draw(ss->ply) || ss->ply >= MAX_PLY)
@@ -1776,11 +1771,12 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
 
         givesCheck = pos.gives_check(move);
         capture    = pos.capture_stage(move);
+        const bool extinctionCapture = pos.is_horde_extinction_capture(move);
 
         moveCount++;
 
         // Step 6. Pruning
-        if (!is_loss(bestValue))
+        if (!extinctionCapture && !is_loss(bestValue))
         {
             // Futility pruning and moveCount pruning
             if (!givesCheck && move.to_sq() != prevSq && !is_loss(futilityBase)

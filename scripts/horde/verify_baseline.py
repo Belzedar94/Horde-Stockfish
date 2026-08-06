@@ -241,16 +241,32 @@ def probe_engine(
             "it cannot satisfy the formal baseline gate"
         )
 
+    receipt = manifest["engine"]["formal_build_receipt"]
+    expected_binary = receipt["binary"]
+    if executable.stat().st_size != expected_binary["size"]:
+        raise VerificationError(
+            f"formal baseline binary size {executable.stat().st_size}, "
+            f"expected {expected_binary['size']}"
+        )
+    if supplied_hash != expected_binary["sha256"]:
+        raise VerificationError(
+            f"formal baseline SHA-256 {supplied_hash}, "
+            f"expected {expected_binary['sha256']}"
+        )
+
     print(f"info engine: {executable} ({supplied_hash})")
-    print("info binary provenance must still be tied to the pinned source build")
+    print(f"ok  formal binary receipt: {receipt['id']}")
 
     with tempfile.TemporaryDirectory(prefix="horde-baseline-") as temporary:
         runtime_dir = Path(temporary)
         shutil.copyfile(variants_path, runtime_dir / "variants.ini")
-        uci = UciProcess(executable, ["load", "variants.ini"], runtime_dir, timeout)
+        uci = UciProcess(executable, [], runtime_dir, timeout)
         try:
             uci.send("uci")
             uci.wait_for("uciok", lambda line: line.strip() == "uciok")
+            uci.send(f"setoption name VariantPath value {(runtime_dir / 'variants.ini').resolve()}")
+            uci.send("uci")
+            uci.wait_for("uciok after VariantPath", lambda line: line.strip() == "uciok")
             if not any(
                 line.startswith("option name UCI_Variant ")
                 and " var hordetest" in line
@@ -262,7 +278,7 @@ def probe_engine(
             uci.send("setoption name UCI_Variant value hordetest")
             uci.send(f"setoption name EvalFile value {network_path.resolve()}")
             uci.send("setoption name Threads value 1")
-            uci.send("setoption name Hash value 64")
+            uci.send("setoption name Hash value 16")
             uci.send("isready")
             uci.wait_for("readyok", lambda line: line.strip() == "readyok")
 
@@ -311,6 +327,24 @@ def probe_engine(
                 raise VerificationError(
                     "engine enabled a different NNUE file: " + nnue_lines[-1]
                 )
+
+            if depth == 8:
+                expected_search = receipt["depth_8_receipt"]
+                info_lines = [
+                    line for line in uci.transcript if line.startswith("info depth 8 ")
+                ]
+                if not info_lines:
+                    raise VerificationError("engine emitted no final depth-8 info line")
+                final_info = info_lines[-1]
+                nodes_match = re.search(r"\bnodes (\d+)\b", final_info)
+                if not nodes_match or int(nodes_match.group(1)) != expected_search["nodes"]:
+                    raise VerificationError(
+                        f"depth-8 node receipt mismatch: {final_info}"
+                    )
+                if move != expected_search["bestmove"]:
+                    raise VerificationError(
+                        f"depth-8 bestmove {move}, expected {expected_search['bestmove']}"
+                    )
             print(f"ok  NNUE load: {nnue_lines[-1]}")
             print(f"ok  search depth {depth}: {bestmove}")
         finally:
@@ -332,6 +366,10 @@ def load_and_verify_manifest() -> tuple[dict[str, object], dict[str, Path]]:
     files["network"] = verify_local_file(manifest["network"], "network")
     files["license"] = verify_local_file(
         manifest["network"]["license_notice"], "network license notice"
+    )
+    files["oracle_patch"] = verify_local_file(
+        manifest["engine"]["diagnostic_raw_oracle"]["patch"],
+        "diagnostic raw-oracle patch",
     )
 
     fixtures = manifest["rule_profile"]["local_fixtures"]

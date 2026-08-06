@@ -28,7 +28,7 @@
 namespace {
 
 // clang-format off
-const std::vector<std::string> Defaults = {
+[[maybe_unused]] const std::vector<std::string> Defaults = {
   "setoption name UCI_Chess960 value false",
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
   "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 10",
@@ -98,11 +98,29 @@ const std::vector<std::string> Defaults = {
 };
 // clang-format on
 
+// Fixed Horde-only benchmark panel. Orthodox Stockfish positions cannot be
+// parsed by this engine because they contain a White king. Keep this compact
+// panel stable: its aggregate node count is a release receipt.
+const std::vector<std::string> HordeDefaults = {
+  "rnbqkbnr/pppppppp/8/1PP2PP1/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP w kq - 0 1",
+  "4k3/pp4q1/3P2p1/8/P3PP2/PPP2r2/PPP5/PPPP4 b - - 0 1",
+  "k7/5p2/4p2P/3p2P1/2p2P2/1p2P2P/p2P2P1/2P2P2 w - - 0 1",
+  "4k3/7r/8/P7/2p1n2P/3p2P1/1P3P2/PPP1PPP1 w - - 0 1",
+  "rnbqkbnr/6p1/2p1Pp1P/P1PPPP2/Pp4PP/1p2PPPP/1P2PPPP/PP1nPPPP b kq a3 0 18",
+  "r3k2r/8/8/8/8/8/8/P7 b kq - 0 1",
+  "4k3/P7/8/8/8/8/8/8 w - - 0 1",
+  "4k3/7p/8/8/8/8/8/Q7 w - - 0 1",
+  "4k3/8/8/4P3/3P4/2P5/1P6/P7 w - - 0 1",
+  "4k3/8/8/8/3q4/2N5/1P6/R7 w - - 0 1",
+};
+
+const std::vector<std::vector<std::string>> HordeBenchmarkPositions = {HordeDefaults};
+
 // clang-format off
 // human-randomly picked 5 games with <60 moves from
 // https://tests.stockfishchess.org/tests/view/665c71f9fd45fb0f907c21e0
 // only moves for one side
-const std::vector<std::vector<std::string>> BenchmarkPositions = {
+[[maybe_unused]] const std::vector<std::vector<std::string>> BenchmarkPositions = {
     {
         "rnbq1k1r/ppp1bppp/4pn2/8/2B5/2NP1N2/PPP2PPP/R1BQR1K1 b - - 2 8",
         "rnbq1k1r/pp2bppp/4pn2/2p5/2B2B2/2NP1N2/PPP2PPP/R2QR1K1 b - - 1 9",
@@ -404,7 +422,7 @@ std::vector<std::string> setup_bench(const std::string& currentFen, std::istream
     go = limitType == "eval" ? "eval" : "go " + limitType + " " + limit;
 
     if (fenFile == "default")
-        fens = Defaults;
+        fens = HordeDefaults;
 
     else if (fenFile == "current")
         fens.push_back(currentFen);
@@ -483,13 +501,13 @@ BenchmarkSetup setup_benchmark(std::istream& is) {
     };
 
     float totalTime = 0;
-    for (const auto& game : BenchmarkPositions)
+    for (const auto& game : HordeBenchmarkPositions)
         for (usize i = 0; i < game.size(); ++i)
             totalTime += float(getCorrectedTime(int(i + 1)));
 
     float timeScaleFactor = static_cast<float>(desiredTimeS * 1000) / totalTime;
 
-    for (const auto& game : BenchmarkPositions)
+    for (const auto& game : HordeBenchmarkPositions)
     {
         setup.commands.emplace_back("ucinewgame");
         int ply = 1;

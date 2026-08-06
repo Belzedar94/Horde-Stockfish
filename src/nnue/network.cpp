@@ -146,10 +146,10 @@ NetworkOutput Network::evaluate(const Position&    pos,
 
 
 RawNetworkOutput Network::evaluate_raw(const Position& pos,
-                                       AccumulatorStack&,
+                                       AccumulatorStack& accumulatorStack,
                                        AccumulatorCaches&,
                                        int bucket) const {
-    return hordeLegacyNetwork.evaluate_raw(pos, bucket);
+    return hordeLegacyNetwork.evaluate_raw(pos, accumulatorStack, bucket);
 }
 
 

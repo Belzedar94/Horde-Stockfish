@@ -25,6 +25,9 @@ class Position;
 
 namespace Eval::NNUE {
 
+class AccumulatorStack;
+struct AccumulatorState;
+
 // The Run 6B file uses the Fairy-Stockfish HalfKAv2 variant format without
 // king buckets. Its 14 piece-square planes are deliberately kept at the NNUE
 // boundary; the board continues to contain ordinary PAWN pieces only.
@@ -45,7 +48,11 @@ class HordeLegacyNetwork {
 
     bool load(const unsigned char* data, usize size, std::string& description);
 
-    [[nodiscard]] RawOutput evaluate_raw(const Position& pos, int bucket = -1) const;
+    [[nodiscard]] RawOutput evaluate_raw(const Position&   pos,
+                                         AccumulatorStack& accumulatorStack,
+                                         int               bucket = -1) const;
+    [[nodiscard]] RawOutput evaluate_raw_full_refresh(const Position& pos,
+                                                      int             bucket = -1) const;
     [[nodiscard]] bool      loaded() const { return loaded_; }
     [[nodiscard]] usize     content_hash() const;
     [[nodiscard]] int       bucket_for(const Position& pos) const;
@@ -66,6 +73,16 @@ class HordeLegacyNetwork {
     std::array<i32, FeatureDimensions * PsqtBuckets>           psqtWeights_{};
     std::array<LayerStack, LayerStacks>                        layers_{};
     bool                                                       loaded_ = false;
+
+    void refresh_accumulator(const Position& pos, AccumulatorState& target) const;
+    void update_accumulator(const DirtyPiece&       dirty,
+                            const AccumulatorState& source,
+                            AccumulatorState&       target) const;
+    [[nodiscard]] RawOutput propagate(const Position&         pos,
+                                      const AccumulatorState& accumulator,
+                                      int                     bucket) const;
+
+    friend class AccumulatorStack;
 };
 
 static_assert(std::is_trivially_copyable_v<HordeLegacyNetwork>);

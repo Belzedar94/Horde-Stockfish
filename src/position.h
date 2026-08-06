@@ -79,6 +79,20 @@ struct PositionSetError: std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
+enum class OutcomeReason : u8 {
+    CHECKMATE,
+    EXTINCTION,
+    STALEMATE,
+    HORDE_FORTRESS,
+    FIFTY_MOVE,
+    FIVEFOLD_REPETITION
+};
+
+struct Outcome {
+    Value         result;
+    OutcomeReason reason;
+};
+
 // Position class stores information regarding the board representation as
 // pieces, side to move, hash keys, castling info, etc. Important methods are
 // do_move() and undo_move(), used by the search to update node info when
@@ -170,10 +184,12 @@ class Position {
     int                  game_ply() const;
     bool                 is_chess960() const;
     bool                 has_king(Color c) const;
-    bool                 horde_extinction() const;
-    std::optional<Value> horde_terminal_value(int ply) const;
-    bool                 horde_has_insufficient_material(Color c) const;
-    bool                 horde_is_fortress() const;
+    bool                   horde_extinction() const;
+    bool                   is_horde_extinction_capture(Move m) const;
+    std::optional<Outcome> outcome(int ply) const;
+    bool                   side_has_insufficient_winning_material(Color c) const;
+    bool                   horde_is_fortress() const;
+    bool                   is_fivefold_repetition() const;
     bool                 is_draw(int ply) const;
     bool                 is_repetition(int ply) const;
     bool                 upcoming_repetition(int ply) const;

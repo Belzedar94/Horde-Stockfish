@@ -15,6 +15,8 @@ Horde-Stockfish without losing rule, source or network provenance.
   formal-source build and UCI/perft probe.
 - [Testing and release contract](testing-and-release-contract.md) — mandatory
   integrity, rules, search, performance, strength and packaging gates.
+- [V1 compatibility receipt](v1-compatibility-receipt.md) — completed rules,
+  Run 6B parity, incremental, determinism and benchmark evidence.
 - [Fixtures](fixtures/README.md) — pinned Lichess perft and its exact HordeTest
   `P`-to-`H` translation.
 

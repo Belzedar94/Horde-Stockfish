@@ -1,0 +1,146 @@
+name: Horde correctness
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: release
+            make_args: optimize=yes debug=no
+          - name: assertions
+            make_args: optimize=no debug=yes
+          - name: shadow-refresh
+            make_args: optimize=yes debug=no EXTRACXXFLAGS=-DHORDE_NNUE_SHADOW
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Build Horde-Stockfish
+        working-directory: src
+        run: make -j2 ARCH=x86-64 ${{ matrix.make_args }} build
+      - name: Verify frozen artifacts
+        run: python3 scripts/horde/verify_baseline.py
+      - name: Verify Horde rules and perfts
+        run: python3 tests/horde_rules.py src/stockfish
+      - name: Verify material corpus
+        run: python3 tests/horde_material_corpus.py src/stockfish
+      - name: Verify Run 6B fail-closed loading
+        run: python3 tests/horde_network_contract.py src/stockfish
+      - name: Verify deterministic Horde benchmark
+        run: python3 tests/horde_bench.py src/stockfish
+      - name: Compile Python test tools
+        run: >-
+          python3 -m py_compile
+          scripts/horde/verify_baseline.py
+          tests/horde_rules.py
+          tests/horde_material_corpus.py
+          tests/horde_network_contract.py
+          tests/horde_bench.py
+          tests/horde_nnue_parity.py
+          tests/horde_nnue_determinism.py
+
+  sanitizers:
+    name: Linux ASan and UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Build with sanitizers
+        working-directory: src
+        run: >-
+          make -j2 ARCH=x86-64 sanitize="address undefined" debug=yes optimize=no
+          EXTRACXXFLAGS="-O1 -fno-inline" build
+      - name: Verify Horde rules and perfts
+        run: python3 tests/horde_rules.py src/stockfish
+      - name: Verify material corpus
+        run: python3 tests/horde_material_corpus.py src/stockfish
+      - name: Verify Run 6B fail-closed loading
+        run: python3 tests/horde_network_contract.py src/stockfish
+
+  legacy-parity:
+    name: Run 6B differential and determinism gates
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: fairy-stockfish/Fairy-Stockfish
+          ref: c19b5f6c66894fdb0e88d0dd100e3885f744760a
+          path: fsf-oracle
+          persist-credentials: false
+      - name: Install parity dependency
+        run: python3 -m pip install --disable-pip-version-check python-chess==1.999
+      - name: Build the raw-output oracle
+        run: |
+          git -C fsf-oracle apply --check "$GITHUB_WORKSPACE/docs/horde/fixtures/fsf-c19b5f6c-raw-oracle.patch"
+          git -C fsf-oracle apply "$GITHUB_WORKSPACE/docs/horde/fixtures/fsf-c19b5f6c-raw-oracle.patch"
+          make -j2 -C fsf-oracle/src ARCH=x86-64 build
+      - name: Build generic candidate
+        run: |
+          make -j2 -C src ARCH=x86-64 build
+          cp src/stockfish horde-stockfish-x86-64
+      - name: Build BMI2 candidate
+        run: |
+          make -C src clean
+          make -j2 -C src ARCH=x86-64-bmi2 build
+          cp src/stockfish horde-stockfish-bmi2
+      - name: Verify 100,000-position raw parity
+        run: >-
+          python3 tests/horde_nnue_parity.py
+          --candidate horde-stockfish-bmi2
+          --oracle fsf-oracle/src/stockfish
+          --positions 100000
+      - name: Verify architecture and thread determinism
+        run: >-
+          python3 tests/horde_nnue_determinism.py
+          --engine horde-stockfish-x86-64
+          --engine horde-stockfish-bmi2
+          --positions 10000
+          --threads 1 2 4
+
+  windows:
+    name: Windows release
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c # v2.31.1
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-python
+      - name: Build and verify
+        shell: msys2 {0}
+        run: |
+          make -j2 -C src ARCH=x86-64 build
+          python scripts/horde/verify_baseline.py
+          python tests/horde_rules.py src/stockfish.exe
+          python tests/horde_material_corpus.py src/stockfish.exe
+          python tests/horde_network_contract.py src/stockfish.exe
+          python tests/horde_bench.py src/stockfish.exe

@@ -111,7 +111,11 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
 
     options.add("nodestime", Option(0, 0, 10000));
 
-    options.add("UCI_Chess960", Option(false));
+    options.add("UCI_Chess960", Option(false, [](const Option& o) {
+                    return int(o) ? std::optional<std::string>(
+                                      "UCI_Chess960=true is unsupported for Horde.")
+                                  : std::nullopt;
+                }));
 
     options.add("UCI_Variant", Option("horde var horde", "horde"));
 
@@ -313,6 +317,10 @@ std::unique_ptr<Eval::NNUE::Network> Engine::get_default_network() {
 void Engine::load_network(const std::filesystem::path& file) {
     network.modify_and_replicate(
       [this, &file](NN::Network& network_) { network_.load(binaryDirectory, file, networkFile); });
+
+    // A schema or network transition must not reuse evaluations derived from
+    // the previous artifact. Thread clear resets accumulator refresh caches.
+    tt.clear(threads);
     threads.clear();
     threads.ensure_network_replicated();
 }
@@ -334,10 +342,22 @@ void Engine::trace_eval() const {
     sync_cout << "\n" << Eval::trace(p, *network) << sync_endl;
 }
 
+Eval::NNUE::RawNetworkOutput Engine::raw_evaluation() const {
+    auto accumulators = std::make_unique<Eval::NNUE::AccumulatorStack>();
+    auto caches       = std::make_unique<Eval::NNUE::AccumulatorCaches>(*network);
+
+    verify_network();
+    return network->evaluate_raw(pos, *accumulators, *caches);
+}
+
 const OptionsMap& Engine::get_options() const { return options; }
 OptionsMap&       Engine::get_options() { return options; }
 
 std::string Engine::fen() const { return pos.fen(); }
+
+bool Engine::side_has_insufficient_winning_material(Color c) const {
+    return pos.side_has_insufficient_winning_material(c);
+}
 
 std::optional<PositionSetError> Engine::flip() { return pos.flip(); }
 

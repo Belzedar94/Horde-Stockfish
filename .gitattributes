@@ -3,3 +3,6 @@
 
 # Canonical Horde NNUE artifacts are opaque binary data.
 networks/*.nnue -text
+
+# Preserve the pinned scalachess corpus byte for byte, including CRLF endings.
+tests/data/horde_insufficient_material.csv -text

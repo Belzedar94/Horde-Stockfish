@@ -210,7 +210,7 @@ std::ostream& operator<<(std::ostream& os, const Position& pos) {
     os << "\nHorde extinction: " << (pos.horde_extinction() ? "yes" : "no")
        << "\nHorde fortress: " << (pos.horde_is_fortress() ? "yes" : "no")
        << "\nWhite mating material: "
-       << (pos.horde_has_insufficient_material(WHITE) ? "insufficient" : "sufficient");
+       << (pos.side_has_insufficient_winning_material(WHITE) ? "insufficient" : "sufficient");
 
     os << "\nTablebases: disabled for Horde";
 
@@ -450,6 +450,9 @@ Position::set(const string& fenStr, bool isChess960, StateInfo* si) {
         Color  c    = islower(token) ? BLACK : WHITE;
         Piece  rook = make_piece(c, ROOK);
         Piece  king = make_piece(c, KING);
+
+        if (c == WHITE)
+            return PositionSetError("Unsupported position. White cannot have castling rights in Horde.");
 
         token = char(toupper(token));
 
@@ -1567,7 +1570,7 @@ bool Position::see_ge(Move m, int threshold) const {
 
     // Capturing the final Horde unit wins immediately, regardless of the
     // orthodox exchange sequence on the destination square.
-    if (sideToMove == BLACK && count<ALL_PIECES>(WHITE) == 1 && capture(m))
+    if (is_horde_extinction_capture(m))
         return true;
 
     // Only deal with normal moves, assume others pass a simple SEE
@@ -1671,16 +1674,47 @@ bool Position::see_ge(Move m, int threshold) const {
     return bool(res);
 }
 
-std::optional<Value> Position::horde_terminal_value(int ply) const {
+bool Position::is_horde_extinction_capture(Move m) const {
 
-    if (!horde_extinction())
-        return std::nullopt;
-
-    return sideToMove == BLACK ? mate_in(ply) : mated_in(ply);
+    return sideToMove == BLACK && count<ALL_PIECES>(WHITE) == 1 && capture(m);
 }
 
 
-bool Position::horde_has_insufficient_material(Color c) const {
+std::optional<Outcome> Position::outcome(int ply) const {
+
+    std::optional<bool> hasLegalMove;
+    const auto noLegalMoves = [&]() {
+        if (!hasLegalMove)
+            hasLegalMove = MoveList<LEGAL>(*this).size() != 0;
+        return !*hasLegalMove;
+    };
+
+    // Lichess Horde terminal precedence is intentional. In particular, a
+    // stalemate is resolved before the closed-position predicate.
+    if (sideToMove == BLACK && checkers() && noLegalMoves())
+        return Outcome{mated_in(ply), OutcomeReason::CHECKMATE};
+
+    if (horde_extinction())
+        return Outcome{sideToMove == BLACK ? mate_in(ply) : mated_in(ply),
+                       OutcomeReason::EXTINCTION};
+
+    if (noLegalMoves())
+        return Outcome{VALUE_DRAW, OutcomeReason::STALEMATE};
+
+    if (horde_is_fortress())
+        return Outcome{VALUE_DRAW, OutcomeReason::HORDE_FORTRESS};
+
+    if (st->rule50 >= 100)
+        return Outcome{VALUE_DRAW, OutcomeReason::FIFTY_MOVE};
+
+    if (is_fivefold_repetition())
+        return Outcome{VALUE_DRAW, OutcomeReason::FIVEFOLD_REPETITION};
+
+    return std::nullopt;
+}
+
+
+bool Position::side_has_insufficient_winning_material(Color c) const {
 
     // Black can always win by capturing every White piece.
     if (c == BLACK)
@@ -1698,6 +1732,26 @@ bool Position::horde_has_insufficient_material(Color c) const {
     };
 
     return horde_material_is_insufficient(material(WHITE), material(BLACK));
+}
+
+
+bool Position::is_fivefold_repetition() const {
+
+    int occurrences = 1;
+    int end         = std::min(st->rule50, st->pliesFromNull);
+
+    if (end < 4)
+        return false;
+
+    const StateInfo* stp = st->previous->previous;
+    for (int i = 4; i <= end; i += 2)
+    {
+        stp = stp->previous->previous;
+        if (stp->key == st->key && ++occurrences >= 5)
+            return true;
+    }
+
+    return false;
 }
 
 
@@ -1742,16 +1796,9 @@ bool Position::horde_is_fortress() const {
 }
 
 
-// Tests whether the position is drawn by Horde fortress, 50-move rule,
-// or repetition. It does not detect ordinary stalemates.
+// Search-level repetition handling after the authoritative Horde outcome has
+// already resolved automatic draws and terminal positions.
 bool Position::is_draw(int ply) const {
-
-    if (horde_is_fortress())
-        return true;
-
-    if (st->rule50 > 99 && (!checkers() || MoveList<LEGAL>(*this).size()))
-        return true;
-
     return is_repetition(ply);
 }
 

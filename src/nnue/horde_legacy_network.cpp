@@ -13,12 +13,14 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <type_traits>
 
 #include "../bitboard.h"
 #include "../position.h"
+#include "nnue_accumulator.h"
 
 namespace Stockfish::Eval::NNUE {
 
@@ -198,6 +200,20 @@ i32 wrapping_add(i32 lhs, i32 rhs) {
     return signedResult;
 }
 
+template<typename T>
+T wrapping_sub(T lhs, T rhs) {
+    static_assert(std::is_same_v<T, i16> || std::is_same_v<T, i32>);
+    using U = std::make_unsigned_t<T>;
+    U left;
+    U right;
+    std::memcpy(&left, &lhs, sizeof(left));
+    std::memcpy(&right, &rhs, sizeof(right));
+    const U result = U(left - right);
+    T       signedResult;
+    std::memcpy(&signedResult, &result, sizeof(result));
+    return signedResult;
+}
+
 int feature_family(Piece pc) {
     const PieceType type = type_of(pc);
     if (type == PAWN)
@@ -299,18 +315,13 @@ int HordeLegacyNetwork::bucket_for(const Position& pos) const {
     return std::clamp((pieces - 1) * int(PsqtBuckets) / StartPieceCount, 0, int(PsqtBuckets) - 1);
 }
 
-HordeLegacyNetwork::RawOutput HordeLegacyNetwork::evaluate_raw(const Position& pos,
-                                                               int             bucket) const {
-    assert(loaded_);
-    bucket = bucket < 0 ? bucket_for(pos) : std::clamp(bucket, 0, int(LayerStacks) - 1);
-
-    std::array<std::array<i16, AccumulatorDimensions>, COLOR_NB> accumulators{};
-    std::array<std::array<i32, PsqtBuckets>, COLOR_NB>           psqt{};
-
+void HordeLegacyNetwork::refresh_accumulator(const Position& pos, AccumulatorState& target) const {
     for (Color perspective : {WHITE, BLACK})
     {
-        accumulators[perspective] = biases_;
-        Bitboard occupied         = pos.pieces();
+        std::copy(biases_.begin(), biases_.end(), target.accumulation[perspective].begin());
+        target.psqtAccumulation[perspective].fill(0);
+
+        Bitboard occupied = pos.pieces();
         while (occupied)
         {
             const Square square = pop_lsb(occupied);
@@ -320,23 +331,77 @@ HordeLegacyNetwork::RawOutput HordeLegacyNetwork::evaluate_raw(const Position& p
 
             const usize offset = index * AccumulatorDimensions;
             for (usize i = 0; i < AccumulatorDimensions; ++i)
-                accumulators[perspective][i] =
-                  wrapping_add(accumulators[perspective][i], weights_[offset + i]);
+                target.accumulation[perspective][i] =
+                  wrapping_add(target.accumulation[perspective][i], weights_[offset + i]);
 
             for (usize i = 0; i < PsqtBuckets; ++i)
-                psqt[perspective][i] =
-                  wrapping_add(psqt[perspective][i], psqtWeights_[index * PsqtBuckets + i]);
+                target.psqtAccumulation[perspective][i] = wrapping_add(
+                  target.psqtAccumulation[perspective][i], psqtWeights_[index * PsqtBuckets + i]);
         }
+        target.computed[perspective] = true;
+    }
+}
+
+void HordeLegacyNetwork::update_accumulator(const DirtyPiece&       dirty,
+                                            const AccumulatorState& source,
+                                            AccumulatorState&       target) const {
+    for (Color perspective : {WHITE, BLACK})
+    {
+        std::copy_n(source.accumulation[perspective].begin(), AccumulatorDimensions,
+                    target.accumulation[perspective].begin());
+        target.psqtAccumulation[perspective] = source.psqtAccumulation[perspective];
     }
 
+    const auto apply = [&](Piece pc, Square square, bool add) {
+        if (square == SQ_NONE)
+            return;
+        assert(pc != NO_PIECE);
+
+        for (Color perspective : {WHITE, BLACK})
+        {
+            const usize index  = feature_index(perspective, square, pc);
+            const usize offset = index * AccumulatorDimensions;
+            assert(index < FeatureDimensions);
+
+            for (usize i = 0; i < AccumulatorDimensions; ++i)
+                target.accumulation[perspective][i] =
+                  add ? wrapping_add(target.accumulation[perspective][i], weights_[offset + i])
+                      : wrapping_sub(target.accumulation[perspective][i], weights_[offset + i]);
+
+            for (usize i = 0; i < PsqtBuckets; ++i)
+            {
+                const i32 weight = psqtWeights_[index * PsqtBuckets + i];
+                target.psqtAccumulation[perspective][i] =
+                  add ? wrapping_add(target.psqtAccumulation[perspective][i], weight)
+                      : wrapping_sub(target.psqtAccumulation[perspective][i], weight);
+            }
+        }
+    };
+
+    apply(dirty.pc, dirty.from, false);
+    apply(dirty.pc, dirty.to, true);
+    if (dirty.remove_sq != SQ_NONE)
+        apply(dirty.remove_pc, dirty.remove_sq, false);
+    if (dirty.add_sq != SQ_NONE)
+        apply(dirty.add_pc, dirty.add_sq, true);
+
+    target.computed.fill(true);
+}
+
+HordeLegacyNetwork::RawOutput HordeLegacyNetwork::propagate(
+  const Position& pos, const AccumulatorState& accumulator, int bucket) const {
+    bucket = bucket < 0 ? bucket_for(pos) : std::clamp(bucket, 0, int(LayerStacks) - 1);
     const std::array<Color, COLOR_NB> perspectives = {pos.side_to_move(), ~pos.side_to_move()};
     std::array<u8, NetworkInputs>     transformed{};
     for (usize p = 0; p < COLOR_NB; ++p)
         for (usize i = 0; i < AccumulatorDimensions; ++i)
             transformed[p * AccumulatorDimensions + i] =
-              static_cast<u8>(std::clamp<int>(accumulators[perspectives[p]][i], 0, 127));
+              static_cast<u8>(
+                std::clamp<int>(accumulator.accumulation[perspectives[p]][i], 0, 127));
 
-    const i32 materialist = (psqt[perspectives[0]][bucket] - psqt[perspectives[1]][bucket]) / 2;
+    const i32 materialist = (accumulator.psqtAccumulation[perspectives[0]][bucket]
+                             - accumulator.psqtAccumulation[perspectives[1]][bucket])
+                          / 2;
 
     const LayerStack&  layer = layers_[bucket];
     std::array<u8, 16> hidden0{};
@@ -362,6 +427,49 @@ HordeLegacyNetwork::RawOutput HordeLegacyNetwork::evaluate_raw(const Position& p
         positional += i64(layer.fc2Weights[input]) * hidden1[input];
 
     return {materialist, static_cast<i32>(positional)};
+}
+
+void AccumulatorStack::evaluate_horde_legacy(const Position&           pos,
+                                             const HordeLegacyNetwork& network) noexcept {
+    usize begin = size - 1;
+    while (begin > 0
+           && !(accumulators[begin].computed[WHITE] && accumulators[begin].computed[BLACK]))
+        --begin;
+
+    if (accumulators[begin].computed[WHITE] && accumulators[begin].computed[BLACK])
+        for (usize next = begin + 1; next < size; ++next)
+            network.update_accumulator(accumulators[next].dirtyPiece, accumulators[next - 1],
+                                       accumulators[next]);
+    else
+        network.refresh_accumulator(pos, mut_latest());
+}
+
+HordeLegacyNetwork::RawOutput HordeLegacyNetwork::evaluate_raw(
+  const Position& pos, AccumulatorStack& accumulatorStack, int bucket) const {
+    assert(loaded_);
+    accumulatorStack.evaluate_horde_legacy(pos, *this);
+    const RawOutput result = propagate(pos, accumulatorStack.latest(), bucket);
+
+#if !defined(NDEBUG)
+    constexpr bool shadow = true;
+#elif defined(HORDE_NNUE_SHADOW)
+    static thread_local u64 shadowCounter = 0;
+    const bool              shadow        = (++shadowCounter & 1023) == 0;
+#endif
+#if !defined(NDEBUG) || defined(HORDE_NNUE_SHADOW)
+    if (shadow && result != evaluate_raw_full_refresh(pos, bucket))
+        std::abort();
+#endif
+
+    return result;
+}
+
+HordeLegacyNetwork::RawOutput HordeLegacyNetwork::evaluate_raw_full_refresh(const Position& pos,
+                                                                            int bucket) const {
+    assert(loaded_);
+    AccumulatorState accumulator{};
+    refresh_accumulator(pos, accumulator);
+    return propagate(pos, accumulator, bucket);
 }
 
 usize HordeLegacyNetwork::content_hash() const {

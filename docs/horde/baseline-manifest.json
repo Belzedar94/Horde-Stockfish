@@ -28,6 +28,50 @@
         }
       ]
     },
+    "formal_build_receipt": {
+      "id": "FSF_HORDETEST_RUN6B_BASELINE_V1",
+      "source_clean": true,
+      "build_command": "make -C src -j2 build ARCH=x86-64-bmi2 COMP=mingw",
+      "compiler": "x86_64-w64-mingw32-g++ 15.2.0 (MSYS2 Rev8)",
+      "make": "GNU Make 4.4.1",
+      "architecture": "x86-64-bmi2",
+      "linkage": "static",
+      "binary": {
+        "filename": "stockfish.exe",
+        "size": 4460585,
+        "sha256": "5d3b320b9fc8282997243b2ffc340fc5fcb52f88b63d7f4c9d3ff2afaa2497bc"
+      },
+      "uci": {
+        "VariantPath": "docs/horde/fixtures/variants.ini",
+        "UCI_Variant": "hordetest",
+        "EvalFile": "networks/hordetest_run6b_e37_l06.nnue",
+        "Threads": 1,
+        "Hash": 16
+      },
+      "depth_8_receipt": {
+        "position": "startpos",
+        "score_cp": 153,
+        "nodes": 1722,
+        "seldepth": 12,
+        "bestmove": "a4a5",
+        "ponder": "e7e6"
+      }
+    },
+    "diagnostic_raw_oracle": {
+      "formal_baseline": false,
+      "source_commit": "c19b5f6c66894fdb0e88d0dd100e3885f744760a",
+      "patch": {
+        "path": "docs/horde/fixtures/fsf-c19b5f6c-raw-oracle.patch",
+        "size": 2719,
+        "sha256": "d5a7f753137518d1610d12b9f35483c9d85592b1ba0900066d72a113d9ad52d3"
+      },
+      "binary": {
+        "filename": "stockfish.exe",
+        "size": 4463235,
+        "sha256": "82d051d82df0c27f56e1d5011ff3911cb76b1009b89d6dee62d09bfe9cc58866"
+      },
+      "purpose": "Expose unscaled PSQT and positional outputs for differential tests only"
+    },
     "historical_oracle_binary": {
       "filename": "stockfish_x86-64-bmi2_all_26082025.exe",
       "size": 1692672,

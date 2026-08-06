@@ -14,3 +14,8 @@ legal game semantics.
 `variants.ini` is the frozen custom-variant definition used by the Run 6B
 baseline. Changing any character in it creates a different baseline and
 requires a new manifest version.
+
+`fsf-c19b5f6c-raw-oracle.patch` is a test-only patch for the pinned formal
+Fairy-Stockfish source. It exposes the two unscaled Run 6B outputs without
+changing rules, evaluation or search. The patch is never applied to the formal
+baseline binary used as the match opponent.

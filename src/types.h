@@ -114,7 +114,7 @@ using Bitboard = u64;
 
 // Horde positions can contain up to 36 pieces for White. Promotion-heavy
 // positions can therefore produce more legal moves than orthodox chess.
-constexpr int MAX_MOVES = 512;
+constexpr int MAX_MOVES = 1024;
 constexpr int MAX_PLY   = 246;
 
 enum Color : u8 {
