@@ -47,6 +47,8 @@ jobs:
         run: python3 tests/horde_network_contract.py src/stockfish
       - name: Verify deterministic Horde benchmark
         run: python3 tests/horde_bench.py src/stockfish
+      - name: Verify Horde opening generation
+        run: python3 tests/horde_genfens.py src/stockfish
       - name: Compile Python test tools
         run: >-
           python3 -m py_compile
@@ -55,6 +57,7 @@ jobs:
           tests/horde_material_corpus.py
           tests/horde_network_contract.py
           tests/horde_bench.py
+          tests/horde_genfens.py
           tests/horde_nnue_parity.py
           tests/horde_nnue_determinism.py
 
@@ -144,3 +147,4 @@ jobs:
           python tests/horde_material_corpus.py src/stockfish.exe
           python tests/horde_network_contract.py src/stockfish.exe
           python tests/horde_bench.py src/stockfish.exe
+          python tests/horde_genfens.py src/stockfish.exe

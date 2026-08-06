@@ -34,6 +34,7 @@
 
 #include "benchmark.h"
 #include "engine.h"
+#include "genfens.h"
 #include "memory.h"
 #include "movegen.h"
 #include "position.h"
@@ -168,14 +169,19 @@ void UCIEngine::loop() {
             else
                 sync_cout << "horde-material " << side << " "
                           << (engine.side_has_insufficient_winning_material(color) ? "insufficient"
-                                                                                  : "sufficient")
+                                                                                   : "sufficient")
                           << sync_endl;
         }
         else if (token == "horde-raw-eval")
         {
             const auto [psqt, positional] = engine.raw_evaluation();
-            sync_cout << "horde-raw-eval " << psqt << " " << positional << " "
-                      << psqt + positional << sync_endl;
+            sync_cout << "horde-raw-eval " << psqt << " " << positional << " " << psqt + positional
+                      << sync_endl;
+        }
+        else if (token == "genfens")
+        {
+            if (auto error = GenFens::run(is, std::cout))
+                print_info_string("genfens error: " + *error);
         }
         else if (token == "eval")
             engine.trace_eval();
