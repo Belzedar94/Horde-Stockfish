@@ -35,7 +35,6 @@
 #include "history.h"
 #include "misc.h"
 #include "movegen.h"
-#include "syzygy/tbprobe.h"
 #include "tt.h"
 #include "uci.h"
 
@@ -60,6 +59,128 @@ constexpr std::string_view PieceToChar(" PNBRQK  pnbrqk");
 
 static constexpr Piece Pieces[] = {W_PAWN, W_KNIGHT, W_BISHOP, W_ROOK, W_QUEEN, W_KING,
                                    B_PAWN, B_KNIGHT, B_BISHOP, B_ROOK, B_QUEEN, B_KING};
+
+constexpr Bitboard DarkSquares = 0xAA55AA55AA55AA55ULL;
+
+struct HordeMaterial {
+    int pawn;
+    int knight;
+    int bishopDark;
+    int bishopLight;
+    int rook;
+    int queen;
+    int king;
+
+    int  bishops() const { return bishopDark + bishopLight; }
+    int  total() const { return pawn + knight + bishops() + rook + queen + king; }
+    bool has_bishop_pair() const { return bishopDark && bishopLight; }
+};
+
+bool horde_material_is_insufficient(HordeMaterial horde, const HordeMaterial& black) {
+
+    const int hordeBishopNum = std::min(horde.bishopDark, 2) + std::min(horde.bishopLight, 2);
+    const int hordeNum = horde.pawn + horde.knight + horde.rook + horde.queen + hordeBishopNum;
+    const int blackNum = black.total();
+
+    const bool hordeBishopIsLight = horde.bishopLight >= 1;
+    const auto blackBishops       = [&](bool light) {
+        return light ? black.bishopLight : black.bishopDark;
+    };
+    const auto blackPiecesOtherThan = [&](int count) { return blackNum - count; };
+
+    if (hordeNum == 0)
+        return true;
+    if (hordeNum >= 4)
+        return false;
+
+    // A pawn or queen paired with any other Horde unit can force mating material.
+    if ((horde.pawn >= 1 || horde.queen >= 1) && hordeNum >= 2)
+        return false;
+
+    // Rook plus bishop is insufficient only against a lone king whose own
+    // material cannot provide the mating net.
+    if (horde.rook >= 1 && hordeNum >= 2
+        && !(hordeNum == 2 && horde.rook == 1 && horde.bishops() == 1
+             && blackPiecesOtherThan(blackBishops(hordeBishopIsLight)) == 1))
+        return false;
+
+    if (hordeNum == 1)
+    {
+        if (blackNum == 1)
+            return true;
+
+        if (horde.queen == 1)
+            return !(black.pawn >= 1 || black.rook >= 1 || black.bishopLight >= 2
+                     || black.bishopDark >= 2);
+
+        if (horde.pawn == 1)
+        {
+            HordeMaterial queenPromotion = horde;
+            queenPromotion.pawn          = 0;
+            queenPromotion.queen         = 1;
+
+            HordeMaterial knightPromotion = horde;
+            knightPromotion.pawn          = 0;
+            knightPromotion.knight        = 1;
+
+            return horde_material_is_insufficient(queenPromotion, black)
+                && horde_material_is_insufficient(knightPromotion, black);
+        }
+
+        if (horde.rook == 1)
+            return !(black.pawn >= 2 || (black.rook >= 1 && black.pawn >= 1)
+                     || (black.rook >= 1 && black.knight >= 1)
+                     || (black.pawn >= 1 && black.knight >= 1));
+
+        if (horde.bishops() == 1)
+        {
+            const int oppositeBishops = blackBishops(!hordeBishopIsLight);
+            return !(oppositeBishops >= 2 || (oppositeBishops >= 1 && black.pawn >= 1)
+                     || black.pawn >= 2);
+        }
+
+        const bool enoughBlackBlockers =
+          blackNum >= 4
+          && (black.knight >= 2 || black.pawn >= 2 || (black.rook >= 1 && black.knight >= 1)
+              || (black.rook >= 1 && black.bishops() >= 1) || (black.rook >= 1 && black.pawn >= 1)
+              || (black.knight >= 1 && black.bishops() >= 1)
+              || (black.knight >= 1 && black.pawn >= 1) || (black.bishops() >= 1 && black.pawn >= 1)
+              || (black.has_bishop_pair() && black.pawn >= 1));
+
+        return !(enoughBlackBlockers
+                 && (black.bishopDark < 2 || blackPiecesOtherThan(black.bishopDark) >= 3)
+                 && (black.bishopLight < 2 || blackPiecesOtherThan(black.bishopLight) >= 3));
+    }
+
+    if (hordeNum == 2)
+    {
+        if (blackNum == 1)
+            return true;
+
+        if (horde.knight == 2)
+            return black.pawn + black.bishops() + black.knight < 1;
+
+        if (horde.has_bishop_pair())
+            return !(black.pawn >= 1 || black.bishops() >= 1
+                     || (black.knight >= 1 && black.rook + black.queen >= 1));
+
+        if (horde.bishops() >= 1 && horde.knight >= 1)
+            return !(black.pawn >= 1 || blackBishops(!hordeBishopIsLight) >= 1
+                     || blackPiecesOtherThan(blackBishops(hordeBishopIsLight)) >= 3);
+
+        return !((black.pawn >= 1 && blackBishops(!hordeBishopIsLight) >= 1)
+                 || (black.pawn >= 1 && black.knight >= 1)
+                 || (blackBishops(!hordeBishopIsLight) >= 1 && black.knight >= 1)
+                 || blackBishops(!hordeBishopIsLight) >= 2 || black.knight >= 2 || black.pawn >= 2);
+    }
+
+    // Three Horde minors can mate with two knights and a bishop, three
+    // knights, or a bishop pair plus the remaining minor.
+    if ((horde.knight == 2 && horde.bishops() == 1) || horde.knight == 3 || horde.has_bishop_pair())
+        return false;
+
+    return blackNum == 1;
+}
 }  // namespace
 
 
@@ -86,18 +207,12 @@ std::ostream& operator<<(std::ostream& os, const Position& pos) {
     for (Bitboard b = pos.checkers(); b;)
         os << UCIEngine::square(pop_lsb(b)) << " ";
 
-    if (Tablebases::MaxCardinality >= popcount(pos.pieces()) && !pos.can_castle(ANY_CASTLING))
-    {
-        StateInfo st;
+    os << "\nHorde extinction: " << (pos.horde_extinction() ? "yes" : "no")
+       << "\nHorde fortress: " << (pos.horde_is_fortress() ? "yes" : "no")
+       << "\nWhite mating material: "
+       << (pos.horde_has_insufficient_material(WHITE) ? "insufficient" : "sufficient");
 
-        Position p;
-        p.set(pos.fen(), pos.is_chess960(), &st);
-        Tablebases::ProbeState s1, s2;
-        Tablebases::WDLScore   wdl = Tablebases::probe_wdl(p, &s1);
-        int                    dtz = Tablebases::probe_dtz(p, &s2);
-        os << "\nTablebases WDL: " << std::setw(4) << wdl << " (" << s1 << ")"
-           << "\nTablebases DTZ: " << std::setw(4) << dtz << " (" << s2 << ")";
-    }
+    os << "\nTablebases: disabled for Horde";
 
     return os;
 }
@@ -257,8 +372,8 @@ Position::set(const string& fenStr, bool isChess960, StateInfo* si) {
                 return PositionSetError(std::string("Invalid FEN. Invalid piece: ")
                                         + std::string(1, token));
 
-            if (++numPieces > 32)
-                return PositionSetError("Invalid FEN. More than 32 pieces on the board.");
+            if (++numPieces > 52)
+                return PositionSetError("Invalid FEN. More than 52 pieces on the board.");
 
             const Square sq = make_square(File(file), Rank(rank));
             put_piece(Piece(idx), sq);
@@ -270,23 +385,28 @@ Position::set(const string& fenStr, bool isChess960, StateInfo* si) {
     if (rank != RANK_1 || file != FILE_NB)
         return PositionSetError("Invalid FEN. Board state encoding ended but cursor not at end.");
 
-    if (pieces(PAWN) & (Rank1BB | Rank8BB))
-        return PositionSetError("Unsupported position. Pawns on the first or eighth rank.");
+    if ((pieces(WHITE, PAWN) & Rank8BB) || (pieces(BLACK, PAWN) & (Rank1BB | Rank8BB)))
+        return PositionSetError("Unsupported position. Pawn on an invalid Horde rank.");
 
-    if (count<KING>(WHITE) != 1 || count<KING>(BLACK) != 1)
-        return PositionSetError("Unsupported position. Incorrect number of kings.");
+    if (count<KING>(WHITE) != 0 || count<KING>(BLACK) != 1)
+        return PositionSetError(
+          "Unsupported position. Horde requires no White king and exactly one Black king.");
 
-    for (Color c : {WHITE, BLACK})
+    if (count<ALL_PIECES>(WHITE) > 36)
+        return PositionSetError("Unsupported position. White has more than 36 Horde pieces.");
+
+    if (count<ALL_PIECES>(BLACK) > 16)
+        return PositionSetError("Unsupported position. Black has more than 16 pieces.");
+
+    if (count<PAWN>(BLACK) > 8)
+        return PositionSetError("Unsupported position. BLACK has more than 8 pawns.");
+
     {
-        if (count<PAWN>(c) > 8)
-            return PositionSetError(std::string("Unsupported position. ")
-                                    + (c == WHITE ? "WHITE" : "BLACK") + " has more than 8 pawns.");
-
-        int additional = std::max(count<KNIGHT>(c) - 2, 0) + std::max(count<BISHOP>(c) - 2, 0)
-                       + std::max(count<ROOK>(c) - 2, 0) + std::max(count<QUEEN>(c) - 1, 0);
-        if (additional > 8 - count<PAWN>(c))
-            return PositionSetError(std::string("Unsupported position. Too many pieces for ")
-                                    + (c == WHITE ? "WHITE." : "BLACK."));
+        int additional = std::max(count<KNIGHT>(BLACK) - 2, 0)
+                       + std::max(count<BISHOP>(BLACK) - 2, 0) + std::max(count<ROOK>(BLACK) - 2, 0)
+                       + std::max(count<QUEEN>(BLACK) - 1, 0);
+        if (additional > 8 - count<PAWN>(BLACK))
+            return PositionSetError("Unsupported position. Too many pieces for BLACK.");
     }
 
     // 2. Active color
@@ -405,10 +525,14 @@ Position::set(const string& fenStr, bool isChess960, StateInfo* si) {
             enpassant = pawns && target
                      && !(pieces() & (st->epSquare | (st->epSquare + pawn_push(sideToMove))));
 
-            // If no pawn can execute the en passant capture without leaving the king in check, don't record the epSquare
-            while (pawns)
-                legalEP |= !(attackers_to(square<KING>(sideToMove), occ ^ pop_lsb(pawns))
-                             & pieces(~sideToMove) & ~target);
+            // White has no royal king, so every structurally valid White en passant
+            // capture is legal. Black still has to satisfy ordinary king safety.
+            if (sideToMove == WHITE)
+                legalEP = bool(pawns);
+            else
+                while (pawns)
+                    legalEP |= !(attackers_to(square<KING>(sideToMove), occ ^ pop_lsb(pawns))
+                                 & pieces(~sideToMove) & ~target);
         }
         else
             return PositionSetError("Invalid FEN. Invalid en-passant square.");
@@ -435,7 +559,8 @@ Position::set(const string& fenStr, bool isChess960, StateInfo* si) {
     chess960 = isChess960;
     set_state();
 
-    if (attackers_to_exist(square<KING>(~sideToMove), pieces(), sideToMove))
+    if (has_king(~sideToMove)
+        && attackers_to_exist(square<KING>(~sideToMove), pieces(), sideToMove))
         return PositionSetError("Unsupported position. King can be captured.");
 
     assert(pos_is_ok());
@@ -469,6 +594,12 @@ void Position::set_check_info() const {
     update_slider_blockers(WHITE);
     update_slider_blockers(BLACK);
 
+    if (!has_king(~sideToMove))
+    {
+        std::fill(std::begin(st->checkSquares), std::end(st->checkSquares), 0);
+        return;
+    }
+
     Square ksq                              = square<KING>(~sideToMove);
     const auto [bishopAttacks, rookAttacks] = both_attacks_bb(ksq, pieces());
 
@@ -491,7 +622,8 @@ void Position::set_state() const {
     st->nonPawnKey[WHITE] = st->nonPawnKey[BLACK] = 0;
     st->pawnKey                                   = Zobrist::noPawns;
     st->nonPawnMaterial[WHITE] = st->nonPawnMaterial[BLACK] = VALUE_ZERO;
-    st->checkersBB = attackers_to(square<KING>(sideToMove)) & pieces(~sideToMove);
+    st->checkersBB =
+      has_king(sideToMove) ? attackers_to(square<KING>(sideToMove)) & pieces(~sideToMove) : 0;
 
     set_check_info();
 
@@ -612,10 +744,13 @@ string Position::fen() const {
 // and the slider pieces of color ~c pinning pieces of color c to the king.
 void Position::update_slider_blockers(Color c) const {
 
-    Square ksq = square<KING>(c);
-
     st->blockersForKing[c] = 0;
     st->pinners[~c]        = 0;
+
+    if (!has_king(c))
+        return;
+
+    Square ksq = square<KING>(c);
 
     // Snipers are sliders that attack 's' when a piece and other snipers are removed
     Bitboard snipers = ((attacks_bb<ROOK>(ksq) & pieces(QUEEN, ROOK))
@@ -668,7 +803,8 @@ bool Position::legal(Move m) const {
     Square to   = m.to_sq();
 
     assert(color_of(moved_piece(m)) == us);
-    assert(piece_on(square<KING>(us)) == make_piece(us, KING));
+    if (!has_king(us))
+        return m.type_of() != CASTLING;
 
     // Castling moves generation does not check if the castling path is clear of
     // enemy attacks, it is delayed at a later time: now!
@@ -737,9 +873,10 @@ bool Position::pseudo_legal(const Move m) const {
         // Check if it's a valid capture, single push, or double push
         const bool isCapture    = bool(attacks_bb<PAWN>(from, us) & pieces(~us) & to);
         const bool isSinglePush = (from + pawn_push(us) == to) && empty(to);
-        const bool isDoublePush = (from + 2 * pawn_push(us) == to)
-                               && (relative_rank(us, from) == RANK_2) && empty(to)
-                               && empty(to - pawn_push(us));
+        const bool isDoublePush =
+          (from + 2 * pawn_push(us) == to)
+          && (relative_rank(us, from) == RANK_2 || (us == WHITE && rank_of(from) == RANK_1))
+          && empty(to) && empty(to - pawn_push(us));
 
         if (!(isCapture || isSinglePush || isDoublePush))
             return false;
@@ -767,6 +904,9 @@ bool Position::gives_check(Move m) const {
 
     assert(m.is_ok());
     assert(color_of(moved_piece(m)) == sideToMove);
+
+    if (!has_king(~sideToMove))
+        return false;
 
     Square from = m.from_sq();
     Square to   = m.to_sq();
@@ -940,7 +1080,8 @@ void Position::do_move(Move                      m,
     {
         // Check if the en passant square needs to be set. Accurate e.p. info is needed
         // for correct zobrist key generation and 3-fold checking.
-        if ((int(to) ^ int(from)) == 16)
+        if ((int(to) ^ int(from)) == 16
+            && rank_of(to - pawn_push(us)) == relative_rank(them, RANK_6))
         {
             Square   epSquare = to - pawn_push(us);
             Bitboard pawns    = attacks_bb<PAWN>(epSquare, us) & pieces(them, PAWN);
@@ -948,17 +1089,25 @@ void Position::do_move(Move                      m,
             // If there are no pawns attacking the ep square, ep is not possible.
             if (pawns)
             {
-                Square   ksq         = square<KING>(them);
-                Bitboard notBlockers = ~st->previous->blockersForKing[them];
-                bool     noDiscovery = (from & notBlockers) || file_of(from) == file_of(ksq);
-
-                // If the pawn gives discovered check, ep is never legal. Else, if at least one
-                // pawn was not a blocker for the enemy king or lies on the same line as the
-                // enemy king and en passant square, a legal capture exists.
-                if (noDiscovery && (pawns & (notBlockers | line_bb(epSquare, ksq))))
+                if (!has_king(them))
                 {
                     st->epSquare = epSquare;
                     k ^= Zobrist::enpassant[file_of(epSquare)];
+                }
+                else
+                {
+                    Square   ksq         = square<KING>(them);
+                    Bitboard notBlockers = ~st->previous->blockersForKing[them];
+                    bool     noDiscovery = (from & notBlockers) || file_of(from) == file_of(ksq);
+
+                    // If the pawn gives discovered check, ep is never legal. Else, if at least
+                    // one pawn was not a blocker for the enemy king or lies on the same line as
+                    // the enemy king and en passant square, a legal capture exists.
+                    if (noDiscovery && (pawns & (notBlockers | line_bb(epSquare, ksq))))
+                    {
+                        st->epSquare = epSquare;
+                        k ^= Zobrist::enpassant[file_of(epSquare)];
+                    }
                 }
             }
         }
@@ -1043,7 +1192,8 @@ void Position::do_move(Move                      m,
     st->capturedPiece = captured;
 
     // Calculate checkers bitboard (if move gives check)
-    st->checkersBB = givesCheck ? attackers_to(square<KING>(them)) & pieces(us) : 0;
+    st->checkersBB =
+      givesCheck && has_king(them) ? attackers_to(square<KING>(them)) & pieces(us) : 0;
 
     sideToMove = ~sideToMove;
 
@@ -1415,6 +1565,11 @@ bool Position::see_ge(Move m, int threshold) const {
 
     assert(m.is_ok());
 
+    // Capturing the final Horde unit wins immediately, regardless of the
+    // orthodox exchange sequence on the destination square.
+    if (sideToMove == BLACK && count<ALL_PIECES>(WHITE) == 1 && capture(m))
+        return true;
+
     // Only deal with normal moves, assume others pass a simple SEE
     if (m.type_of() != NORMAL)
         return VALUE_ZERO >= threshold;
@@ -1516,9 +1671,83 @@ bool Position::see_ge(Move m, int threshold) const {
     return bool(res);
 }
 
-// Tests whether the position is drawn by 50-move rule
-// or by repetition. It does not detect stalemates.
+std::optional<Value> Position::horde_terminal_value(int ply) const {
+
+    if (!horde_extinction())
+        return std::nullopt;
+
+    return sideToMove == BLACK ? mate_in(ply) : mated_in(ply);
+}
+
+
+bool Position::horde_has_insufficient_material(Color c) const {
+
+    // Black can always win by capturing every White piece.
+    if (c == BLACK)
+        return false;
+
+    const auto material = [&](Color side) {
+        Bitboard bishops = pieces(side, BISHOP);
+        return HordeMaterial{count<PAWN>(side),
+                             count<KNIGHT>(side),
+                             popcount(bishops & DarkSquares),
+                             popcount(bishops & ~DarkSquares),
+                             count<ROOK>(side),
+                             count<QUEEN>(side),
+                             count<KING>(side)};
+    };
+
+    return horde_material_is_insufficient(material(WHITE), material(BLACK));
+}
+
+
+bool Position::horde_is_fortress() const {
+
+    if (horde_extinction())
+        return false;
+
+    Bitboard horde = pieces(WHITE);
+    bool     mateInOne =
+      !more_than_one(horde) && bool(attackers_to(lsb(horde), pieces()) & pieces(BLACK));
+
+    if (mateInOne)
+        return false;
+
+    if (sideToMove == WHITE)
+        return MoveList<LEGAL>(*this).size() == 0;
+
+    // With Black to move this is a fortress only if every legal Black move
+    // leaves White without a legal move.
+    Position  scratch;
+    StateInfo baseState;
+    if (scratch.set(fen(), false, &baseState))
+        return false;
+
+    MoveList<LEGAL> blackMoves(scratch);
+    if (blackMoves.size() == 0)
+        return !scratch.checkers();
+
+    for (Move move : blackMoves)
+    {
+        StateInfo moveState;
+        scratch.do_move(move, moveState);
+        bool whiteCanMove = MoveList<LEGAL>(scratch).size() != 0;
+        scratch.undo_move(move);
+
+        if (whiteCanMove)
+            return false;
+    }
+
+    return true;
+}
+
+
+// Tests whether the position is drawn by Horde fortress, 50-move rule,
+// or repetition. It does not detect ordinary stalemates.
 bool Position::is_draw(int ply) const {
+
+    if (horde_is_fortress())
+        return true;
 
     if (st->rule50 > 99 && (!checkers() || MoveList<LEGAL>(*this).size()))
         return true;
@@ -1597,35 +1826,8 @@ bool Position::upcoming_repetition(int ply) const {
 // Flips position with the white and black sides reversed. This
 // is only useful for debugging e.g. for finding evaluation symmetry bugs.
 std::optional<PositionSetError> Position::flip() {
-
-    string            f, token;
-    std::stringstream ss(fen());
-
-    for (Rank r = RANK_8;; --r)  // Piece placement
-    {
-        std::getline(ss, token, r > RANK_1 ? '/' : ' ');
-        f.insert(0, token + (f.empty() ? " " : "/"));
-
-        if (r == RANK_1)
-            break;
-    }
-
-    ss >> token;                        // Active color
-    f += (token == "w" ? "B " : "W ");  // Will be lowercased later
-
-    ss >> token;  // Castling availability
-    f += token + " ";
-
-    std::transform(f.begin(), f.end(), f.begin(),
-                   [](char c) { return char(islower(c) ? toupper(c) : tolower(c)); });
-
-    ss >> token;  // En passant square
-    f += (token == "-" ? token : token.replace(1, 1, token[1] == '3' ? "6" : "3"));
-
-    std::getline(ss, token);  // Half and full moves
-    f += token;
-
-    return set(f, is_chess960(), st);
+    return PositionSetError(
+      "The flip command is unavailable because Horde colors have fixed roles.");
 }
 
 
@@ -1637,37 +1839,43 @@ bool Position::material_key_is_ok() const { return compute_material_key() == st-
 // This is meant to be helpful when debugging.
 bool Position::pos_is_ok() const {
 
-    if ((sideToMove != WHITE && sideToMove != BLACK) || piece_on(square<KING>(WHITE)) != W_KING
-        || piece_on(square<KING>(BLACK)) != B_KING
+    if ((sideToMove != WHITE && sideToMove != BLACK) || count<KING>(WHITE) != 0
+        || count<KING>(BLACK) != 1 || piece_on(square<KING>(BLACK)) != B_KING
         || (ep_square() != SQ_NONE && relative_rank(sideToMove, ep_square()) != RANK_6))
         assert(0 && "pos_is_ok: Default");
 
-    if (count<KING>(WHITE) != 1 || count<KING>(BLACK) != 1
-        || attackers_to_exist(square<KING>(~sideToMove), pieces(), sideToMove))
+    if (has_king(~sideToMove)
+        && attackers_to_exist(square<KING>(~sideToMove), pieces(), sideToMove))
         assert(0 && "pos_is_ok: Kings");
 
-    if ((pieces(PAWN) & (Rank1BB | Rank8BB)) || count<PAWN>(WHITE) > 8 || count<PAWN>(BLACK) > 8)
+    if ((pieces(WHITE, PAWN) & Rank8BB) || (pieces(BLACK, PAWN) & (Rank1BB | Rank8BB))
+        || count<PAWN>(BLACK) > 8)
         assert(0 && "pos_is_ok: Pawns");
 
 
     if (ep_square() != SQ_NONE)
     {
-        Square ksq = square<KING>(sideToMove);
-
         Bitboard captured = (ep_square() + pawn_push(~sideToMove)) & pieces(~sideToMove, PAWN);
         Bitboard pawns    = attacks_bb<PAWN>(ep_square(), ~sideToMove) & pieces(sideToMove, PAWN);
-        Bitboard potentialCheckers = pieces(~sideToMove) ^ captured;
 
-        if (!captured || !pawns
-            || ((attackers_to(ksq, pieces() ^ captured ^ ep_square() ^ lsb(pawns))
+        if (!captured || !pawns)
+            assert(0 && "pos_is_ok: En passant square");
+
+        if (has_king(sideToMove))
+        {
+            Square   ksq               = square<KING>(sideToMove);
+            Bitboard potentialCheckers = pieces(~sideToMove) ^ captured;
+
+            if ((attackers_to(ksq, pieces() ^ captured ^ ep_square() ^ lsb(pawns))
                  & potentialCheckers)
                 && (attackers_to(ksq, pieces() ^ captured ^ ep_square() ^ msb(pawns))
-                    & potentialCheckers)))
-            assert(0 && "pos_is_ok: En passant square");
+                    & potentialCheckers))
+                assert(0 && "pos_is_ok: En passant king safety");
+        }
     }
 
     if ((pieces(WHITE) & pieces(BLACK)) || (pieces(WHITE) | pieces(BLACK)) != pieces()
-        || popcount(pieces(WHITE)) > 16 || popcount(pieces(BLACK)) > 16)
+        || popcount(pieces(WHITE)) > 36 || popcount(pieces(BLACK)) > 16)
         assert(0 && "pos_is_ok: Bitboards");
 
     for (PieceType p1 = PAWN; p1 <= KING; ++p1)
@@ -1687,7 +1895,7 @@ bool Position::pos_is_ok() const {
                 continue;
 
             if (piece_on(castling_rook_square(cr)) != make_piece(c, ROOK)
-                || castlingRightsMask[castlingRookSquare[cr]] != cr
+                || castlingRightsMask[castlingRookSquare[cr]] != cr || !has_king(c)
                 || (castlingRightsMask[square<KING>(c)] & cr) != cr)
                 assert(0 && "pos_is_ok: Castling");
         }

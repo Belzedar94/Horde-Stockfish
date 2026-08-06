@@ -113,6 +113,8 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
 
     options.add("UCI_Chess960", Option(false));
 
+    options.add("UCI_Variant", Option("horde var horde", "horde"));
+
     options.add("UCI_LimitStrength", Option(false));
 
     options.add("UCI_Elo",
@@ -122,16 +124,15 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
     options.add("UCI_ShowWDL", Option(false));
 
     options.add(  //
-      "SyzygyPath", Option("", [](const Option& o) {
-          Tablebases::init(o);
-          return std::nullopt;
-      }));
+      "SyzygyPath",
+      Option("", [](const Option&) { return "Syzygy tablebases are disabled for Horde."; }));
 
     options.add("SyzygyProbeDepth", Option(1, 1, 100));
 
     options.add("Syzygy50MoveRule", Option(true));
 
-    options.add("SyzygyProbeLimit", Option(7, 0, 7));
+    // Orthodox tablebases do not model Horde's kingless side or extinction win.
+    options.add("SyzygyProbeLimit", Option(0, 0, 0));
 
     options.add(  //
       "EvalFile", Option(EvalFileDefaultName, [this](const Option& o) {
@@ -148,7 +149,8 @@ std::variant<u64, PositionSetError>
 Engine::perft(const std::string& fen, Depth depth, bool isChess960) {
     verify_network();
 
-    return Benchmark::perft(fen, depth, isChess960);
+    (void) isChess960;
+    return Benchmark::perft(fen, depth, false);
 }
 
 void Engine::go(Search::LimitsType& limits) {
@@ -166,7 +168,7 @@ void Engine::search_clear() {
     threads.clear();
 
     // TODO: does not work with multiple instances
-    Tablebases::init(options["SyzygyPath"]);  // Free mapped files
+    Tablebases::init("");  // Free any mapped files without loading orthodox tables
 }
 
 void Engine::set_on_update_no_moves(std::function<void(const Engine::InfoShort&)>&& f) {
@@ -197,7 +199,7 @@ std::optional<PositionSetError> Engine::set_position(const std::string&         
                                                      const std::vector<std::string>& moves) {
     // Drop the old state and create a new one
     states   = StateListPtr(new std::deque<StateInfo>(1));
-    auto err = pos.set(fen, options["UCI_Chess960"], &states->back());
+    auto err = pos.set(fen, false, &states->back());
     if (err.has_value())
         return err;
 
@@ -325,7 +327,7 @@ void Engine::save_network(const std::optional<std::filesystem::path>& file) {
 void Engine::trace_eval() const {
     StateListPtr trace_states(new std::deque<StateInfo>(1));
     Position     p;
-    p.set(pos.fen(), options["UCI_Chess960"], &trace_states->back());
+    p.set(pos.fen(), false, &trace_states->back());
 
     verify_network();
 

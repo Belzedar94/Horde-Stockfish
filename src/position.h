@@ -166,17 +166,22 @@ class Position {
     Key non_pawn_key(Color c) const;
 
     // Other properties of the position
-    Color side_to_move() const;
-    int   game_ply() const;
-    bool  is_chess960() const;
-    bool  is_draw(int ply) const;
-    bool  is_repetition(int ply) const;
-    bool  upcoming_repetition(int ply) const;
-    bool  has_repeated() const;
-    int   rule50_count() const;
-    Value non_pawn_material(Color c) const;
-    Value non_pawn_material() const;
-    bool  dtz_is_dtm() const;  // Pawnless && (3-men || 4-men-minors-only)
+    Color                side_to_move() const;
+    int                  game_ply() const;
+    bool                 is_chess960() const;
+    bool                 has_king(Color c) const;
+    bool                 horde_extinction() const;
+    std::optional<Value> horde_terminal_value(int ply) const;
+    bool                 horde_has_insufficient_material(Color c) const;
+    bool                 horde_is_fortress() const;
+    bool                 is_draw(int ply) const;
+    bool                 is_repetition(int ply) const;
+    bool                 upcoming_repetition(int ply) const;
+    bool                 has_repeated() const;
+    int                  rule50_count() const;
+    Value                non_pawn_material(Color c) const;
+    Value                non_pawn_material() const;
+    bool                 dtz_is_dtm() const;  // Pawnless && (3-men || 4-men-minors-only)
 
     // Position consistency check, for debugging
     bool                            pos_is_ok() const;
@@ -342,6 +347,10 @@ inline int Position::game_ply() const { return gamePly; }
 inline int Position::rule50_count() const { return st->rule50; }
 
 inline bool Position::is_chess960() const { return chess960; }
+
+inline bool Position::has_king(Color c) const { return count<KING>(c) == 1; }
+
+inline bool Position::horde_extinction() const { return pieces(WHITE) == 0; }
 
 inline bool Position::dtz_is_dtm() const {
     return !count<PAWN>()

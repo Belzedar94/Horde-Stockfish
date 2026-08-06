@@ -204,6 +204,20 @@ void Search::Worker::start_searching() {
     tt.new_search();
     main_manager()->updates.onStart();
 
+    if (auto terminalValue = rootPos.horde_terminal_value(0))
+    {
+        main_manager()->updates.onUpdateNoMoves({0, {*terminalValue, rootPos}});
+        main_manager()->updates.onBestmove(UCIEngine::move(Move::none()), "");
+        return;
+    }
+
+    if (rootPos.horde_is_fortress())
+    {
+        main_manager()->updates.onUpdateNoMoves({0, {VALUE_DRAW, rootPos}});
+        main_manager()->updates.onBestmove(UCIEngine::move(Move::none()), "");
+        return;
+    }
+
     if (rootMoves.empty())
     {
         main_manager()->updates.onUpdateNoMoves(
@@ -769,6 +783,9 @@ Value Search::Worker::search(
 
     if (!rootNode)
     {
+        if (auto terminalValue = pos.horde_terminal_value(ss->ply))
+            return *terminalValue;
+
         // Step 2. Check for aborted search and immediate draw
         if (threads.stop.load(std::memory_order_relaxed) || pos.is_draw(ss->ply)
             || ss->ply >= MAX_PLY)
@@ -1664,6 +1681,9 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
     // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
     if (PvNode && selDepth < ss->ply + 1)
         selDepth = ss->ply + 1;
+
+    if (auto terminalValue = pos.horde_terminal_value(ss->ply))
+        return *terminalValue;
 
     // Step 2. Check for an immediate draw or maximum ply reached
     if (pos.is_draw(ss->ply) || ss->ply >= MAX_PLY)
