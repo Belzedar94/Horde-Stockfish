@@ -25,6 +25,8 @@ REQUIRED_COUNTERS = {
     "probCutTried",
     "probCutMoves",
     "probCutCutoffs",
+    "razorCuts",
+    "nodeFutilityCuts",
     "lmpTriggered",
     "lmrSearches",
     "lmrReductions",
@@ -78,6 +80,11 @@ def run_search(engine: Path, enabled: bool) -> list[str]:
         output = read_until(process, "uciok")
         if not any("option name HordeSearchTelemetry type check default false" in line for line in output):
             raise AssertionError("instrumented engine did not advertise HordeSearchTelemetry")
+        if not any(
+            "option name HordeSearchExperimentMask type spin default 0 min 0 max 4095" in line
+            for line in output
+        ):
+            raise AssertionError("instrumented engine did not advertise the experiment mask")
 
         process.stdin.write(
             f"setoption name HordeSearchTelemetry value {'true' if enabled else 'false'}\n"
@@ -118,6 +125,8 @@ def verify_enabled(lines: list[str]) -> None:
     cells = [line for line in telemetry if line.startswith("side=")]
     if len(summaries) != 1 or not cells:
         raise AssertionError("telemetry summary or cells were not emitted exactly once")
+    if "experiment_mask=0" not in summaries[0]:
+        raise AssertionError("switch-zero telemetry reported a non-zero experiment mask")
     summary_nodes = re.search(r"\bnodes=([0-9]+)\b", summaries[0])
     if not summary_nodes or int(summary_nodes.group(1)) <= 0:
         raise AssertionError("telemetry summary contains no searched nodes")

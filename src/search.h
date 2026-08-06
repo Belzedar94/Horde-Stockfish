@@ -418,6 +418,7 @@ class Worker {
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;
+    u64                  hordeExperimentMask = 0;
 #endif
 
     friend class Stockfish::ThreadPool;

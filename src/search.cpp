@@ -72,6 +72,12 @@ constexpr u64 NODES_LIMIT_OUTPUT = 10'000'000;
 constexpr int SEARCHEDLIST_CAPACITY = 32;
 using SearchedList                  = ValueList<Move, SEARCHEDLIST_CAPACITY>;
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+#define HORDE_PRUNING_ACTIVE(bit) (!(hordeExperimentMask & Search::bit))
+#else
+#define HORDE_PRUNING_ACTIVE(bit) true
+#endif
+
 // (*Scalers):
 // The values with Scaler asterisks have proven non-linear scaling.
 // They are optimized to time controls of 180 + 1.8 and longer,
@@ -193,6 +199,7 @@ void Search::Worker::start_searching() {
     accumulatorStack.reset();
 
 #if defined(HORDE_SEARCH_TELEMETRY)
+    hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
     hordeTelemetry.reset(bool(options["HordeSearchTelemetry"]));
 #endif
 
@@ -251,7 +258,7 @@ void Search::Worker::start_searching() {
             aggregate.merge(thread->worker->hordeTelemetry);
 
         sync_cout_start();
-        aggregate.write(std::cout, threads.size(), elapsed());
+        aggregate.write(std::cout, threads.size(), elapsed(), hordeExperimentMask);
         sync_cout_end();
     }
 #endif
@@ -1007,8 +1014,15 @@ Value Search::Worker::search(
     // Step 7. Razoring
     // If eval is really low, skip search entirely and return the qsearch value.
     // For PvNodes, we must have a guard against mates being returned.
-    if (!PvNode && eval < alpha - 483 - 318 * depth * depth)
+    if (!PvNode && eval < alpha - 483 - 318 * depth * depth
+        && HORDE_PRUNING_ACTIVE(HordeDisableRazoring))
+    {
+#if defined(HORDE_SEARCH_TELEMETRY)
+        if (hordeMetrics)
+            ++hordeMetrics->razorCuts;
+#endif
         return qsearch<NonPV>(pos, ss, alpha, beta);
+    }
 
     // Step 8. Futility pruning: child node
     // The depth condition is important for mate finding.
@@ -1022,8 +1036,14 @@ Value Search::Worker::search(
                              - (2789 * improving + 335 * opponentWorsening) * futilityMult / 1024
                              + std::abs(correctionValue) / 198435;
 
-        if (eval - futilityMargin >= beta)
+        if (eval - futilityMargin >= beta && HORDE_PRUNING_ACTIVE(HordeDisableNodeFutility))
+        {
+#if defined(HORDE_SEARCH_TELEMETRY)
+            if (hordeMetrics)
+                ++hordeMetrics->nodeFutilityCuts;
+#endif
             return (661 * beta + 363 * eval) / 1024;
+        }
     }
 
     // Step 9. Null move search with verification search
@@ -1036,7 +1056,8 @@ Value Search::Worker::search(
     }
 #endif
     if (cutNode && ss->staticEval >= beta - 13 * depth - 47 * improving + 365 && !excludedMove
-        && pos.non_pawn_material(us) && ss->ply >= nmpMinPly && beta >= -2000)
+        && pos.non_pawn_material(us) && ss->ply >= nmpMinPly && beta >= -2000
+        && HORDE_PRUNING_ACTIVE(HordeDisableNmp))
     {
 #if defined(HORDE_SEARCH_TELEMETRY)
         if (hordeMetrics)
@@ -1101,7 +1122,8 @@ Value Search::Worker::search(
         && !is_decisive(beta)
         // If value from transposition table is lower than probCutBeta, don't attempt
         // probCut there
-        && !(is_valid(ttData.value) && ttData.value < probCutBeta))
+        && !(is_valid(ttData.value) && ttData.value < probCutBeta)
+        && HORDE_PRUNING_ACTIVE(HordeDisableProbCut))
     {
 #if defined(HORDE_SEARCH_TELEMETRY)
         if (hordeMetrics)
@@ -1238,7 +1260,8 @@ moves_loop:  // When in check, search starts here
         if (!rootNode && pos.non_pawn_material(us) && !is_loss(bestValue))
         {
             // Skip quiet moves if movecount exceeds our threshold
-            if (moveCount >= (3 + depth * depth) / (2 - improving))
+            if (moveCount >= (3 + depth * depth) / (2 - improving)
+                && HORDE_PRUNING_ACTIVE(HordeDisableLmp))
             {
 #if defined(HORDE_SEARCH_TELEMETRY)
                 if (hordeMetrics && !hordeLmpTriggered)
@@ -1268,7 +1291,8 @@ moves_loop:  // When in check, search starts here
                     Value futilityValue = ss->staticEval + 234 + 247 * lmrDepth
                                         + PieceValue[capturedPiece] + 134 * captHist / 1024;
 
-                    if (futilityValue <= alpha)
+                    if (futilityValue <= alpha
+                        && HORDE_PRUNING_ACTIVE(HordeDisableCaptureFutility))
                     {
 #if defined(HORDE_SEARCH_TELEMETRY)
                         if (hordeMetrics)
@@ -1283,7 +1307,8 @@ moves_loop:  // When in check, search starts here
                 int margin = 177 * depth + captHist * 34 / 1024;
                 if (!extinctionCapture
                     && (alpha >= VALUE_DRAW || pos.non_pawn_material(us) != PieceValue[movedPiece])
-                    && !pos.see_ge(move, -margin))
+                    && !pos.see_ge(move, -margin)
+                    && HORDE_PRUNING_ACTIVE(HordeDisableCaptureSee))
                 {
 #if defined(HORDE_SEARCH_TELEMETRY)
                     if (hordeMetrics)
@@ -1300,7 +1325,7 @@ moves_loop:  // When in check, search starts here
                             + sharedHistory.pawn_entry(pos)[movedPiece][move.to_sq()];
 
                 // Continuation history based pruning
-                if (history < -4136 * depth)
+                if (history < -4136 * depth && HORDE_PRUNING_ACTIVE(HordeDisableQuietHistory))
                 {
 #if defined(HORDE_SEARCH_TELEMETRY)
                     if (hordeMetrics)
@@ -1324,7 +1349,8 @@ moves_loop:  // When in check, search starts here
                 // Futility pruning: parent node
                 // (*Scaler): Generally, more frequent futility pruning
                 // scales well
-                if (!ss->inCheck && lmrDepth < 12 && futilityValue <= alpha)
+                if (!ss->inCheck && lmrDepth < 12 && futilityValue <= alpha
+                    && HORDE_PRUNING_ACTIVE(HordeDisableQuietFutility))
                 {
                     if (bestValue <= futilityValue && !is_decisive(bestValue)
                         && !is_win(futilityValue))
@@ -1343,7 +1369,8 @@ moves_loop:  // When in check, search starts here
                 lmrDepth = std::max(lmrDepth, 0);
 
                 // Prune moves with negative SEE
-                if (!pos.see_ge(move, -23 * lmrDepth * lmrDepth))
+                if (!pos.see_ge(move, -23 * lmrDepth * lmrDepth)
+                    && HORDE_PRUNING_ACTIVE(HordeDisableQuietSee))
                 {
 #if defined(HORDE_SEARCH_TELEMETRY)
                     if (hordeMetrics)
@@ -1493,6 +1520,11 @@ moves_loop:  // When in check, search starts here
             // To prevent problems when the max value is less than the min value,
             // std::clamp has been replaced by a more robust implementation.
             Depth d = std::max(1, std::min(newDepth - r / 1024, newDepth + 2)) + PvNode;
+
+#if defined(HORDE_SEARCH_TELEMETRY)
+            if (!HORDE_PRUNING_ACTIVE(HordeDisableLmr))
+                d = std::max(d, newDepth);
+#endif
 
 #if defined(HORDE_SEARCH_TELEMETRY)
             if (hordeMetrics)
@@ -1966,7 +1998,8 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
         moveCount++;
 
         // Step 6. Pruning
-        if (!extinctionCapture && !is_loss(bestValue))
+        if (!extinctionCapture && !is_loss(bestValue)
+            && HORDE_PRUNING_ACTIVE(HordeDisableQsearchPruning))
         {
             // Futility pruning and moveCount pruning
             if (!givesCheck && move.to_sq() != prevSq && !is_loss(futilityBase)

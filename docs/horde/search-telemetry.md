@@ -30,3 +30,40 @@ value. It intentionally makes an enabled instrumented build slower.
 These counters are observational. Counterfactual false-prune experiments must
 use an isolated shadow search with separate transposition tables and histories;
 they must never reuse the production search state.
+
+## Isolated shadow search
+
+Instrumented builds also expose `HordeSearchExperimentMask`, defaulting to
+zero. Its additive bit IDs are fixed:
+
+| Bit | Disabled search component |
+| ---: | --- |
+| 1 | Null-move pruning |
+| 2 | ProbCut |
+| 4 | Late-move pruning |
+| 8 | Node futility |
+| 16 | Capture futility |
+| 32 | Capture SEE pruning |
+| 64 | Quiet continuation-history pruning |
+| 128 | Quiet futility |
+| 256 | Quiet SEE pruning |
+| 512 | Qsearch pruning |
+| 1024 | Late-move reductions |
+| 2048 | Razoring |
+
+Mask zero preserves the accepted search. `tests/horde_shadow_search.py` starts
+separate engine sessions, clears TT and histories for every position, compares
+one disabled component at a time, and checks the result against a deeper
+mask-zero reference. A changed shallow result that agrees with the deeper best
+move is reported as a false-prune candidate, not as a confirmed regression.
+
+Example:
+
+```text
+python tests/horde_shadow_search.py src/stockfish \
+  --positions 1000 --depth 6 --reference-depth 8
+```
+
+The ordered positions come from the deterministic physical-`P` Horde generator.
+The JSON receipt freezes the seed, depths, experiment IDs, changed results, and
+candidate records.

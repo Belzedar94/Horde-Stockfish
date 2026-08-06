@@ -95,8 +95,15 @@ jobs:
         run: python3 tests/horde_bench.py src/stockfish --runs 1
       - name: Verify opt-in telemetry
         run: python3 tests/horde_search_telemetry.py src/stockfish
+      - name: Verify isolated counterfactual searches
+        run: >-
+          python3 tests/horde_shadow_search.py src/stockfish
+          --positions 4 --depth 3 --reference-depth 4
       - name: Compile the telemetry test
-        run: python3 -m py_compile tests/horde_search_telemetry.py
+        run: >-
+          python3 -m py_compile
+          tests/horde_search_telemetry.py
+          tests/horde_shadow_search.py
 
   legacy-parity:
     name: Run 6B differential and determinism gates

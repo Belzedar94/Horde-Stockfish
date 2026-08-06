@@ -36,6 +36,8 @@ namespace Stockfish::Search {
     X(probCutTried)                  \
     X(probCutMoves)                  \
     X(probCutCutoffs)                \
+    X(razorCuts)                     \
+    X(nodeFutilityCuts)              \
     X(lmpTriggered)                  \
     X(lmrSearches)                   \
     X(lmrReductions)                 \
@@ -69,6 +71,22 @@ struct HordeSearchMetrics {
         HORDE_SEARCH_COUNTERS(HORDE_MERGE_COUNTER)
 #undef HORDE_MERGE_COUNTER
     }
+};
+
+enum HordeSearchExperiment : u64 {
+    HordeDisableNmp             = 1ULL << 0,
+    HordeDisableProbCut         = 1ULL << 1,
+    HordeDisableLmp             = 1ULL << 2,
+    HordeDisableNodeFutility    = 1ULL << 3,
+    HordeDisableCaptureFutility = 1ULL << 4,
+    HordeDisableCaptureSee      = 1ULL << 5,
+    HordeDisableQuietHistory    = 1ULL << 6,
+    HordeDisableQuietFutility   = 1ULL << 7,
+    HordeDisableQuietSee        = 1ULL << 8,
+    HordeDisableQsearchPruning  = 1ULL << 9,
+    HordeDisableLmr             = 1ULL << 10,
+    HordeDisableRazoring        = 1ULL << 11,
+    HordeExperimentMaskMax      = (1ULL << 12) - 1,
 };
 
 class HordeSearchTelemetry {
@@ -121,7 +139,10 @@ class HordeSearchTelemetry {
                     cells[color][depth][pieces].merge(other.cells[color][depth][pieces]);
     }
 
-    void write(std::ostream& output, std::size_t threads, TimePoint elapsedMs) const {
+    void write(std::ostream& output,
+               std::size_t   threads,
+               TimePoint     elapsedMs,
+               u64           experimentMask) const {
         HordeSearchMetrics total;
         for (const auto& byDepth : cells)
             for (const auto& byPieces : byDepth)
@@ -129,7 +150,8 @@ class HordeSearchTelemetry {
                     total.merge(metrics);
 
         output << "info string horde telemetry schema=1 threads=" << threads
-               << " elapsed_ms=" << elapsedMs << " nodes=" << total.nodes << '\n';
+               << " elapsed_ms=" << elapsedMs << " experiment_mask=" << experimentMask
+               << " nodes=" << total.nodes << '\n';
 
         for (std::size_t color = 0; color < COLOR_NB; ++color)
             for (std::size_t depth = 0; depth < DepthBuckets; ++depth)
