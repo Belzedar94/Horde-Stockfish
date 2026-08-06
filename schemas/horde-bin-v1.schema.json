@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-bin-v1.schema.json",
+  "title": "Horde BIN V1",
+  "description": "Canonical physical-position training-data format for Horde-Stockfish.",
+  "schema_name": "HORDE_BIN_V1",
+  "file_layout": {
+    "byte_order": "little",
+    "magic_ascii": "HORDEBIN",
+    "format_version": 1,
+    "header_bytes": 2048,
+    "version_offset": 8,
+    "version_type": "uint16",
+    "header_size_offset": 10,
+    "header_size_type": "uint16",
+    "manifest_length_offset": 12,
+    "manifest_length_type": "uint32",
+    "manifest_offset": 16,
+    "manifest_encoding": "UTF-8 JSON",
+    "reserved_header_bytes": "zero",
+    "payload_offset": 2048,
+    "payload": "A contiguous sequence of 48-byte records"
+  },
+  "manifest": {
+    "required": [
+      "schema",
+      "schema_sha256",
+      "format_version",
+      "header_bytes",
+      "record_bytes",
+      "record_count",
+      "byte_order",
+      "source_commit",
+      "source_dirty",
+      "network",
+      "book_sha256",
+      "producer_sha256",
+      "payload_sha256",
+      "generation"
+    ],
+    "hash_encoding": "Uppercase hexadecimal SHA-256; book_sha256 may be NONE",
+    "seed_encoding": "Unsigned decimal string",
+    "canonicalization": "Compact JSON with keys emitted in the order documented above"
+  },
+  "record": {
+    "bytes": 48,
+    "fields": [
+      {
+        "name": "board",
+        "offset": 0,
+        "bytes": 32,
+        "encoding": "Two 4-bit piece codes per byte; square 2n is the low nibble and square 2n+1 is the high nibble"
+      },
+      {
+        "name": "side_to_move",
+        "offset": 32,
+        "type": "uint8",
+        "values": {
+          "0": "WHITE_HORDE",
+          "1": "BLACK_ROYAL"
+        }
+      },
+      {
+        "name": "black_castling_rights",
+        "offset": 33,
+        "type": "uint8",
+        "bits": {
+          "0": "BLACK_OO",
+          "1": "BLACK_OOO"
+        }
+      },
+      {
+        "name": "en_passant_square",
+        "offset": 34,
+        "type": "uint8",
+        "encoding": "Stockfish square index 0-63; 64 means none"
+      },
+      {
+        "name": "sample_flags",
+        "offset": 35,
+        "type": "uint8",
+        "bits": {
+          "0": "BEST_MOVE_IS_CAPTURE",
+          "1": "BEST_MOVE_GIVES_CHECK",
+          "2": "BEST_MOVE_IS_PROMOTION",
+          "3": "BEST_MOVE_IS_EN_PASSANT",
+          "4": "BEST_MOVE_IS_CASTLING",
+          "5": "PLAYED_MOVE_DIFFERS_FROM_BEST",
+          "6": "ROYAL_SIDE_TO_MOVE_IS_IN_CHECK",
+          "7": "RESERVED_ZERO"
+        }
+      },
+      {
+        "name": "rule50_count",
+        "offset": 36,
+        "type": "uint16"
+      },
+      {
+        "name": "game_ply",
+        "offset": 38,
+        "type": "uint16"
+      },
+      {
+        "name": "score",
+        "offset": 40,
+        "type": "int16",
+        "perspective": "side_to_move",
+        "units": "raw Horde-Stockfish Value"
+      },
+      {
+        "name": "best_move",
+        "offset": 42,
+        "type": "uint16",
+        "encoding": "Stockfish Move::raw()"
+      },
+      {
+        "name": "played_move",
+        "offset": 44,
+        "type": "uint16",
+        "encoding": "Stockfish Move::raw()"
+      },
+      {
+        "name": "result",
+        "offset": 46,
+        "type": "int8",
+        "perspective": "side_to_move",
+        "values": {
+          "-1": "loss",
+          "0": "draw",
+          "1": "win"
+        }
+      },
+      {
+        "name": "outcome_reason",
+        "offset": 47,
+        "type": "uint8",
+        "values": {
+          "1": "CHECKMATE",
+          "2": "EXTINCTION",
+          "3": "STALEMATE",
+          "4": "HORDE_FORTRESS",
+          "5": "FIFTY_MOVE",
+          "6": "FIVEFOLD_REPETITION"
+        }
+      }
+    ]
+  },
+  "piece_codes": {
+    "0": "EMPTY",
+    "1": "WHITE_PAWN",
+    "2": "WHITE_KNIGHT",
+    "3": "WHITE_BISHOP",
+    "4": "WHITE_ROOK",
+    "5": "WHITE_QUEEN",
+    "6": "BLACK_PAWN",
+    "7": "BLACK_KNIGHT",
+    "8": "BLACK_BISHOP",
+    "9": "BLACK_ROOK",
+    "10": "BLACK_QUEEN",
+    "11": "BLACK_KING",
+    "12-15": "RESERVED_INVALID"
+  },
+  "invariants": [
+    "The board has no white king and exactly one black king.",
+    "All physical pawns use PAWN; the legacy H identity is not stored.",
+    "White may have up to 36 pieces and the full position may have up to 52 pieces.",
+    "Only black castling rights may be present.",
+    "best_move and played_move are legal in the stored position.",
+    "Every record belongs to a game resolved by Position::outcome; generator truncation is never labeled as a draw.",
+    "Per-color insufficient winning material is not an automatic game result."
+  ]
+}

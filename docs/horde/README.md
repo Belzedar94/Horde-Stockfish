@@ -23,6 +23,8 @@ Horde-Stockfish without losing rule, source or network provenance.
   and the orthogonal feature-ablation ladder.
 - [NNUE V2 width receipt](nnue-v2-width-receipt.json) - value-identical AVX2
   search NPS, confidence intervals and the first training-width gate.
+- [Training-data contract V1](datagen-v1.md) — the isolated generator,
+  physical-position wire format and G0 audit boundary.
 - [Fixtures](fixtures/README.md) — pinned Lichess perft and its exact HordeTest
   `P`-to-`H` translation.
 

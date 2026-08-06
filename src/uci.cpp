@@ -33,6 +33,10 @@
 #include <vector>
 
 #include "benchmark.h"
+#ifdef HORDE_DATA_GENERATOR
+    #include "data/horde_bin_v1.h"
+    #include "data/training_data_generator.h"
+#endif
 #include "engine.h"
 #include "genfens.h"
 #include "memory.h"
@@ -144,6 +148,16 @@ void UCIEngine::loop() {
             engine.search_clear();
         else if (token == "isready")
             sync_cout << "readyok" << sync_endl;
+
+#ifdef HORDE_DATA_GENERATOR
+        else if (token == "horde_data_schema")
+            sync_cout << Data::horde_data_schema_json() << sync_endl;
+        else if (token == "horde_generate_training_data")
+        {
+            if (!Data::generate_training_data(engine, is))
+                std::exit(EXIT_FAILURE);
+        }
+#endif
 
         // Add custom non-UCI commands, mainly for debugging purposes.
         else if (token == "flip")
