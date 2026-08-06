@@ -19,6 +19,8 @@ Horde-Stockfish without losing rule, source or network provenance.
   Run 6B parity, incremental, determinism and benchmark evidence.
 - [Search telemetry](search-telemetry.md) — opt-in Horde pruning and branching
   counters for instrumented builds.
+- [Training-data contract V1](datagen-v1.md) — the isolated generator,
+  physical-position wire format and G0 audit boundary.
 - [Fixtures](fixtures/README.md) — pinned Lichess perft and its exact HordeTest
   `P`-to-`H` translation.
 

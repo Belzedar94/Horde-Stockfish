@@ -21,6 +21,7 @@
 
 #include <functional>
 #include <filesystem>
+#include <iosfwd>
 #include <map>
 #include <memory>
 #include <optional>
@@ -43,6 +44,12 @@
 #include "ucioption.h"
 
 namespace Stockfish {
+
+class Engine;
+
+namespace Data {
+bool generate_training_data(Engine&, std::istream&);
+}
 
 class Engine {
    public:
@@ -116,6 +123,10 @@ class Engine {
     std::string                          thread_binding_information_as_string() const;
 
    private:
+    // The implementation is linked only into the isolated data-generator
+    // target. Keeping the declaration unconditional preserves one Engine type.
+    friend bool Data::generate_training_data(Engine&, std::istream&);
+
     const std::filesystem::path binaryDirectory;
 
     NumaReplicationContext numaContext;

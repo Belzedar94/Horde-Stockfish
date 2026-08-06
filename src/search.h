@@ -162,6 +162,26 @@ struct RootMove {
 using RootMoves = std::vector<RootMove>;
 
 
+struct TrainingSearchRequest {
+    Depth depth   = 0;
+    u64   nodes   = 0;
+    usize multiPV = 1;
+};
+
+struct TrainingSearchLine {
+    Value   value = VALUE_NONE;
+    PVMoves pv;
+};
+
+struct TrainingSearchResult {
+    Value                           value = VALUE_NONE;
+    PVMoves                         pv;
+    std::vector<TrainingSearchLine> lines;
+    u64                             nodes = 0;
+    Depth                           depth = 0;
+};
+
+
 // LimitsType struct stores information sent by the caller about the analysis required.
 struct LimitsType {
 
@@ -337,6 +357,10 @@ class Worker {
     bool is_mainthread() const { return threadIdx == 0; }
 
     void ensure_network_replicated();
+
+    // Synchronous per-worker entry point linked only by the isolated Horde
+    // data-generator target. Scores remain raw engine Values.
+    TrainingSearchResult training_search(Position&, const TrainingSearchRequest&);
 
     // Public because they need to be updatable by the stats
     ButterflyHistory mainHistory;

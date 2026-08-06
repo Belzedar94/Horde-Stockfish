@@ -62,15 +62,19 @@ endif
 ### Executable name
 ifeq ($(target_windows),yes)
 	EXE = stockfish.exe
+	HORDE_DATA_GENERATOR_EXE = horde-stockfish-data-generator.exe
 else ifneq (,$(findstring wasm,$(ARCH)))
 	EXE = stockfish.js
+	HORDE_DATA_GENERATOR_EXE = horde-stockfish-data-generator.js
 else
 	EXE = stockfish
+	HORDE_DATA_GENERATOR_EXE = horde-stockfish-data-generator
 endif
 
 ### Installation dir definitions
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
+PYTHON ?= python3
 
 ### Built-in benchmark for pgo-builds
 PGOBENCH = $(RUN_PREFIX) ./$(EXE) bench
@@ -94,6 +98,17 @@ HEADERS = attacks.h benchmark.h bitboard.h evaluate.h genfens.h misc.h movegen.h
 		tt.h tune.h types.h uci.h ucioption.h perft.h nnue/network.h engine.h score.h numa.h memory.h shm.h shm_unix.h
 
 OBJS = $(notdir $(SRCS:.cpp=.o))
+
+HORDE_DATA_GENERATOR_SRCS = data/sha256.cpp data/horde_bin_v1.cpp data/training_data_generator.cpp
+HORDE_DATA_GENERATOR_HEADERS = data/sha256.h data/horde_bin_v1.h data/training_data.h \
+	data/random_seed.h data/training_data_generator.h
+HORDE_DATA_GENERATOR_OBJS = $(filter-out search.o uci.o,$(OBJS)) \
+	horde_data_generator_search.o horde_data_generator_uci.o \
+	horde_data_generator_sha256.o horde_data_generator_horde_bin_v1.o \
+	horde_data_generator_training_data_generator.o
+HORDE_BIN_V1_TEST_EXE = horde-bin-v1-tests$(if $(filter yes,$(target_windows)),.exe,)
+HORDE_BIN_V1_TEST_OBJS = $(filter-out main.o,$(OBJS)) horde_data_generator_sha256.o \
+	horde_data_generator_horde_bin_v1.o horde_bin_v1_tests.o
 
 VPATH = syzygy:nnue:nnue/features
 
@@ -913,6 +928,7 @@ BUILD_SHA_FILE       := .build_sha.txt
 BUILD_DATE_FILE      := .build_date.txt
 BUILD_DIFFINDEX_FILE := .build_diffindex.txt
 GIT_SHA              := $(shell git rev-parse HEAD 2>/dev/null | cut -c 1-8 || true)
+GIT_FULL_SHA         := $(shell git rev-parse HEAD 2>/dev/null || true)
 GIT_DATE             := $(shell git show -s --date=format:%Y%m%d --format=%cd HEAD 2>/dev/null || true)
 GIT_DIFFINDEX        := $(shell git update-index --refresh >/dev/null 2>&1; git -c core.filemode=false -c core.autocrlf=false  diff-index --quiet HEAD -- 2>/dev/null; [ $$? -eq 1 ] && echo 1 || true)
 COMPILER_DATE        := $(shell date +%Y%m%d 2>/dev/null)
@@ -1086,7 +1102,8 @@ ifneq ($(SUPPORTED_ARCH), true)
 endif
 
 
-.PHONY: help analyze build profile-build macos-lipo strip install clean net \
+.PHONY: help analyze build profile-build macos-lipo strip install clean net data-generator \
+	horde-data-generator-tests \
 	objclean profileclean config-sanity \
 	icx-profile-use icx-profile-make \
 	gcc-profile-use gcc-profile-make \
@@ -1208,7 +1225,9 @@ clean: objclean profileclean universalclean
 
 # clean binaries and objects
 objclean:
-	@rm -f stockfish stockfish.exe *.o ./syzygy/*.o ./nnue/*.o ./nnue/features/*.o $(BUILD_SHA_FILE) $(BUILD_DATE_FILE) $(BUILD_DIFFINDEX_FILE)
+	@rm -f stockfish stockfish.exe horde-stockfish-data-generator horde-stockfish-data-generator.exe \
+		horde-bin-v1-tests horde-bin-v1-tests.exe *.o ./syzygy/*.o ./nnue/*.o ./nnue/features/*.o \
+		$(BUILD_SHA_FILE) $(BUILD_DATE_FILE) $(BUILD_DIFFINDEX_FILE)
 
 # clean auxiliary profiling files
 profileclean:
@@ -1229,13 +1248,21 @@ net:
 	@$(SHELL) ../scripts/net.sh
 
 format:
-	$(CLANG-FORMAT) -i $(SRCS) $(OTHER_SRCS) $(HEADERS) -style=file
+	$(CLANG-FORMAT) -i $(SRCS) $(HORDE_DATA_GENERATOR_SRCS) $(OTHER_SRCS) $(HEADERS) \
+		$(HORDE_DATA_GENERATOR_HEADERS) -style=file
 
 ### ==========================================================================
 ### Section 5. Private Targets
 ### ==========================================================================
 
 all: $(EXE) .depend
+
+data-generator: config-sanity $(HORDE_DATA_GENERATOR_EXE)
+
+horde-data-generator-tests: config-sanity $(EXE) $(HORDE_DATA_GENERATOR_EXE) $(HORDE_BIN_V1_TEST_EXE)
+	./$(HORDE_BIN_V1_TEST_EXE)
+	$(PYTHON) ../tests/horde_data_generator.py --generator ./$(HORDE_DATA_GENERATOR_EXE) \
+		--normal-engine ./$(EXE) --network ../networks/hordetest_run6b_e37_l06.nnue
 
 config-sanity: net
 	@echo ""
@@ -1310,6 +1337,28 @@ config-sanity: net
 
 $(EXE): $(OBJS)
 	+$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+
+$(HORDE_DATA_GENERATOR_EXE): $(HORDE_DATA_GENERATOR_OBJS)
+	+$(CXX) -o $@ $(HORDE_DATA_GENERATOR_OBJS) $(LDFLAGS)
+
+$(HORDE_BIN_V1_TEST_EXE): $(HORDE_BIN_V1_TEST_OBJS)
+	+$(CXX) -o $@ $(HORDE_BIN_V1_TEST_OBJS) $(LDFLAGS)
+
+HORDE_DATA_GENERATOR_DEFINES = -DHORDE_DATA_GENERATOR \
+	$(if $(GIT_FULL_SHA),-DHORDE_SOURCE_COMMIT=\"$(GIT_FULL_SHA)\") \
+	-DHORDE_SOURCE_DIRTY=$(if $(GIT_DIFFINDEX),1,0)
+
+horde_data_generator_uci.o: uci.cpp $(HEADERS) $(HORDE_DATA_GENERATOR_HEADERS)
+	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS) $(HORDE_DATA_GENERATOR_DEFINES)) -I. -c -o $@ $<
+
+horde_data_generator_search.o: search.cpp $(HEADERS) $(HORDE_DATA_GENERATOR_HEADERS)
+	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS) $(HORDE_DATA_GENERATOR_DEFINES)) -I. -c -o $@ $<
+
+horde_data_generator_%.o: data/%.cpp $(HEADERS) $(HORDE_DATA_GENERATOR_HEADERS)
+	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS) $(HORDE_DATA_GENERATOR_DEFINES)) -I. -c -o $@ $<
+
+horde_bin_v1_tests.o: ../tests/horde_bin_v1.cpp $(HEADERS) $(HORDE_DATA_GENERATOR_HEADERS)
+	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS)) -I. -c -o $@ $<
 
 %.o: %.cpp
 	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS)) -c -o $@ $<
