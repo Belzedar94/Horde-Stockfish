@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from pathlib import Path
 import re
 import subprocess
@@ -14,6 +15,9 @@ import tempfile
 PREFIX = "info string genfens "
 START = "rnbqkbnr/pppppppp/8/1PP2PP1/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP w kq -"
 OPEN_FLANK = "4k3/pp4q1/3P2p1/8/P3PP2/PPP2r2/PPP5/PPPP4 b - -"
+CANONICAL_BOOK_SHA256 = (
+    "93e97b27d5df054b8a649b8be92a0a8b058384dae35bad142f9a610896eb6958"
+)
 
 
 def run(engine: Path, command: str) -> tuple[list[str], str]:
@@ -89,6 +93,7 @@ def verify_engine_accepts(engine: Path, fens: list[str]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("engine", type=Path)
+    parser.add_argument("--book", type=Path)
     args = parser.parse_args()
     engine = args.engine.resolve()
     if not engine.is_file():
@@ -125,6 +130,34 @@ def main() -> int:
         for fen in from_book:
             validate_shape(fen)
         verify_engine_accepts(engine, from_book)
+
+    if args.book:
+        canonical_book = args.book.resolve()
+        if not canonical_book.is_file():
+            raise AssertionError(f"canonical Horde book not found: {canonical_book}")
+        payload = canonical_book.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != CANONICAL_BOOK_SHA256:
+            raise AssertionError("canonical Horde book SHA-256 mismatch")
+
+        # OpenBench stages books beside the engine without whitespace in the
+        # path. A temporary copy gives the same argv contract on local paths
+        # that may contain whitespace.
+        with tempfile.TemporaryDirectory() as directory:
+            staged_book = Path(directory) / "HORDE_openings.epd"
+            staged_book.write_bytes(payload)
+            command = (
+                f"genfens 128 seed 20260806 book {staged_book} "
+                "minplies=3 maxplies=4"
+            )
+            canonical_first, output = run(engine, command)
+            canonical_second, _ = run(engine, command)
+        if len(canonical_first) != 128 or "genfens error:" in output:
+            raise AssertionError(output)
+        if canonical_first != canonical_second:
+            raise AssertionError("canonical-book Horde generation is not deterministic")
+        for fen in canonical_first:
+            validate_shape(fen)
+        verify_engine_accepts(engine, canonical_first)
 
     rejected, output = run(
         engine,

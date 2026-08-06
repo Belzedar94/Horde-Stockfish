@@ -30,13 +30,34 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Fetch the pinned Horde opening book
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          import urllib.request
+          import zipfile
+
+          url = "https://raw.githubusercontent.com/Belzedar94/OpenBench/cd0560081f6433b58a8aa8d0c3fd4a91e969f1dd/Books/HORDE_openings.epd.zip"
+          archive_sha = "556b8bd549dc22797238268f9737c6a1f074a82f4cae2f4d62005ffbac6ccd18"
+          payload_sha = "93e97b27d5df054b8a649b8be92a0a8b058384dae35bad142f9a610896eb6958"
+          archive = urllib.request.urlopen(url, timeout=60).read()
+          assert hashlib.sha256(archive).hexdigest() == archive_sha
+          Path("horde-book.zip").write_bytes(archive)
+          with zipfile.ZipFile("horde-book.zip") as container:
+              assert container.namelist() == ["HORDE_openings.epd"]
+              payload = container.read("HORDE_openings.epd")
+          assert hashlib.sha256(payload).hexdigest() == payload_sha
+          Path("horde-book").mkdir()
+          Path("horde-book/HORDE_openings.epd").write_bytes(payload)
+          PY
       - name: Build and verify Horde-Stockfish
         run: |
           make -j2 -C src ARCH=${{ matrix.arch }} build
           python3 tests/horde_rules.py src/stockfish
           python3 tests/horde_network_contract.py src/stockfish
           python3 tests/horde_bench.py src/stockfish --runs 1
-          python3 tests/horde_genfens.py src/stockfish
+          python3 tests/horde_genfens.py src/stockfish --book horde-book/HORDE_openings.epd
           file src/stockfish | grep 'statically linked'
       - name: Stage the sole executable
         run: |
@@ -78,6 +99,28 @@ jobs:
             make
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-python
+      - name: Fetch the pinned Horde opening book
+        shell: msys2 {0}
+        run: |
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          import urllib.request
+          import zipfile
+
+          url = "https://raw.githubusercontent.com/Belzedar94/OpenBench/cd0560081f6433b58a8aa8d0c3fd4a91e969f1dd/Books/HORDE_openings.epd.zip"
+          archive_sha = "556b8bd549dc22797238268f9737c6a1f074a82f4cae2f4d62005ffbac6ccd18"
+          payload_sha = "93e97b27d5df054b8a649b8be92a0a8b058384dae35bad142f9a610896eb6958"
+          archive = urllib.request.urlopen(url, timeout=60).read()
+          assert hashlib.sha256(archive).hexdigest() == archive_sha
+          Path("horde-book.zip").write_bytes(archive)
+          with zipfile.ZipFile("horde-book.zip") as container:
+              assert container.namelist() == ["HORDE_openings.epd"]
+              payload = container.read("HORDE_openings.epd")
+          assert hashlib.sha256(payload).hexdigest() == payload_sha
+          Path("horde-book").mkdir()
+          Path("horde-book/HORDE_openings.epd").write_bytes(payload)
+          PY
       - name: Build and verify Horde-Stockfish
         shell: msys2 {0}
         run: |
@@ -85,7 +128,7 @@ jobs:
           python tests/horde_rules.py src/stockfish.exe
           python tests/horde_network_contract.py src/stockfish.exe
           python tests/horde_bench.py src/stockfish.exe --runs 1
-          python tests/horde_genfens.py src/stockfish.exe
+          python tests/horde_genfens.py src/stockfish.exe --book horde-book/HORDE_openings.epd
       - name: Stage the sole executable
         shell: msys2 {0}
         run: |
