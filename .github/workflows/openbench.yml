@@ -1,0 +1,15 @@
+name: OpenBench
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  registration:
+    name: Register the private artifact workflow
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm registration
+        run: echo "OpenBench artifact builds are defined by each measured commit."
