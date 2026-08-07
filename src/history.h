@@ -224,6 +224,13 @@ struct SharedHistories {
         return correctionHistory[pos.pawn_key() & sizeMinus1];
     }
 
+    auto& material_correction_entry(const Position& pos) {
+        return correctionHistory[pos.material_key() & sizeMinus1];
+    }
+    const auto& material_correction_entry(const Position& pos) const {
+        return correctionHistory[pos.material_key() & sizeMinus1];
+    }
+
     auto& minor_piece_correction_entry(const Position& pos) {
         return correctionHistory[pos.minor_piece_key() & sizeMinus1];
     }
