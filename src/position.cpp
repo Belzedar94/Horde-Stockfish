@@ -61,6 +61,12 @@ static constexpr Piece Pieces[] = {W_PAWN, W_KNIGHT, W_BISHOP, W_ROOK, W_QUEEN, 
                                    B_PAWN, B_KNIGHT, B_BISHOP, B_ROOK, B_QUEEN, B_KING};
 
 constexpr Bitboard DarkSquares = 0xAA55AA55AA55AA55ULL;
+// Run 6B's White H role has the frozen Fairy-Stockfish midgame value.
+constexpr Value    HordeLegacyPawnValue = Value(152);
+
+constexpr Value horde_see_piece_value(Piece pc) {
+    return pc == W_PAWN ? HordeLegacyPawnValue : PieceValue[pc];
+}
 
 struct HordeMaterial {
     int pawn;
@@ -1581,11 +1587,11 @@ bool Position::see_ge(Move m, int threshold) const {
 
     assert(piece_on(from) != NO_PIECE);
 
-    int swap = PieceValue[piece_on(to)] - threshold;
+    int swap = horde_see_piece_value(piece_on(to)) - threshold;
     if (swap < 0)
         return false;
 
-    swap = PieceValue[piece_on(from)] - swap;
+    swap = horde_see_piece_value(piece_on(from)) - swap;
     if (swap <= 0)
         return true;
 
@@ -1621,7 +1627,8 @@ bool Position::see_ge(Move m, int threshold) const {
         // the bitboard 'attackers' any X-ray attackers behind it.
         if ((bb = stmAttackers & pieces(PAWN)))
         {
-            if ((swap = PawnValue - swap) < res)
+            const Value pawnValue = stm == WHITE ? HordeLegacyPawnValue : PawnValue;
+            if ((swap = pawnValue - swap) < res)
                 break;
             occupied ^= least_significant_square_bb(bb);
 
