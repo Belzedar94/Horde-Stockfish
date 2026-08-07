@@ -908,7 +908,8 @@ bool Position::gives_check(Move m) const {
     assert(m.is_ok());
     assert(color_of(moved_piece(m)) == sideToMove);
 
-    if (!has_king(~sideToMove))
+    // Black attacks a kingless side in Horde and therefore cannot give check.
+    if (sideToMove == BLACK)
         return false;
 
     Square from = m.from_sq();
@@ -919,8 +920,8 @@ bool Position::gives_check(Move m) const {
         return true;
 
     // Is there a discovered check?
-    if (blockers_for_king(~sideToMove) & from)
-        return !(line_bb(from, to) & pieces(~sideToMove, KING)) || m.type_of() == CASTLING;
+    if (blockers_for_king(BLACK) & from)
+        return !(line_bb(from, to) & pieces(BLACK, KING)) || m.type_of() == CASTLING;
 
     switch (m.type_of())
     {
@@ -928,7 +929,7 @@ bool Position::gives_check(Move m) const {
         return false;
 
     case PROMOTION :
-        return attacks_bb(m.promotion_type(), to, pieces() ^ from) & pieces(~sideToMove, KING);
+        return attacks_bb(m.promotion_type(), to, pieces() ^ from) & pieces(BLACK, KING);
 
     // En passant capture with check? We have already handled the case of direct
     // checks and ordinary discovered check, so the only case we need to handle
@@ -936,15 +937,15 @@ bool Position::gives_check(Move m) const {
     case EN_PASSANT : {
         Square   capsq                          = make_square(file_of(to), rank_of(from));
         Bitboard b                              = (pieces() ^ from ^ capsq) | to;
-        const auto [bishopAttacks, rookAttacks] = both_attacks_bb(square<KING>(~sideToMove), b);
+        const auto [bishopAttacks, rookAttacks] = both_attacks_bb(square<KING>(BLACK), b);
 
-        return (rookAttacks & pieces(sideToMove, QUEEN, ROOK))
-             | (bishopAttacks & pieces(sideToMove, QUEEN, BISHOP));
+        return (rookAttacks & pieces(WHITE, QUEEN, ROOK))
+             | (bishopAttacks & pieces(WHITE, QUEEN, BISHOP));
     }
     default :  //CASTLING
     {
         // Castling is encoded as 'king captures the rook'
-        Square rto = relative_square(sideToMove, to > from ? SQ_F1 : SQ_D1);
+        Square rto = relative_square(WHITE, to > from ? SQ_F1 : SQ_D1);
 
         return check_squares(ROOK) & rto;
     }
