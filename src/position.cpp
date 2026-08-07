@@ -594,7 +594,10 @@ void Position::set_castling_right(Color c, Square rfrom) {
 // Sets king attacks to detect if a move gives check
 void Position::set_check_info() const {
 
-    update_slider_blockers(WHITE);
+    // Horde has no White king, so these entries are invariant. Avoid the
+    // generic king lookup and early-return path after every move.
+    st->blockersForKing[WHITE] = 0;
+    st->pinners[BLACK]         = 0;
     update_slider_blockers(BLACK);
 
     if (!has_king(~sideToMove))
