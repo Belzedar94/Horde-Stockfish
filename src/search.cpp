@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordePreserveWhitePawnHistory = bool(options["HordePreserveWhitePawnHistory"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1338,7 +1339,9 @@ moves_loop:  // When in check, search starts here
                             + sharedHistory.pawn_entry(pos)[movedPiece][move.to_sq()];
 
                 // Continuation history based pruning
-                if (history < -4136 * depth && HORDE_PRUNING_ACTIVE(HordeDisableQuietHistory))
+                if (history < -4136 * depth
+                    && !(hordePreserveWhitePawnHistory && movedPiece == W_PAWN)
+                    && HORDE_PRUNING_ACTIVE(HordeDisableQuietHistory))
                 {
 #if defined(HORDE_SEARCH_TELEMETRY)
                     if (hordeMetrics)
