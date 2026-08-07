@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordePreserveWhitePawnSee = bool(options["HordePreserveWhitePawnSee"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1383,6 +1384,7 @@ moves_loop:  // When in check, search starts here
 
                 // Prune moves with negative SEE
                 if (!pos.see_ge(move, -23 * lmrDepth * lmrDepth)
+                    && !(hordePreserveWhitePawnSee && movedPiece == W_PAWN)
                     && HORDE_PRUNING_ACTIVE(HordeDisableQuietSee))
                 {
 #if defined(HORDE_SEARCH_TELEMETRY)

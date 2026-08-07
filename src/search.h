@@ -416,6 +416,8 @@ class Worker {
     Eval::NNUE::AccumulatorStack  accumulatorStack;
     Eval::NNUE::AccumulatorCaches refreshTable;
 
+    bool hordePreserveWhitePawnSee = false;
+
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;
     u64                  hordeExperimentMask = 0;
