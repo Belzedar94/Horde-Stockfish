@@ -78,7 +78,11 @@ class HordeLegacyNetwork {
     void refresh_accumulator(const Position& pos, AccumulatorState& target) const;
     void update_accumulator(const DirtyPiece&       dirty,
                             const AccumulatorState& source,
-                            AccumulatorState&       target) const;
+                            AccumulatorState&       target,
+                            bool                    fusedDelta) const;
+    void update_accumulator_fused(const DirtyPiece&       dirty,
+                                  const AccumulatorState& source,
+                                  AccumulatorState&       target) const;
     [[nodiscard]] RawOutput propagate(const Position&         pos,
                                       const AccumulatorState& accumulator,
                                       int                     bucket) const;

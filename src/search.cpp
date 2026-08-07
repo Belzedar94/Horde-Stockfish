@@ -199,6 +199,8 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    accumulatorStack.set_horde_fused_accumulator_delta(
+      bool(options["HordeFusedAccumulatorDelta"]));
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));

@@ -113,6 +113,10 @@ class AccumulatorStack {
     // make/undo incremental path.
     void evaluate_horde_legacy(const Position& pos, const HordeLegacyNetwork& network) noexcept;
 
+    void set_horde_fused_accumulator_delta(bool enabled) noexcept {
+        hordeFusedAccumulatorDelta = enabled;
+    }
+
    private:
     [[nodiscard]] AccumulatorState& mut_latest() noexcept;
 
@@ -142,6 +146,7 @@ class AccumulatorStack {
 
     std::array<AccumulatorState, MaxSize> accumulators;
     usize                                 size = 1;
+    bool                                  hordeFusedAccumulatorDelta = false;
 };
 
 }  // namespace Stockfish::Eval::NNUE

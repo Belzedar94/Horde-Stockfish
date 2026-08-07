@@ -216,6 +216,22 @@ T wrapping_sub(T lhs, T rhs) {
     return signedResult;
 }
 
+template<typename T, usize Dimensions, bool HasTo, bool HasRemove, bool HasAdd>
+void fused_delta_lanes(
+  T* target, const T* source, const T* from, const T* to, const T* remove, const T* add) {
+    for (usize i = 0; i < Dimensions; ++i)
+    {
+        T value = wrapping_sub(source[i], from[i]);
+        if constexpr (HasTo)
+            value = wrapping_add(value, to[i]);
+        if constexpr (HasRemove)
+            value = wrapping_sub(value, remove[i]);
+        if constexpr (HasAdd)
+            value = wrapping_add(value, add[i]);
+        target[i] = value;
+    }
+}
+
 int feature_family(Piece pc) {
     const PieceType type = type_of(pc);
     if (type == PAWN)
@@ -347,7 +363,14 @@ void HordeLegacyNetwork::refresh_accumulator(const Position& pos, AccumulatorSta
 
 void HordeLegacyNetwork::update_accumulator(const DirtyPiece&       dirty,
                                             const AccumulatorState& source,
-                                            AccumulatorState&       target) const {
+                                            AccumulatorState&       target,
+                                            bool                    fusedDelta) const {
+    if (fusedDelta)
+    {
+        update_accumulator_fused(dirty, source, target);
+        return;
+    }
+
     for (Color perspective : {WHITE, BLACK})
     {
         std::copy_n(source.accumulation[perspective].begin(), AccumulatorDimensions,
@@ -387,6 +410,63 @@ void HordeLegacyNetwork::update_accumulator(const DirtyPiece&       dirty,
         apply(dirty.remove_pc, dirty.remove_sq, false);
     if (dirty.add_sq != SQ_NONE)
         apply(dirty.add_pc, dirty.add_sq, true);
+
+    target.computed.fill(true);
+}
+
+void HordeLegacyNetwork::update_accumulator_fused(const DirtyPiece&       dirty,
+                                                  const AccumulatorState& source,
+                                                  AccumulatorState&       target) const {
+    const bool hasTo     = dirty.to != SQ_NONE;
+    const bool hasRemove = dirty.remove_sq != SQ_NONE;
+    const bool hasAdd    = dirty.add_sq != SQ_NONE;
+
+    assert(dirty.pc != NO_PIECE && dirty.from != SQ_NONE);
+    assert(hasTo || hasAdd);
+
+    for (Color perspective : {WHITE, BLACK})
+    {
+        const auto index = [&](Piece pc, Square square) {
+            const usize result = feature_index(perspective, square, pc);
+            assert(result < FeatureDimensions);
+            return result;
+        };
+
+        const usize fromIndex   = index(dirty.pc, dirty.from);
+        const usize toIndex     = hasTo ? index(dirty.pc, dirty.to) : 0;
+        const usize removeIndex = hasRemove ? index(dirty.remove_pc, dirty.remove_sq) : 0;
+        const usize addIndex    = hasAdd ? index(dirty.add_pc, dirty.add_sq) : 0;
+
+        const auto update = [&](auto hasToTag, auto hasRemoveTag, auto hasAddTag) {
+            constexpr bool HasTo     = decltype(hasToTag)::value;
+            constexpr bool HasRemove = decltype(hasRemoveTag)::value;
+            constexpr bool HasAdd    = decltype(hasAddTag)::value;
+            fused_delta_lanes<i16, AccumulatorDimensions, HasTo, HasRemove, HasAdd>(
+              target.accumulation[perspective].data(), source.accumulation[perspective].data(),
+              weights_.data() + fromIndex * AccumulatorDimensions,
+              HasTo ? weights_.data() + toIndex * AccumulatorDimensions : nullptr,
+              HasRemove ? weights_.data() + removeIndex * AccumulatorDimensions : nullptr,
+              HasAdd ? weights_.data() + addIndex * AccumulatorDimensions : nullptr);
+            fused_delta_lanes<i32, PsqtBuckets, HasTo, HasRemove, HasAdd>(
+              target.psqtAccumulation[perspective].data(),
+              source.psqtAccumulation[perspective].data(),
+              psqtWeights_.data() + fromIndex * PsqtBuckets,
+              HasTo ? psqtWeights_.data() + toIndex * PsqtBuckets : nullptr,
+              HasRemove ? psqtWeights_.data() + removeIndex * PsqtBuckets : nullptr,
+              HasAdd ? psqtWeights_.data() + addIndex * PsqtBuckets : nullptr);
+        };
+
+        if (!hasTo && hasRemove)
+            update(std::false_type{}, std::true_type{}, std::true_type{});
+        else if (!hasTo)
+            update(std::false_type{}, std::false_type{}, std::true_type{});
+        else if (hasRemove && hasAdd)
+            update(std::true_type{}, std::true_type{}, std::true_type{});
+        else if (hasRemove)
+            update(std::true_type{}, std::true_type{}, std::false_type{});
+        else
+            update(std::true_type{}, std::false_type{}, std::false_type{});
+    }
 
     target.computed.fill(true);
 }
@@ -436,7 +516,7 @@ void AccumulatorStack::evaluate_horde_legacy(const Position&           pos,
     if (accumulators[begin].computed[WHITE] && accumulators[begin].computed[BLACK])
         for (usize next = begin + 1; next < size; ++next)
             network.update_accumulator(accumulators[next].dirtyPiece, accumulators[next - 1],
-                                       accumulators[next]);
+                                       accumulators[next], hordeFusedAccumulatorDelta);
     else
         network.refresh_accumulator(pos, mut_latest());
 }
