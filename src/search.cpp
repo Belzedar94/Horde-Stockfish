@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeQsearchPawnCaptureQuota = bool(options["HordeQsearchPawnCaptureQuota"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -2023,7 +2024,9 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
             if (!givesCheck && move.to_sq() != prevSq && !is_loss(futilityBase)
                 && move.type_of() != PROMOTION)
             {
-                if (moveCount > 2)
+                if (moveCount > 2
+                    && !(hordeQsearchPawnCaptureQuota
+                         && pos.piece_on(move.to_sq()) == W_PAWN))
                 {
 #if defined(HORDE_SEARCH_TELEMETRY)
                     if (hordeMetrics)
