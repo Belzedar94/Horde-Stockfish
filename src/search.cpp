@@ -68,6 +68,7 @@ using namespace Search;
 namespace {
 
 constexpr u64 NODES_LIMIT_OUTPUT = 10'000'000;
+constexpr Value HORDE_LEGACY_PAWN_VALUE = Value(152);
 
 constexpr int SEARCHEDLIST_CAPACITY = 32;
 using SearchedList                  = ValueList<Move, SEARCHEDLIST_CAPACITY>;
@@ -199,6 +200,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeLegacyPawnStatScore = bool(options["HordeLegacyPawnStatScore"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1514,8 +1516,14 @@ moves_loop:  // When in check, search starts here
             r -= 2179;
 
         if (capture)
-            ss->statScore = 873 * int(PieceValue[pos.captured_piece()]) / 128
+        {
+            Value capturedValue =
+              hordeLegacyPawnStatScore && pos.captured_piece() == W_PAWN
+                ? HORDE_LEGACY_PAWN_VALUE
+                : PieceValue[pos.captured_piece()];
+            ss->statScore = 873 * int(capturedValue) / 128
                           + captureHistory[movedPiece][move.to_sq()][type_of(pos.captured_piece())];
+        }
         else
             ss->statScore =
               (2252 * mainHistory[us][move.raw()] + 1126 * (*contHist[0])[movedPiece][move.to_sq()]
