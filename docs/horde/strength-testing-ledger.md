@@ -21,6 +21,35 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 
 ## Registered experiments
 
+### 2026-08-07 — Legacy dirty-piece tracking only
+
+- Branch: `test/legacy-dirty-piece-only`
+- Commit: `69e52de5aebe2733862de5d75e17dd951e5495a2`
+- OpenBench: [test 228](https://belzedar.duckdns.org/test/228/)
+- Hypothesis: avoid building standard-NNUE threat and pawn-pair deltas in
+  `Position::do_move()` because the fail-closed Run 6B legacy evaluator consumes
+  only `DirtyPiece`.
+- Scope: `src/position.cpp`, ten insertions and sixteen deletions. The dirty
+  structures themselves remain unchanged so this workload measures only the
+  per-move bookkeeping removal.
+- Correctness: Horde rules, Run 6B network contract, three deterministic
+  315,576-node benches, 10,000-position incremental/full-refresh determinism
+  across one, two, and four threads, and 10,000-position differential parity
+  against the pinned Fairy-Stockfish oracle all passed exactly. Coverage
+  included 3,474 captures, 240 promotions, 33 en passant moves, 22 castlings,
+  and every one-to-four-White-piece bucket.
+- Shadow validation: an assertions build that compares every incremental
+  evaluation with full refresh passed Horde rules and the three deterministic
+  benches with digest
+  `fe9a5001c1997125ce34bf0ef119eab44570f5f363227bd4bab8e0db1f4e8592`.
+- Local speed screen: +8.7% combined geometric mean over two independent
+  blocks of twelve alternating depth-16 pairs; every pair in the second block
+  was positive.
+- CI: all four OpenBench artifact jobs passed on Windows and Linux for AVX2
+  pext and popcnt.
+- Decision: registered for STC `[1.00, 6.00]` with a 10,000-game neutral
+  cutoff and a 20,000-game absolute ceiling.
+
 ### 2026-08-07 — Fixed-role `do_move()` checkers update
 
 - Branch: `test/fixed-role-do-move-checkers`
