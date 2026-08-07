@@ -90,6 +90,24 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 
 ## Local rejects
 
+### 2026-08-07 - Disable qsearch move-count pruning by side
+
+- Hypothesis: the fixed two-move qsearch quota may be unreliable for only one
+  of Horde's asymmetric objectives, allowing a side-specific exception without
+  removing qsearch futility or SEE pruning.
+- Scope: local-only White and Black selectors around the qsearch move-count
+  cutoff; futility, SEE, checks, promotions, and main search remained unchanged.
+- Shadow evidence: on 128 positions generated between plies 20 and 80,
+  White-only produced 2 deeper-reference-aligned changes out of 20 changed
+  shallow searches; Black-only produced 3 out of 40.
+- Local cost screen: the frozen bench expanded from 315,576 nodes to 408,903
+  for White-only (+29.6%) and 358,657 for Black-only (+13.7%).
+- Decision: rejected locally because neither side concentrated enough
+  correction signal to justify the search expansion; no commit, push, or
+  OpenBench workload.
+- Learning: any qsearch move-count candidate must target a tactical move class
+  or a measured position bucket rather than exempting an entire side.
+
 ### 2026-08-07 - Revert early one-king singular verification
 
 - Hypothesis: the accepted two-ply Horde singular-verification bonus may start
