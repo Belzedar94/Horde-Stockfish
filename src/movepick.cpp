@@ -256,6 +256,11 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
             else
                 m.value = (*mainHistory)[us][m.raw()] + (*continuationHistory[0])[pc][to];
         }
+
+        // Capturing the final Horde unit ends the game immediately. Make that
+        // objective dominate every capture and evasion ordering heuristic.
+        if (pos.is_horde_extinction_capture(m))
+            m.value += 1 << 28;
     }
     return it;
 }
