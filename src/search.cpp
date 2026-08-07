@@ -74,8 +74,10 @@ using SearchedList                  = ValueList<Move, SEARCHEDLIST_CAPACITY>;
 
 #if defined(HORDE_SEARCH_TELEMETRY)
 #define HORDE_PRUNING_ACTIVE(bit) (!(hordeExperimentMask & Search::bit))
+#define HORDE_EXPERIMENT_ENABLED(bit) bool(hordeExperimentMask & Search::bit)
 #else
 #define HORDE_PRUNING_ACTIVE(bit) true
+#define HORDE_EXPERIMENT_ENABLED(bit) false
 #endif
 
 // (*Scalers):
@@ -782,6 +784,17 @@ Value Search::Worker::search(
     ss->inCheck   = pos.checkers();
     priorCapture  = pos.captured_piece();
     Color us      = pos.side_to_move();
+    const bool whitePawnNmpMaterial =
+      us == WHITE && pos.count<PAWN>(WHITE) && HORDE_EXPERIMENT_ENABLED(HordeEnableWhitePawnNmp);
+
+    // Physical White pawns keep PAWN semantics, but they are still active
+    // Horde search material. Without this role bridge the modern shallow
+    // pruning block is disabled throughout the pawn-only opening and middlegame.
+    const bool whitePawnPruningMaterial =
+      us == WHITE && pos.count<PAWN>(WHITE)
+      && HORDE_PRUNING_ACTIVE(HordeDisableWhitePawnPruning);
+    const bool hasNmpMaterial     = bool(pos.non_pawn_material(us)) || whitePawnNmpMaterial;
+    const bool hasPruningMaterial = bool(pos.non_pawn_material(us)) || whitePawnPruningMaterial;
     ss->moveCount = 0;
     bestValue     = -VALUE_INFINITE;
     maxValue      = VALUE_INFINITE;
@@ -1051,12 +1064,12 @@ Value Search::Worker::search(
     if (hordeMetrics)
     {
         ++hordeMetrics->nmpConsidered;
-        if (!pos.non_pawn_material(us))
+        if (!hasNmpMaterial)
             ++hordeMetrics->nmpPawnOnlyBlocked;
     }
 #endif
     if (cutNode && ss->staticEval >= beta - 13 * depth - 47 * improving + 365 && !excludedMove
-        && pos.non_pawn_material(us) && ss->ply >= nmpMinPly && beta >= -2000
+        && hasNmpMaterial && ss->ply >= nmpMinPly && beta >= -2000
         && HORDE_PRUNING_ACTIVE(HordeDisableNmp))
     {
 #if defined(HORDE_SEARCH_TELEMETRY)
@@ -1257,7 +1270,7 @@ moves_loop:  // When in check, search starts here
 
         // Step 14. Pruning at shallow depths.
         // Depth conditions are important for mate finding.
-        if (!rootNode && pos.non_pawn_material(us) && !is_loss(bestValue))
+        if (!rootNode && hasPruningMaterial && !is_loss(bestValue))
         {
             // Skip quiet moves if movecount exceeds our threshold
             if (moveCount >= (3 + depth * depth) / (2 - improving)
@@ -1395,7 +1408,12 @@ moves_loop:  // When in check, search starts here
 
         // (*Scaler) Generally, higher singularBeta (i.e closer to ttValue)
         // and lower extension margins scale well.
-        if (!rootNode && move == ttData.move && !excludedMove && depth >= 6 + ss->ttPv
+        // The one-king game has fewer interchangeable king-safety replies.
+        // Let singular verification start two plies earlier.
+        const int oneKingSingularBonus =
+          HORDE_PRUNING_ACTIVE(HordeDisableOneKingSingular) ? 2 : 0;
+        if (!rootNode && move == ttData.move && !excludedMove
+            && depth >= 6 + ss->ttPv - oneKingSingularBonus
             && is_valid(ttData.value) && !is_decisive(ttData.value) && (ttData.bound & BOUND_LOWER)
             && ttData.depth >= depth - 3 && !is_shuffling(move, ss, pos))
         {

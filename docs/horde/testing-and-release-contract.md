@@ -157,7 +157,7 @@ uses a different variant has failed even if a GUI displays a plausible line.
 Search-heuristic experiments use an instrumented build as described in
 `search-telemetry.md`. The production build must not expose the telemetry
 option, while the instrumented build with its runtime switch disabled must
-retain the deterministic `361809` bench and best-move digest. Record counters
+retain the deterministic `315576` bench and best-move digest. Record counters
 by side, depth and White piece-count bucket. Counterfactual false-prune searches
 must use isolated TT and history state rather than perturbing the measured
 search.

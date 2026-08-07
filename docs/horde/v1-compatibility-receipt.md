@@ -63,8 +63,8 @@ White `P` to HordeTest `H`.
 - Mate, extinction, both stalemates, fortress, fifty-move, fivefold repetition,
   and last-Horde-piece capture regressions pass.
 - The Horde-only benchmark (`bench 16 1 13 default depth`) searches exactly
-  361,809 nodes. Three consecutive runs produced the same ten-bestmove digest:
-  `C443E77C54B8D8391CFF2BF3C033E00331C4BD2B2CD85076D2238310D833B22F`.
+  315,576 nodes. Three consecutive runs produced the same ten-bestmove digest:
+  `FE9A5001C1997125CE34BF0EF119EAB44570F5F363227BD4BAB8E0DB1F4E8592`.
 
 ## Gates not claimed here
 

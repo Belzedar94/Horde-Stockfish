@@ -81,7 +81,7 @@ def run_search(engine: Path, enabled: bool) -> list[str]:
         if not any("option name HordeSearchTelemetry type check default false" in line for line in output):
             raise AssertionError("instrumented engine did not advertise HordeSearchTelemetry")
         if not any(
-            "option name HordeSearchExperimentMask type spin default 0 min 0 max 4095" in line
+            "option name HordeSearchExperimentMask type spin default 0 min 0 max 32767" in line
             for line in output
         ):
             raise AssertionError("instrumented engine did not advertise the experiment mask")

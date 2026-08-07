@@ -12,9 +12,9 @@ import sys
 from pathlib import Path
 
 
-EXPECTED_NODES = 361_809
+EXPECTED_NODES = 315_576
 EXPECTED_BESTMOVES_SHA256 = (
-    "c443e77c54b8d8391cff2bf3c033e00331c4bd2b2cd85076d2238310d833b22f"
+    "fe9a5001c1997125ce34bf0ef119eab44570f5f363227bd4bab8e0db1f4e8592"
 )
 
 
@@ -54,17 +54,17 @@ def main() -> int:
         if not match:
             raise RuntimeError(f"benchmark run {run} emitted no node total")
         nodes = int(match.group(1))
-        if nodes != EXPECTED_NODES:
-            raise RuntimeError(
-                f"benchmark run {run} searched {nodes} nodes, expected {EXPECTED_NODES}"
-            )
-
         bestmoves = [line for line in output.splitlines() if line.startswith("bestmove ")]
         if len(bestmoves) != 10:
             raise RuntimeError(
                 f"benchmark run {run} emitted {len(bestmoves)} bestmoves, expected 10"
             )
         digest = hashlib.sha256("|".join(bestmoves).encode("ascii")).hexdigest()
+        if nodes != EXPECTED_NODES:
+            raise RuntimeError(
+                f"benchmark run {run} searched {nodes} nodes with bestmove digest {digest}; "
+                f"expected {EXPECTED_NODES} nodes"
+            )
         if digest != EXPECTED_BESTMOVES_SHA256:
             raise RuntimeError(
                 f"benchmark run {run} bestmove digest {digest}, "

@@ -26,6 +26,9 @@ EXPERIMENTS = {
     512: "disable_qsearch_pruning",
     1024: "disable_lmr",
     2048: "disable_razoring",
+    4096: "enable_white_pawn_nmp",
+    8192: "disable_white_pawn_pruning",
+    16384: "disable_one_king_singular",
 }
 
 
@@ -69,7 +72,7 @@ class SearchSession:
         uci = self.read_until("uciok")
         expected = (
             "option name HordeSearchExperimentMask type spin "
-            "default 0 min 0 max 4095"
+            "default 0 min 0 max 32767"
         )
         if not any(expected in line for line in uci):
             self.close(force=True)

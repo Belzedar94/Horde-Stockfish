@@ -86,7 +86,10 @@ enum HordeSearchExperiment : u64 {
     HordeDisableQsearchPruning  = 1ULL << 9,
     HordeDisableLmr             = 1ULL << 10,
     HordeDisableRazoring        = 1ULL << 11,
-    HordeExperimentMaskMax      = (1ULL << 12) - 1,
+    HordeEnableWhitePawnNmp      = 1ULL << 12,
+    HordeDisableWhitePawnPruning = 1ULL << 13,
+    HordeDisableOneKingSingular  = 1ULL << 14,
+    HordeExperimentMaskMax       = (1ULL << 15) - 1,
 };
 
 class HordeSearchTelemetry {

@@ -8,8 +8,8 @@ make -C src ARCH=x86-64 EXTRACXXFLAGS=-DHORDE_SEARCH_TELEMETRY build
 
 That build exposes `HordeSearchTelemetry`, defaulting to `false`. A normal
 build contains neither the option nor the counters. With the runtime option
-disabled, the deterministic Horde bench remains `361809` with best-move digest
-`c443e77c54b8d8391cff2bf3c033e00331c4bd2b2cd85076d2238310d833b22f`.
+disabled, the deterministic Horde bench remains `315576` with best-move digest
+`fe9a5001c1997125ce34bf0ef119eab44570f5f363227bd4bab8e0db1f4e8592`.
 
 When enabled, the engine emits one summary followed by non-empty cells before
 `bestmove`. Every cell is keyed by side to move, search-depth bucket, and White
@@ -50,10 +50,19 @@ zero. Its additive bit IDs are fixed:
 | 512 | Qsearch pruning |
 | 1024 | Late-move reductions |
 | 2048 | Razoring |
+| 8192 | White-pawn structural pruning |
+| 16384 | One-king singular-extension eligibility |
+
+The remaining opt-in bit preserves a rejected Horde-role hypothesis for
+reproducible counterfactual tests without changing mask-zero search:
+
+| Bit | Enabled experiment |
+| ---: | --- |
+| 4096 | Treat physical White pawns as null-move material |
 
 Mask zero preserves the accepted search. `tests/horde_shadow_search.py` starts
 separate engine sessions, clears TT and histories for every position, compares
-one disabled component at a time, and checks the result against a deeper
+one experiment bit at a time, and checks the result against a deeper
 mask-zero reference. A changed shallow result that agrees with the deeper best
 move is reported as a false-prune candidate, not as a confirmed regression.
 
