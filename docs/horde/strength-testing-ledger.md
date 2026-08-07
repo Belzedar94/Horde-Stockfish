@@ -67,6 +67,23 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 
 ## Local rejects
 
+### 2026-08-07 — Match generic accumulator width to Run 6B
+
+- Hypothesis: reduce the inherited generic NNUE accumulator from 1,024 to 512
+  lanes, matching the only supported Run 6B evaluator and saving 2,048 bytes
+  per ply (about 506 KiB per thread across the accumulator stack).
+- Scope: one constant and its explanatory comment in
+  `src/nnue/nnue_architecture.h`.
+- Validation: BMI2 release build, Horde rules, Run 6B network contract, and
+  three deterministic 315,576-node benches all passed exactly.
+- Local speed screen: +0.81% geometric mean, +0.29% median, and 7/12 positive
+  alternating depth-16 pairs. Per-pair noise ranged from -12.15% to +17.77%
+  under the live worker load.
+- Decision: rejected locally as insufficiently clear low-hanging fruit; no
+  commit, push, or OpenBench workload. The source change was reverted.
+- Learning: halving unused accumulator capacity improves memory footprint but
+  does not remove enough hot-path work to justify STC by itself.
+
 ### 2026-08-07 — Fixed-role check-square setup
 
 - Hypothesis: replace the generic opponent-king detection and orientation in
