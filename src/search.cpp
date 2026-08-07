@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordePromotionCaptureFutility = bool(options["HordePromotionCaptureFutility"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1301,8 +1302,15 @@ moves_loop:  // When in check, search starts here
                 // Futility pruning for captures
                 if (!extinctionCapture && !givesCheck && lmrDepth < 8)
                 {
+                    Value promotionGain = hordePromotionCaptureFutility
+                                                && movedPiece == W_PAWN
+                                                && move.type_of() == PROMOTION
+                                            ? PieceValue[make_piece(WHITE, move.promotion_type())]
+                                                - PawnValue
+                                            : VALUE_ZERO;
                     Value futilityValue = ss->staticEval + 234 + 247 * lmrDepth
-                                        + PieceValue[capturedPiece] + 134 * captHist / 1024;
+                                        + PieceValue[capturedPiece] + promotionGain
+                                        + 134 * captHist / 1024;
 
                     if (futilityValue <= alpha
                         && HORDE_PRUNING_ACTIVE(HordeDisableCaptureFutility))
