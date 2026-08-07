@@ -190,6 +190,47 @@ Move* generate_moves(const Position& pos, Move* moveList, Bitboard target) {
 }
 
 
+template<PieceType Pt>
+bool white_piece_has_move(const Position& pos, Bitboard target) {
+
+    Bitboard pieces = pos.pieces(WHITE, Pt);
+    while (pieces)
+        if (Attacks::attacks_bb<Pt>(pop_lsb(pieces), pos.pieces()) & target)
+            return true;
+
+    return false;
+}
+
+
+bool white_has_legal_move(const Position& pos) {
+
+    assert(pos.side_to_move() == WHITE);
+
+    const Bitboard occupied = pos.pieces();
+    const Bitboard empty    = ~occupied;
+    const Bitboard pawns    = pos.pieces(WHITE, PAWN);
+
+    // Horde pawns may double-step from ranks one and two. A single push also
+    // covers quiet promotion, while captures cover capture promotions.
+    const Bitboard singlePushes = shift<NORTH>(pawns) & empty;
+    if (singlePushes
+        || (shift<NORTH>(singlePushes & (Rank2BB | Rank3BB)) & empty)
+        || (shift<NORTH_EAST>(pawns) & pos.pieces(BLACK))
+        || (shift<NORTH_WEST>(pawns) & pos.pieces(BLACK)))
+        return true;
+
+    if (pos.ep_square() != SQ_NONE
+        && (pawns & Attacks::attacks_bb<PAWN>(pos.ep_square(), BLACK)))
+        return true;
+
+    const Bitboard target = ~pos.pieces(WHITE);
+    return white_piece_has_move<KNIGHT>(pos, target)
+        || white_piece_has_move<BISHOP>(pos, target)
+        || white_piece_has_move<ROOK>(pos, target)
+        || white_piece_has_move<QUEEN>(pos, target);
+}
+
+
 template<Color Us, GenType Type>
 Move* generate_all(const Position& pos, Move* moveList) {
 
@@ -280,6 +321,28 @@ Move* generate<LEGAL>(const Position& pos, Move* moveList) {
             ++cur;
 
     return moveList;
+}
+
+
+bool has_legal_move(const Position& pos) {
+
+    if (pos.horde_extinction())
+        return false;
+
+    if (pos.side_to_move() == WHITE)
+    {
+        const bool result = white_has_legal_move(pos);
+
+#ifndef NDEBUG
+        Move moves[MAX_MOVES];
+        assert(result == (generate<LEGAL>(pos, moves) != moves));
+#endif
+
+        return result;
+    }
+
+    Move moves[MAX_MOVES];
+    return generate<LEGAL>(pos, moves) != moves;
 }
 
 }  // namespace Stockfish
