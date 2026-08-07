@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeDisableWhiteLmp = bool(options["HordeDisableWhiteLmp"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1274,6 +1275,7 @@ moves_loop:  // When in check, search starts here
         {
             // Skip quiet moves if movecount exceeds our threshold
             if (moveCount >= (3 + depth * depth) / (2 - improving)
+                && !(hordeDisableWhiteLmp && us == WHITE)
                 && HORDE_PRUNING_ACTIVE(HordeDisableLmp))
             {
 #if defined(HORDE_SEARCH_TELEMETRY)
