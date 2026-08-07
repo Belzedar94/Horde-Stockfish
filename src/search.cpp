@@ -2150,25 +2150,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
     }
 #endif
 
-    // Step 9. Check for mate and stalemate
-    // All legal moves have been searched. A special case: if we are
-    // in check and no legal moves were found, it is checkmate.
-    if (!moveCount)
-    {
-        if (ss->inCheck)  // Checkmate!
-        {
-            assert(!MoveList<LEGAL>(pos).size());
-            return mated_in(ss->ply);  // Plies to mate from the root
-        }
-
-        // Only check for stalemate under specific conditions
-        Color us = pos.side_to_move();
-        if (!(pawn_single_push_bb(us, pos.pieces(us, PAWN)) & ~pos.pieces())
-            && !pos.non_pawn_material(us) && type_of(pos.captured_piece()) >= KNIGHT
-            && !MoveList<LEGAL>(pos).size())
-            bestValue = VALUE_DRAW;
-    }
-
     if (!is_decisive(bestValue) && bestValue > beta)
         bestValue = (462 * bestValue + 562 * beta) / 1024;
 
