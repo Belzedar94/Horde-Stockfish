@@ -67,6 +67,47 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 
 ## Local rejects
 
+### 2026-08-07 - Black node-futility margin scaling
+
+- Hypothesis: preserve Black node futility while increasing its margin enough
+  to recover the royal-side false-prune signal at much lower cost than a full
+  disable.
+- Scope: one Black-only integer percentage applied to the existing child-node
+  futility margin; value 100 is bit-identical to the accepted baseline.
+- Validation: value 100 reproduced the frozen 315,576-node bench and best-move
+  digest exactly across three runs; the telemetry build also passed its
+  switch-zero determinism gate.
+- Local screen: values 101-103 produced no depth-confirmed corrections in two
+  independent 128-position opening and midgame corpora. In a separate broad
+  256-position corpus, values 105, 115, and 125 produced only 1, 1, and 2
+  deeper-reference-aligned moves, respectively, with no stable stratum.
+- Cost behavior: the frozen bench was discontinuous even for small changes
+  (+22.9% nodes at 105), while corpus node deltas did not predict a robust
+  correction rate.
+- Decision: rejected locally; no commit, push, or OpenBench workload.
+- Learning: margin scaling does not retain enough of the full-disable signal to
+  justify remote testing, and bench sensitivity makes this a poor low-hanging
+  parameter family.
+
+### 2026-08-07 - Disable Black node futility
+
+- Hypothesis: isolated shadow searches showed more depth-confirmed node-futility
+  corrections on the royal side than on the Horde side, especially across
+  positions generated between plies 20 and 80.
+- Scope: disable child-node futility only when Black is to move; preserve every
+  other pruning rule and all White-side node futility.
+- Evidence: disabling node futility produced 35 deeper-reference-aligned move
+  changes in 512 opening positions. In a separate 128-position midgame sample,
+  13 changes aligned and 9 of them were Black-to-move positions.
+- Validation: Horde rules and the fail-closed Run 6B contract passed. Three
+  candidate benches were exact at 576,890 nodes with best-move digest
+  `2bac2fb049b94fe02f1055efca8e6dfdeef8d01529e19db860233dfc61313f50`.
+- Local cost screen: +82.8% nodes versus the frozen 315,576-node baseline bench.
+- Decision: rejected locally as a disproportionate search expansion; no
+  commit, push, or OpenBench workload.
+- Learning: the asymmetric false-prune signal merits a Black-specific margin
+  experiment, not wholesale removal of the pruning stage.
+
 ### 2026-08-07 - Skip terminal recomputation in singular verification
 
 - Hypothesis: an excluded-move singular verification searches the unchanged
