@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordePreserveWhitePawnFutility = bool(options["HordePreserveWhitePawnFutility"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1363,6 +1364,7 @@ moves_loop:  // When in check, search starts here
                 // (*Scaler): Generally, more frequent futility pruning
                 // scales well
                 if (!ss->inCheck && lmrDepth < 12 && futilityValue <= alpha
+                    && !(hordePreserveWhitePawnFutility && movedPiece == W_PAWN)
                     && HORDE_PRUNING_ACTIVE(HordeDisableQuietFutility))
                 {
                     if (bestValue <= futilityValue && !is_decisive(bestValue)
