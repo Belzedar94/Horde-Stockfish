@@ -222,8 +222,16 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
         const Piece     capturedPiece = pos.piece_on(to);
 
         if constexpr (Type == CAPTURES)
+        {
             m.value = (*captureHistory)[pc][to][type_of(capturedPiece)]
                     + 7 * int(PieceValue[capturedPiece]);
+
+            // As extinction approaches, promote Horde captures across the
+            // good-capture boundary instead of relying on orthodox MVV noise.
+            int hordeUnits = pos.count<ALL_PIECES>(WHITE);
+            if (us == BLACK && capturedPiece != NO_PIECE && hordeUnits <= 4)
+                m.value += (5 - hordeUnits) * 4096;
+        }
 
         else if constexpr (Type == QUIETS)
         {
