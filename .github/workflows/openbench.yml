@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - name: Build and verify the baseline
         run: |
-          make -C src -j2 build ARCH=${{ matrix.arch }} COMP=gcc
+          make -C src -j2 build ARCH=${{ matrix.arch }} COMP=gcc EXTRALDFLAGS=-static
           python3 tests/hordetest_baseline.py src/stockfish --variant-path hordetest.ini
           file src/stockfish | grep 'statically linked'
       - name: Stage the sole executable
