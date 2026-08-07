@@ -236,6 +236,10 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
             m.value += (*continuationHistory[3])[pc][to];
             m.value += (*continuationHistory[5])[pc][to];
 
+            if (pc == W_PAWN
+                && (Attacks::attacks_bb<KING>(pos.square<KING>(BLACK)) & to))
+                m.value += 4096;
+
             // bonus for checks
             m.value += ((pos.check_squares(pt) & to) && pos.see_ge(m, -75)) * 16384;
 
