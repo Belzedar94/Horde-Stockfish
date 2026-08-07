@@ -90,6 +90,50 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 
 ## Local rejects
 
+### 2026-08-07 - Revert early one-king singular verification
+
+- Hypothesis: the accepted two-ply Horde singular-verification bonus may start
+  exclusion searches too early and amplify noisy TT bounds.
+- Scope: revert only the one-king depth bonus; preserve singular margins,
+  extensions, multi-cut, and all other search policy.
+- Shadow evidence: only 2 of 59 changed shallow results aligned with the deeper
+  reference on a 256-position broad corpus.
+- Local cost screen: +2.71% nodes on the frozen bench.
+- Decision: rejected locally for insufficient correction signal; no commit,
+  push, or OpenBench workload.
+
+### 2026-08-07 - Disable capture SEE pruning globally
+
+- Hypothesis: orthodox exchange thresholds suppress strategically necessary
+  Horde captures even when they are not immediate extinction captures.
+- Scope: disable only main-search capture SEE pruning; preserve capture
+  futility, qsearch SEE, MovePicker staging, and SEE itself.
+- Shadow evidence: 8 of 108 changed shallow results aligned with the deeper
+  reference on a 256-position broad corpus.
+- Local cost screen: +14.12% nodes on the frozen bench.
+- Decision: rejected locally as too broad and overlapping the already
+  registered targeted last-piece SEE guard experiment; no new workload.
+- Learning: any future SEE candidate must identify a narrower Horde tactical
+  class rather than remove the complete pruning stage.
+
+### 2026-08-07 - Disable ProbCut by Horde side
+
+- Hypothesis: classical capture-based ProbCut is unreliable under Horde's
+  asymmetric objectives, and one side may account for most of its false-prune
+  signal.
+- Scope: local-only selector for disabling ProbCut on White, Black, or both;
+  no margin, MovePicker, SEE, or other pruning change.
+- Shadow evidence: on the same 256-position broad corpus, White-only,
+  Black-only, and global disable produced 5, 5, and 8 deeper-reference-aligned
+  best moves, respectively.
+- Local cost screen: the frozen bench expanded by 34.9%, 25.9%, and 24.0% for
+  White-only, Black-only, and global disable.
+- Decision: rejected locally as disproportionate search expansion; no commit,
+  push, or OpenBench workload.
+- Learning: the ProbCut signal is not concentrated enough by side to preserve
+  it cheaply, so this is not low-hanging fruit without a more exact Horde
+  capture model.
+
 ### 2026-08-07 - Black node-futility margin scaling
 
 - Hypothesis: preserve Black node futility while increasing its margin enough
