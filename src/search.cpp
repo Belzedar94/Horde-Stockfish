@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeWhitePawnNmp = bool(options["HordeWhitePawnNmp"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -785,7 +786,7 @@ Value Search::Worker::search(
     priorCapture  = pos.captured_piece();
     Color us      = pos.side_to_move();
     const bool whitePawnNmpMaterial =
-      us == WHITE && pos.count<PAWN>(WHITE) && HORDE_EXPERIMENT_ENABLED(HordeEnableWhitePawnNmp);
+      us == WHITE && pos.count<PAWN>(WHITE) && hordeWhitePawnNmp;
 
     // Physical White pawns keep PAWN semantics, but they are still active
     // Horde search material. Without this role bridge the modern shallow
