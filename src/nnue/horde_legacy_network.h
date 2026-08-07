@@ -70,8 +70,8 @@ class HordeLegacyNetwork {
     };
 
     std::array<i16, AccumulatorDimensions>                     biases_{};
-    std::array<i16, FeatureDimensions * AccumulatorDimensions> weights_{};
-    std::array<i32, FeatureDimensions * PsqtBuckets>           psqtWeights_{};
+    alignas(CacheLineSize) std::array<i16, FeatureDimensions * AccumulatorDimensions> weights_{};
+    alignas(CacheLineSize) std::array<i32, FeatureDimensions * PsqtBuckets>           psqtWeights_{};
     std::array<LayerStack, LayerStacks>                        layers_{};
     bool                                                       loaded_ = false;
 

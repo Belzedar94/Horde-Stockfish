@@ -22,8 +22,11 @@
 #include "../bitboard.h"
 #include "../position.h"
 #include "nnue_accumulator.h"
+#include "simd.h"
 
 namespace Stockfish::Eval::NNUE {
+
+using namespace SIMD;
 
 namespace {
 
@@ -180,6 +183,8 @@ class Reader {
     usize                offset_ = 0;
 };
 
+#ifndef VECTOR
+
 i16 wrapping_add(i16 lhs, i16 rhs) {
     u16 left;
     u16 right;
@@ -216,6 +221,8 @@ T wrapping_sub(T lhs, T rhs) {
     return signedResult;
 }
 
+#endif
+
 int feature_family(Piece pc) {
     const PieceType type = type_of(pc);
     if (type == PAWN)
@@ -247,6 +254,52 @@ usize feature_index(Color perspective, Square square, Piece pc) {
 }
 
 u8 activate(i32 value) { return static_cast<u8>(std::clamp(value >> WeightScaleBits, 0, 127)); }
+
+template<bool Add>
+sf_always_inline inline void update_accumulator_lanes(i16* target, const i16* column) {
+
+#ifdef VECTOR
+    constexpr usize Lanes = sizeof(vec_t) / sizeof(i16);
+    static_assert(HordeLegacyNetwork::AccumulatorDimensions % Lanes == 0);
+
+    auto*       targetVectors = reinterpret_cast<vec_t*>(target);
+    const auto* columnVectors = reinterpret_cast<const vec_t*>(column);
+
+    for (usize i = 0; i < HordeLegacyNetwork::AccumulatorDimensions / Lanes; ++i)
+    {
+        const vec_t accumulator = vec_load(&targetVectors[i]);
+        const vec_t weight      = vec_load(&columnVectors[i]);
+        vec_store(&targetVectors[i],
+                  Add ? vec_add_16(accumulator, weight) : vec_sub_16(accumulator, weight));
+    }
+#else
+    for (usize i = 0; i < HordeLegacyNetwork::AccumulatorDimensions; ++i)
+        target[i] = Add ? wrapping_add(target[i], column[i]) : wrapping_sub(target[i], column[i]);
+#endif
+}
+
+template<bool Add>
+sf_always_inline inline void update_psqt_lanes(i32* target, const i32* column) {
+
+#ifdef VECTOR
+    constexpr usize Lanes = sizeof(psqt_vec_t) / sizeof(i32);
+    static_assert(HordeLegacyNetwork::PsqtBuckets % Lanes == 0);
+
+    auto*       targetVectors = reinterpret_cast<psqt_vec_t*>(target);
+    const auto* columnVectors = reinterpret_cast<const psqt_vec_t*>(column);
+
+    for (usize i = 0; i < HordeLegacyNetwork::PsqtBuckets / Lanes; ++i)
+    {
+        const psqt_vec_t accumulator = vec_load_psqt(&targetVectors[i]);
+        const psqt_vec_t weight      = vec_load_psqt(&columnVectors[i]);
+        vec_store_psqt(&targetVectors[i], Add ? vec_add_psqt_32(accumulator, weight)
+                                              : vec_sub_psqt_32(accumulator, weight));
+    }
+#else
+    for (usize i = 0; i < HordeLegacyNetwork::PsqtBuckets; ++i)
+        target[i] = Add ? wrapping_add(target[i], column[i]) : wrapping_sub(target[i], column[i]);
+#endif
+}
 
 }  // namespace
 
@@ -333,13 +386,10 @@ void HordeLegacyNetwork::refresh_accumulator(const Position& pos, AccumulatorSta
             assert(index < FeatureDimensions);
 
             const usize offset = index * AccumulatorDimensions;
-            for (usize i = 0; i < AccumulatorDimensions; ++i)
-                target.accumulation[perspective][i] =
-                  wrapping_add(target.accumulation[perspective][i], weights_[offset + i]);
-
-            for (usize i = 0; i < PsqtBuckets; ++i)
-                target.psqtAccumulation[perspective][i] = wrapping_add(
-                  target.psqtAccumulation[perspective][i], psqtWeights_[index * PsqtBuckets + i]);
+            update_accumulator_lanes<true>(target.accumulation[perspective].data(),
+                                           weights_.data() + offset);
+            update_psqt_lanes<true>(target.psqtAccumulation[perspective].data(),
+                                    psqtWeights_.data() + index * PsqtBuckets);
         }
         target.computed[perspective] = true;
     }
@@ -366,17 +416,19 @@ void HordeLegacyNetwork::update_accumulator(const DirtyPiece&       dirty,
             const usize offset = index * AccumulatorDimensions;
             assert(index < FeatureDimensions);
 
-            for (usize i = 0; i < AccumulatorDimensions; ++i)
-                target.accumulation[perspective][i] =
-                  add ? wrapping_add(target.accumulation[perspective][i], weights_[offset + i])
-                      : wrapping_sub(target.accumulation[perspective][i], weights_[offset + i]);
-
-            for (usize i = 0; i < PsqtBuckets; ++i)
+            if (add)
             {
-                const i32 weight = psqtWeights_[index * PsqtBuckets + i];
-                target.psqtAccumulation[perspective][i] =
-                  add ? wrapping_add(target.psqtAccumulation[perspective][i], weight)
-                      : wrapping_sub(target.psqtAccumulation[perspective][i], weight);
+                update_accumulator_lanes<true>(target.accumulation[perspective].data(),
+                                               weights_.data() + offset);
+                update_psqt_lanes<true>(target.psqtAccumulation[perspective].data(),
+                                        psqtWeights_.data() + index * PsqtBuckets);
+            }
+            else
+            {
+                update_accumulator_lanes<false>(target.accumulation[perspective].data(),
+                                                weights_.data() + offset);
+                update_psqt_lanes<false>(target.psqtAccumulation[perspective].data(),
+                                         psqtWeights_.data() + index * PsqtBuckets);
             }
         }
     };
