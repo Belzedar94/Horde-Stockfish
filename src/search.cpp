@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeWhitePawnLmr = bool(options["HordeWhitePawnLmr"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1512,6 +1513,11 @@ moves_loop:  // When in check, search starts here
         // For first picked move (ttMove) reduce reduction
         else if (move == ttData.move)
             r -= 2179;
+
+        // Horde pawn pushes carry the kingless side's entire long-term
+        // objective. Search them one internal depth unit less reduced.
+        if (hordeWhitePawnLmr && !capture && movedPiece == W_PAWN)
+            r -= 1024;
 
         if (capture)
             ss->statScore = 873 * int(PieceValue[pos.captured_piece()]) / 128
