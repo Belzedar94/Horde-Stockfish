@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeDisableWhiteNodeFutility = bool(options["HordeDisableWhiteNodeFutility"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1049,7 +1050,8 @@ Value Search::Worker::search(
                              - (2789 * improving + 335 * opponentWorsening) * futilityMult / 1024
                              + std::abs(correctionValue) / 198435;
 
-        if (eval - futilityMargin >= beta && HORDE_PRUNING_ACTIVE(HordeDisableNodeFutility))
+        if (eval - futilityMargin >= beta && !(hordeDisableWhiteNodeFutility && us == WHITE)
+            && HORDE_PRUNING_ACTIVE(HordeDisableNodeFutility))
         {
 #if defined(HORDE_SEARCH_TELEMETRY)
             if (hordeMetrics)
