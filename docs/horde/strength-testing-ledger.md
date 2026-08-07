@@ -21,6 +21,29 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 
 ## Registered experiments
 
+### 2026-08-07 - Treat White Horde pawns as null-move material
+
+- Branch: `test/white-pawn-nmp`
+- Commit: `3bd83ee9fd9336010a4fe3befd89335a4d95d47e`
+- OpenBench: [test 172](https://belzedar.duckdns.org/test/172/)
+- Hypothesis: White Horde pawn mass is genuine search material, so the
+  orthodox non-pawn-material gate should not disable null-move pruning across
+  the pawn-only Horde opening and middlegame.
+- Scope: one default-off UCI switch extending only the existing NMP material
+  predicate to physical White pawns. NMP margins, reductions, verification,
+  every other pruning stage, and Black search remain unchanged.
+- Telemetry: a depth-16 start-position search recorded thousands of White NMP
+  opportunities blocked solely by the orthodox material gate. A separate
+  128-position depth-8/depth-10 shadow corpus changed five search trees but no
+  root best move.
+- Local cost screen: enabled mode was deterministic at 329,596 nodes on the
+  frozen bench versus 315,576 with the switch disabled (+4.4%); individual
+  corpus positions also showed substantial node reductions, so distributed
+  games remain necessary to measure the NMP tradeoff.
+- CI: the OpenBench artifact workflow passed for the exact test commit.
+- Decision: promoted from priority 300 to priority 1000 for STC `[1.00, 6.00]`,
+  with a 10,000-game neutral cutoff and a 20,000-game absolute ceiling.
+
 ### 2026-08-07 - Disable main-search capture futility
 
 - Branch: `test/disable-capture-futility`
