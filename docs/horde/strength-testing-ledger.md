@@ -67,6 +67,53 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 
 ## Local rejects
 
+### 2026-08-07 - Skip terminal recomputation in singular verification
+
+- Hypothesis: an excluded-move singular verification searches the unchanged
+  position after its parent already established that the authoritative Horde
+  state is non-terminal, so it can skip the repeated mobility and fortress
+  computation.
+- Scope: one guard in `search()`; no rule, score, move-ordering, pruning, or
+  search-margin change.
+- Validation: Horde rules, fail-closed Run 6B contract, and three deterministic
+  315,576-node benches passed exactly.
+- Local speed screen: -0.32% geometric mean, -0.42% median, and 4/12 positive
+  alternating depth-16 pairs.
+- Decision: rejected locally; no commit, push, or OpenBench workload.
+- Learning: singular-verification terminal recomputation is redundant but not
+  hot enough to overcome the resulting code-layout change.
+
+### 2026-08-07 - Explicit legacy accumulator SIMD
+
+- Branch: `test/legacy-accumulator-simd`.
+- Hypothesis: replace scalar Run 6B accumulator and PSQT lane updates with the
+  engine SIMD primitives.
+- Scope: only the legacy accumulator update implementation; no search-policy
+  or evaluation change.
+- Validation: deterministic bench remained exact and the OpenBench artifact CI
+  passed on commit `780ab46ca81dca1644366ecc7a3eae6ec10ccf14`.
+- Local speed screen: -0.41% geometric mean, +0.18% median, and 4/8 positive
+  alternating depth-16 pairs.
+- Decision: rejected locally; no OpenBench workload.
+- Learning: the optimized compiler already vectorizes these fixed-size loops
+  effectively, while the explicit abstraction adds code-layout cost.
+
+### 2026-08-07 - Fused legacy accumulator delta
+
+- Branch: `test/legacy-accumulator-fused-delta`.
+- Hypothesis: compute source-minus-from-plus-to/remove/add in one lane pass
+  instead of copying the accumulator and applying each feature column in
+  separate passes.
+- Scope: only the legacy incremental accumulator delta, guarded by one UCI
+  experiment switch during local validation.
+- Validation: deterministic bench remained exact and the OpenBench artifact CI
+  passed on commit `6acdd0f381099e1aa8ed55afb9822ed968a2ee1e`.
+- Local speed screen: -1.97% geometric mean, -0.84% median, and 3/8 positive
+  alternating depth-16 pairs.
+- Decision: rejected locally; no OpenBench workload.
+- Learning: the larger specialized dispatch and fused loop do not beat the
+  compiler-optimized copy-plus-delta sequence on this workload.
+
 ### 2026-08-07 - Legacy-only NNUE chassis
 
 - Hypothesis: remove the unreachable standard-NNUE transformer, network,
