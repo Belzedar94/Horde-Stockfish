@@ -56,6 +56,8 @@ enum Stages {
     QCAPTURE
 };
 
+constexpr Value HORDE_LEGACY_PAWN_VALUE = Value(152);
+
 #ifdef USE_AVX512
 // Load the Move, and the ExtMove value, into all lanes of 512-bit registers
 static void splat_extmove(const ExtMove& m, __m512i& move, __m512i& value) {
@@ -220,10 +222,12 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
         const Piece     pc            = pos.moved_piece(m);
         const PieceType pt            = type_of(pc);
         const Piece     capturedPiece = pos.piece_on(to);
+        const Value capturedValue =
+          capturedPiece == W_PAWN ? HORDE_LEGACY_PAWN_VALUE : PieceValue[capturedPiece];
 
         if constexpr (Type == CAPTURES)
             m.value = (*captureHistory)[pc][to][type_of(capturedPiece)]
-                    + 7 * int(PieceValue[capturedPiece]);
+                    + 7 * int(capturedValue);
 
         else if constexpr (Type == QUIETS)
         {
@@ -252,7 +256,7 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
         else  // Type == EVASIONS
         {
             if (pos.capture_stage(m))
-                m.value = PieceValue[capturedPiece] + (1 << 28);
+                m.value = capturedValue + (1 << 28);
             else
                 m.value = (*mainHistory)[us][m.raw()] + (*continuationHistory[0])[pc][to];
         }
