@@ -1195,8 +1195,9 @@ void Position::do_move(Move                      m,
     st->capturedPiece = captured;
 
     // Calculate checkers bitboard (if move gives check)
+    // Only White can give check in Horde: Black is the sole royal side.
     st->checkersBB =
-      givesCheck && has_king(them) ? attackers_to(square<KING>(them)) & pieces(us) : 0;
+      givesCheck && us == WHITE ? attackers_to(square<KING>(BLACK)) & pieces(WHITE) : 0;
 
     sideToMove = ~sideToMove;
 
