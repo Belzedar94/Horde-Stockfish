@@ -49,7 +49,7 @@ class MovePicker {
                int);
     MovePicker(const Position&, Move, int, const CapturePieceToHistory*);
     Move next_move();
-    void skip_quiet_moves();
+    void skip_quiet_moves(bool preserveWhitePawns = false);
 
    private:
     template<typename Pred>
@@ -70,6 +70,7 @@ class MovePicker {
     Depth                        depth;
     int                          ply;
     bool                         skipQuiets = false;
+    bool                         preserveWhitePawnQuiets = false;
     ExtMove                      moves[MAX_MOVES];
 };
 

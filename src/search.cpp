@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeSelectiveWhitePawnLmp = bool(options["HordeSelectiveWhitePawnLmp"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1287,7 +1288,7 @@ moves_loop:  // When in check, search starts here
                             ++hordeMetrics->quietPawnSkipCandidates;
                 }
 #endif
-                mp.skip_quiet_moves();
+                mp.skip_quiet_moves(hordeSelectiveWhitePawnLmp && us == WHITE);
             }
 
             // Reduced depth of the next LMR search

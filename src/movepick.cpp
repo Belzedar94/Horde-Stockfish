@@ -315,7 +315,7 @@ top:
         [[fallthrough]];
 
     case QUIET_INIT :
-        if (!skipQuiets)
+        if (!skipQuiets || preserveWhitePawnQuiets)
         {
             MoveList<QUIETS> ml(pos);
 
@@ -328,7 +328,11 @@ top:
         [[fallthrough]];
 
     case GOOD_QUIET :
-        if (!skipQuiets && select([&]() { return cur->value > goodQuietThreshold; }))
+        if ((!skipQuiets || preserveWhitePawnQuiets)
+            && select([&]() {
+                   return cur->value > goodQuietThreshold
+                       && (!skipQuiets || pos.moved_piece(*cur) == W_PAWN);
+               }))
             return *(cur - 1);
 
         // Prepare the pointers to loop over the bad captures
@@ -350,8 +354,11 @@ top:
         [[fallthrough]];
 
     case BAD_QUIET :
-        if (!skipQuiets)
-            return select([&]() { return cur->value <= goodQuietThreshold; });
+        if (!skipQuiets || preserveWhitePawnQuiets)
+            return select([&]() {
+                return cur->value <= goodQuietThreshold
+                    && (!skipQuiets || pos.moved_piece(*cur) == W_PAWN);
+            });
 
         return Move::none();
 
@@ -378,6 +385,9 @@ top:
     return Move::none();  // Silence warning
 }
 
-void MovePicker::skip_quiet_moves() { skipQuiets = true; }
+void MovePicker::skip_quiet_moves(bool preserveWhitePawns) {
+    skipQuiets                  = true;
+    preserveWhitePawnQuiets     = preserveWhitePawns;
+}
 
 }  // namespace Stockfish
