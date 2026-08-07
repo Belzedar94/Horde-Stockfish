@@ -53,7 +53,7 @@ jobs:
           PY
       - name: Build and verify Horde-Stockfish
         run: |
-          make -j2 -C src ARCH=${{ matrix.arch }} build
+          make -j2 -C src ARCH=${{ matrix.arch }} EXTRALDFLAGS=-static build
           python3 tests/horde_rules.py src/stockfish
           python3 tests/horde_network_contract.py src/stockfish
           python3 tests/horde_bench.py src/stockfish --runs 1
