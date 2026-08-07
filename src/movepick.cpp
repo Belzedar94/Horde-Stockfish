@@ -53,7 +53,9 @@ enum Stages {
     // generate qsearch moves
     QSEARCH_TT,
     QCAPTURE_INIT,
-    QCAPTURE
+    QCAPTURE,
+    QCHECK_INIT,
+    QCHECK
 };
 
 #ifdef USE_AVX512
@@ -158,7 +160,8 @@ MovePicker::MovePicker(const Position&              p,
                        const CapturePieceToHistory* cph,
                        const PieceToHistory**       ch,
                        const SharedHistories*       sh,
-                       int                          pl) :
+                       int                          pl,
+                       bool                         qWhitePawnChecks) :
     pos(p),
     mainHistory(mh),
     lowPlyHistory(lph),
@@ -167,7 +170,8 @@ MovePicker::MovePicker(const Position&              p,
     sharedHistory(sh),
     ttMove(ttm),
     depth(d),
-    ply(pl) {
+    ply(pl),
+    includeWhitePawnChecks(qWhitePawnChecks) {
 
     if (pos.checkers())
         stage = EVASION_TT + !(ttm && pos.pseudo_legal(ttm));
@@ -367,7 +371,31 @@ top:
     }
 
     case EVASION :
+        return select([]() { return true; });
+
     case QCAPTURE :
+        if (select([]() { return true; }))
+            return *(cur - 1);
+
+        if (!includeWhitePawnChecks)
+            return Move::none();
+
+        ++stage;
+        [[fallthrough]];
+
+    case QCHECK_INIT : {
+        MoveList<QUIETS> ml(pos);
+
+        cur = endCur = moves;
+        for (Move move : ml)
+            if (pos.moved_piece(move) == W_PAWN && pos.gives_check(move))
+                *endCur++ = move;
+
+        ++stage;
+        [[fallthrough]];
+    }
+
+    case QCHECK :
         return select([]() { return true; });
 
     case PROBCUT :
