@@ -67,6 +67,30 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 
 ## Local rejects
 
+### 2026-08-07 - Legacy-only NNUE chassis
+
+- Hypothesis: remove the unreachable standard-NNUE transformer, network,
+  Finny-table and multi-delta accumulator infrastructure so every search ply
+  stores only the exact Run 6B 512-lane state and one `DirtyPiece`.
+- Scope: one cohesive backend specialization across the NNUE network and
+  accumulator adapters, `Position::do_move()`, and the build source list. No
+  rule, evaluation, move-ordering, pruning, or search-policy change was mixed
+  into the candidate.
+- Validation: Horde rules, fail-closed Run 6B contract, three deterministic
+  315,576-node benches, 10,000-position T1/T2/T4 determinism, and exact raw and
+  final evaluation parity against the pinned Fairy-Stockfish oracle on 100,000
+  reachable positions all passed. The differential corpus covered 37,263
+  captures, 2,393 promotions, 459 en passant moves, 247 castlings, every
+  one-to-four-White-piece bucket, and rule50 counts 0/50/90/99.
+- Local speed screen: +2.75% geometric mean, -0.38% median, and only 5/12
+  positive alternating depth-16 pairs. Per-pair noise ranged from -6.63% to
+  +22.42% under the live worker load.
+- Decision: rejected locally as insufficiently clear low-hanging fruit; no
+  commit, push, or OpenBench workload.
+- Learning: removing dead generic infrastructure substantially simplifies the
+  binary and per-thread memory layout, but it does not remove enough measured
+  hot-path work to justify distributed games on its own.
+
 ### 2026-08-07 — Match generic accumulator width to Run 6B
 
 - Hypothesis: reduce the inherited generic NNUE accumulator from 1,024 to 512
