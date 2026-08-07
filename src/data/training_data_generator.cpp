@@ -285,8 +285,12 @@ bool parse_params(std::istream& input, GeneratorParams& params, std::string& err
                 "network_sha256, producer_sha256, book, book_sha256, out, and seed";
         return false;
     }
-    if (params.network == "NONE" || params.networkSha256 != Run6BSha256
-        || !is_upper_sha256(params.producerSha256) || params.outputFile.empty()
+    if (params.network == "NONE" || params.networkSha256 != Run6BSha256)
+    {
+        error = "Network identity does not match the registered Run 6B SHA-256";
+        return false;
+    }
+    if (!is_upper_sha256(params.producerSha256) || params.outputFile.empty()
         || params.threads <= 0 || params.count == 0 || params.hashMb == 0 || params.depth <= 0
         || params.depth >= MAX_PLY || params.randomMoveMinPly < 0
         || params.randomMoveMaxPly < params.randomMoveMinPly
