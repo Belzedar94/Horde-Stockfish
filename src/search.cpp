@@ -199,6 +199,8 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordePreservePawnQsearchFutilitySee =
+      bool(options["HordePreservePawnQsearchFutilitySee"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -2056,7 +2058,9 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
 
                 // If static exchange evaluation is low enough
                 // we can prune this move.
-                if (!pos.see_ge(move, alpha - futilityBase))
+                if (!pos.see_ge(move, alpha - futilityBase)
+                    && !(hordePreservePawnQsearchFutilitySee
+                         && pos.piece_on(move.to_sq()) == W_PAWN))
                 {
                     bestValue = std::max(bestValue, std::min(alpha, futilityBase));
 #if defined(HORDE_SEARCH_TELEMETRY)
