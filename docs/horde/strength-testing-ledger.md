@@ -21,6 +21,29 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 
 ## Registered experiments
 
+### 2026-08-07 - Disable main-search capture futility
+
+- Branch: `test/disable-capture-futility`
+- Commit: `a19765137296d319a1fa2bce193368ab8fdfc8d2`
+- OpenBench: [test 229](https://belzedar.duckdns.org/test/229/)
+- Hypothesis: classical captured-piece futility is too noisy for Horde's
+  extinction objective and discards captures that a deeper search prefers.
+- Scope: one default-off UCI switch around the existing main-search capture
+  futility stage. SEE pruning, qsearch, move ordering, margins, and every other
+  pruning rule remain unchanged.
+- Shadow evidence: a broad 256-position corpus generated between plies 6 and
+  80 produced eight shallow best-move changes that aligned with the deeper
+  reference when capture futility was disabled.
+- Validation: default-off rules, Run 6B contract, and three frozen benches
+  passed exactly at 315,576 nodes. Enabled mode was deterministic across three
+  321,458-node benches with best-move digest
+  `0bdba1861b3be41d9c0638cb2b83b43c134b1d7a0120dbfb74883127128b53d9`,
+  a 1.86% node increase.
+- CI: all four OpenBench artifact jobs passed on Windows and Linux for AVX2
+  pext and popcnt.
+- Decision: registered for STC `[1.00, 6.00]` at priority 1000, with a
+  10,000-game neutral cutoff and a 20,000-game absolute ceiling.
+
 ### 2026-08-07 — Legacy dirty-piece tracking only
 
 - Branch: `test/legacy-dirty-piece-only`
