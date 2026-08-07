@@ -234,6 +234,7 @@ using Depth = int;
 // the current quiescence move generation stage (which should thus compare
 // lower than any regular search depth).
 constexpr Depth DEPTH_QS = 0;
+constexpr Depth DEPTH_QS_NO_CHECKS = -1;
 // For transposition table entries where no searching at all was done
 // (whether regular or qsearch) we use DEPTH_UNSEARCHED, which should thus
 // compare lower than any quiescence or regular depth. DEPTH_NONE is used
