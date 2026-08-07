@@ -1573,19 +1573,29 @@ bool Position::see_ge(Move m, int threshold) const {
     if (is_horde_extinction_capture(m))
         return true;
 
-    // Only deal with normal moves, assume others pass a simple SEE
-    if (m.type_of() != NORMAL)
+    // Promotions use the same exchange sequence as normal moves, with the
+    // created material included in the first swap.
+    if (m.type_of() != NORMAL && m.type_of() != PROMOTION)
         return VALUE_ZERO >= threshold;
 
     Square from = m.from_sq(), to = m.to_sq();
 
     assert(piece_on(from) != NO_PIECE);
 
-    int swap = PieceValue[piece_on(to)] - threshold;
+    Piece movedPiece = piece_on(from);
+    Value promotionGain =
+      m.type_of() == PROMOTION
+        ? PieceValue[make_piece(sideToMove, m.promotion_type())] - PawnValue
+        : VALUE_ZERO;
+
+    int swap = PieceValue[piece_on(to)] + promotionGain - threshold;
     if (swap < 0)
         return false;
 
-    swap = PieceValue[piece_on(from)] - swap;
+    Value targetPieceValue =
+      m.type_of() == PROMOTION ? PieceValue[make_piece(sideToMove, m.promotion_type())]
+                               : PieceValue[movedPiece];
+    swap = targetPieceValue - swap;
     if (swap <= 0)
         return true;
 
