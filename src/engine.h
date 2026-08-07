@@ -99,6 +99,7 @@ class Engine {
 
     void trace_eval() const;
     Eval::NNUE::RawNetworkOutput raw_evaluation() const;
+    Value                        static_evaluation() const;
 
     const OptionsMap& get_options() const;
     OptionsMap&       get_options();

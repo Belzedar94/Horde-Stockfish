@@ -247,6 +247,33 @@ def main() -> int:
     require(output, "score cp 0", "Black stalemate")
     require(output, "bestmove (none)", "Black stalemate best move")
 
+    # Pinned scalachess hordeClosedPosition fixtures. These exercise the
+    # Black-to-move path where every legal Black move must be tested without
+    # rebuilding the Position from FEN in the search hot path.
+    closed_fortresses = (
+        "8/p7/pk6/P7/P7/8/8/8 b - - 0 1",
+        "QNBRRBNQ/PPpPPpPP/P1P2PkP/8/8/8/8/8 b - - 0 1",
+        "b7/pk6/P7/P7/8/8/8/8 b - - 0 1",
+        "8/p7/P7/P7/8/2q5/8/7k b - - 0 1",
+        "krb5/pb1p4/P2Pp3/P3Pp2/5Pp1/6Pp/7P/8 b - - 0 1",
+    )
+    for fen in closed_fortresses:
+        output = run_engine(executable, f"position fen {fen}", "d", "go depth 1")
+        require(output, "Horde fortress: yes", f"closed fortress hook for {fen}")
+        require(output, "score cp 0", f"closed fortress result for {fen}")
+        require(output, "bestmove (none)", f"closed fortress best move for {fen}")
+
+    open_fortresses = (
+        "k7/p2p4/P2Pp1p1/P3PpPp/5PpP/6Pp/7P/7n b - - 0 1",
+        "8/1b5r/1P6/1Pk3q1/1PP5/r1P5/P1P5/2P5 b - - 0 52",
+        "8/8/8/7k/7P/7P/8/8 b - - 0 58",
+        "8/p7/P7/P7/8/8/8/6qk b - - 0 1",
+    )
+    for fen in open_fortresses:
+        output = run_engine(executable, f"position fen {fen}", "d", "go depth 1")
+        require(output, "Horde fortress: no", f"open fortress hook for {fen}")
+        reject(output, "bestmove (none)", f"open fortress search for {fen}")
+
     output = run_engine(
         executable,
         "position fen 4k3/8/8/8/8/8/8/P7 w - - 100 1",

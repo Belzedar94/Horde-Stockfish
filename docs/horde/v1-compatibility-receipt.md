@@ -36,8 +36,11 @@ Coverage observed in the frozen run:
 - 5,161 positions with four White pieces.
 
 Horde-Stockfish matched the diagnostic Fairy-Stockfish oracle in all 100,000
-positions for each unscaled integer: PSQT, positional output, and their sum.
-Only the oracle boundary translates White `P` to HordeTest `H`.
+positions for each unscaled integer (PSQT, positional output, and their sum)
+and for the final scaled evaluation. The final gate reproduces the frozen
+HordeTest `H` material value at the evaluator boundary and separately checks
+halfmove clocks `0`, `50`, `90`, and `99`. Only the oracle boundary translates
+White `P` to HordeTest `H`.
 
 ## Incremental and determinism gates
 
@@ -60,8 +63,8 @@ Only the oracle boundary translates White `P` to HordeTest `H`.
 - Mate, extinction, both stalemates, fortress, fifty-move, fivefold repetition,
   and last-Horde-piece capture regressions pass.
 - The Horde-only benchmark (`bench 16 1 13 default depth`) searches exactly
-  440,088 nodes. Three consecutive runs produced the same ten-bestmove digest:
-  `2783DC7F37887E5356802F77585B65D7E2776D65708187A4949CC89E2B810280`.
+  361,809 nodes. Three consecutive runs produced the same ten-bestmove digest:
+  `C443E77C54B8D8391CFF2BF3C033E00331C4BD2B2CD85076D2238310D833B22F`.
 
 ## Gates not claimed here
 

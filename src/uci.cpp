@@ -178,6 +178,11 @@ void UCIEngine::loop() {
             sync_cout << "horde-raw-eval " << psqt << " " << positional << " " << psqt + positional
                       << sync_endl;
         }
+        else if (token == "horde-eval-debug")
+        {
+            const Value value = engine.static_evaluation();
+            sync_cout << "horde-eval-debug eval=" << int(value) << sync_endl;
+        }
         else if (token == "genfens")
         {
             if (auto error = GenFens::run(is, std::cout))

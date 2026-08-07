@@ -122,7 +122,7 @@ affine_transform_non_ssse3(i32* output, const i8* weights, const i32* biases, co
 
 #endif  // !ENABLE_SEQ_OPT
 
-template<IndexType InDims, IndexType OutDims>
+template<IndexType InDims, IndexType OutDims, bool PairActivationInput = true>
 class AffineTransform {
    public:
     // Input/output type
@@ -156,13 +156,16 @@ class AffineTransform {
         // At load time, pre-permute the weights to match the per-128-bit-lane interleaving that
         // the previous layer produces, either via SqrClippedReLU::propagate_pair() or via the
         // separate SqrClippedReLU/ClippedReLU propagate() calls, so no shuffle is needed at runtime.
-        const IndexType block = inputIndex / 32;
-        const IndexType chunk = (inputIndex % 32) / 4;
+        if constexpr (PairActivationInput)
+        {
+            const IndexType block = inputIndex / 32;
+            const IndexType chunk = (inputIndex % 32) / 4;
     #if defined(USE_AVX512)
-        inputIndex = block * 32 + ((chunk % 4) * 2 + chunk / 4) * 4 + inputIndex % 4;
+            inputIndex = block * 32 + ((chunk % 4) * 2 + chunk / 4) * 4 + inputIndex % 4;
     #else
-        inputIndex = block * 32 + ((chunk % 2) * 4 + chunk / 2) * 4 + inputIndex % 4;
+            inputIndex = block * 32 + ((chunk % 2) * 4 + chunk / 2) * 4 + inputIndex % 4;
     #endif
+        }
 #endif
         return inputIndex / 4 * OutputDimensions * 4 + i / PaddedInputDimensions * 4
              + inputIndex % 4;

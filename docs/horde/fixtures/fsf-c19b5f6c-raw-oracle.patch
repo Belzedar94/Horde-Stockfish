@@ -59,7 +59,7 @@ diff --git a/src/nnue/evaluate_nnue.cpp b/src/nnue/evaluate_nnue.cpp
 diff --git a/src/uci.cpp b/src/uci.cpp
 --- a/src/uci.cpp
 +++ b/src/uci.cpp
-@@ -389,6 +389,13 @@ void UCI::loop(int argc, char* argv[]) {
+@@ -389,6 +389,19 @@ void UCI::loop(int argc, char* argv[]) {
        else if (token == "bench")    bench(pos, is, states);
        else if (token == "d")        sync_cout << pos << sync_endl;
        else if (token == "eval")     trace_eval(pos);
@@ -69,6 +69,12 @@ diff --git a/src/uci.cpp b/src/uci.cpp
 +          const auto [psqt, positional] = Eval::NNUE::raw_evaluate(pos);
 +          sync_cout << "horde-raw-eval " << psqt << " " << positional << " "
 +                    << psqt + positional << sync_endl;
++      }
++      else if (token == "horde-eval-debug")
++      {
++          Eval::NNUE::verify();
++          const Value value = Eval::evaluate(pos);
++          sync_cout << "horde-eval-debug eval=" << int(value) << sync_endl;
 +      }
        else if (token == "compiler") sync_cout << compiler_info() << sync_endl;
        else if (token == "export_net")

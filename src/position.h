@@ -186,7 +186,7 @@ class Position {
     bool                 has_king(Color c) const;
     bool                   horde_extinction() const;
     bool                   is_horde_extinction_capture(Move m) const;
-    std::optional<Outcome> outcome(int ply) const;
+    std::optional<Outcome> outcome(int ply);
     bool                   side_has_insufficient_winning_material(Color c) const;
     bool                   horde_is_fortress() const;
     bool                   is_fivefold_repetition() const;

@@ -355,6 +355,14 @@ Eval::NNUE::RawNetworkOutput Engine::raw_evaluation() const {
     return network->evaluate_raw(pos, *accumulators, *caches);
 }
 
+Value Engine::static_evaluation() const {
+    auto accumulators = std::make_unique<Eval::NNUE::AccumulatorStack>();
+    auto caches       = std::make_unique<Eval::NNUE::AccumulatorCaches>(*network);
+
+    verify_network();
+    return Eval::evaluate(*network, pos, *accumulators, *caches, VALUE_ZERO);
+}
+
 const OptionsMap& Engine::get_options() const { return options; }
 OptionsMap&       Engine::get_options() { return options; }
 

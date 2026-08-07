@@ -18,6 +18,7 @@
 #include <type_traits>
 
 #include "../types.h"
+#include "layers/affine_transform.h"
 
 namespace Stockfish {
 
@@ -59,13 +60,13 @@ class HordeLegacyNetwork {
 
    private:
     struct LayerStack {
-        std::array<i32, 16>                         fc0Biases{};
-        std::array<std::int8_t, 16 * NetworkInputs> fc0Weights{};
-        std::array<i32, 32>                         fc1Biases{};
-        // The serialized input is padded from 16 to 32 bytes.
-        std::array<std::int8_t, 32 * 32> fc1Weights{};
-        i32                              fc2Bias{};
-        std::array<std::int8_t, 32>      fc2Weights{};
+        using Fc0 = Layers::AffineTransform<NetworkInputs, 16, false>;
+        using Fc1 = Layers::AffineTransform<16, 32, false>;
+        using Fc2 = Layers::AffineTransform<32, 1, false>;
+
+        Fc0 fc0{};
+        Fc1 fc1{};
+        Fc2 fc2{};
     };
 
     std::array<i16, AccumulatorDimensions>                     biases_{};

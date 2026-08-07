@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <sstream>
 #include <type_traits>
 
 #include "../bitboard.h"
@@ -171,6 +172,7 @@ class Reader {
     }
 
     [[nodiscard]] usize remaining() const { return size_ - offset_; }
+    [[nodiscard]] const unsigned char* current() const { return data_ + offset_; }
 
    private:
     const unsigned char* data_;
@@ -291,20 +293,21 @@ bool HordeLegacyNetwork::load(const unsigned char* data, usize size, std::string
         return false;
     }
 
+    std::string layerBytes(reinterpret_cast<const char*>(reader.current()), reader.remaining());
+    std::istringstream layerStream(std::move(layerBytes), std::ios::in | std::ios::binary);
     for (LayerStack& layer : layers_)
     {
-        u32 architectureHash;
-        if (!reader.read(architectureHash) || architectureHash != ArchitectureHash
-            || !reader.read(layer.fc0Biases) || !reader.read(layer.fc0Weights)
-            || !reader.read(layer.fc1Biases) || !reader.read(layer.fc1Weights)
-            || !reader.read(layer.fc2Bias) || !reader.read(layer.fc2Weights))
+        const u32 architectureHash = read_little_endian<u32>(layerStream);
+        if (layerStream.fail() || architectureHash != ArchitectureHash
+            || !layer.fc0.read_parameters(layerStream) || !layer.fc1.read_parameters(layerStream)
+            || !layer.fc2.read_parameters(layerStream))
         {
             description = "legacy layer-stack parameters or architecture hash are invalid";
             return false;
         }
     }
 
-    loaded_ = reader.remaining() == 0;
+    loaded_ = layerStream.peek() == std::char_traits<char>::eof();
     if (!loaded_)
         description = "legacy network contains trailing bytes";
     return loaded_;
@@ -392,7 +395,7 @@ HordeLegacyNetwork::RawOutput HordeLegacyNetwork::propagate(
   const Position& pos, const AccumulatorState& accumulator, int bucket) const {
     bucket = bucket < 0 ? bucket_for(pos) : std::clamp(bucket, 0, int(LayerStacks) - 1);
     const std::array<Color, COLOR_NB> perspectives = {pos.side_to_move(), ~pos.side_to_move()};
-    std::array<u8, NetworkInputs>     transformed{};
+    alignas(CacheLineSize) std::array<u8, NetworkInputs> transformed{};
     for (usize p = 0; p < COLOR_NB; ++p)
         for (usize i = 0; i < AccumulatorDimensions; ++i)
             transformed[p * AccumulatorDimensions + i] =
@@ -403,30 +406,24 @@ HordeLegacyNetwork::RawOutput HordeLegacyNetwork::propagate(
                              - accumulator.psqtAccumulation[perspectives[1]][bucket])
                           / 2;
 
-    const LayerStack&  layer = layers_[bucket];
-    std::array<u8, 16> hidden0{};
-    for (usize output = 0; output < hidden0.size(); ++output)
-    {
-        i64 sum = layer.fc0Biases[output];
-        for (usize input = 0; input < NetworkInputs; ++input)
-            sum += i64(layer.fc0Weights[output * NetworkInputs + input]) * transformed[input];
-        hidden0[output] = activate(static_cast<i32>(sum));
-    }
+    const LayerStack& layer = layers_[bucket];
 
-    std::array<u8, 32> hidden1{};
-    for (usize output = 0; output < hidden1.size(); ++output)
-    {
-        i64 sum = layer.fc1Biases[output];
-        for (usize input = 0; input < hidden0.size(); ++input)
-            sum += i64(layer.fc1Weights[output * 32 + input]) * hidden0[input];
-        hidden1[output] = activate(static_cast<i32>(sum));
-    }
+    alignas(CacheLineSize) LayerStack::Fc0::OutputBuffer fc0Output{};
+    alignas(CacheLineSize) std::array<u8, LayerStack::Fc0::PaddedOutputDimensions> hidden0{};
+    layer.fc0.propagate(transformed.data(), fc0Output);
+    for (usize output = 0; output < LayerStack::Fc0::OutputDimensions; ++output)
+        hidden0[output] = activate(fc0Output[output]);
 
-    i64 positional = layer.fc2Bias;
-    for (usize input = 0; input < hidden1.size(); ++input)
-        positional += i64(layer.fc2Weights[input]) * hidden1[input];
+    alignas(CacheLineSize) LayerStack::Fc1::OutputBuffer fc1Output{};
+    alignas(CacheLineSize) std::array<u8, LayerStack::Fc1::PaddedOutputDimensions> hidden1{};
+    layer.fc1.propagate(hidden0.data(), fc1Output);
+    for (usize output = 0; output < LayerStack::Fc1::OutputDimensions; ++output)
+        hidden1[output] = activate(fc1Output[output]);
 
-    return {materialist, static_cast<i32>(positional)};
+    alignas(CacheLineSize) LayerStack::Fc2::OutputBuffer positional{};
+    layer.fc2.propagate(hidden1.data(), positional);
+
+    return {materialist, positional[0]};
 }
 
 void AccumulatorStack::evaluate_horde_legacy(const Position&           pos,

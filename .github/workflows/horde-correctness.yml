@@ -120,7 +120,7 @@ jobs:
           persist-credentials: false
       - name: Install parity dependency
         run: python3 -m pip install --disable-pip-version-check python-chess==1.999
-      - name: Build the raw-output oracle
+      - name: Build the legacy-evaluation oracle
         run: |
           git -C fsf-oracle apply --check "$GITHUB_WORKSPACE/docs/horde/fixtures/fsf-c19b5f6c-raw-oracle.patch"
           git -C fsf-oracle apply "$GITHUB_WORKSPACE/docs/horde/fixtures/fsf-c19b5f6c-raw-oracle.patch"
@@ -134,7 +134,7 @@ jobs:
           make -C src clean
           make -j2 -C src ARCH=x86-64-bmi2 build
           cp src/stockfish horde-stockfish-bmi2
-      - name: Verify 100,000-position raw parity
+      - name: Verify 100,000-position raw and final parity
         run: >-
           python3 tests/horde_nnue_parity.py
           --candidate horde-stockfish-bmi2

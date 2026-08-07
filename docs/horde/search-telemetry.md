@@ -8,8 +8,8 @@ make -C src ARCH=x86-64 EXTRACXXFLAGS=-DHORDE_SEARCH_TELEMETRY build
 
 That build exposes `HordeSearchTelemetry`, defaulting to `false`. A normal
 build contains neither the option nor the counters. With the runtime option
-disabled, the deterministic Horde bench remains `440088` with best-move digest
-`2783dc7f37887e5356802f77585b65d7e2776d65708187a4949cc89e2b810280`.
+disabled, the deterministic Horde bench remains `361809` with best-move digest
+`c443e77c54b8d8391cff2bf3c033e00331c4bd2b2cd85076d2238310d833b22f`.
 
 When enabled, the engine emits one summary followed by non-empty cells before
 `bestmove`. Every cell is keyed by side to move, search-depth bucket, and White

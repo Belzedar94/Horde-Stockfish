@@ -23,6 +23,7 @@ from chess.variant import HordeBoard
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW_RE = re.compile(r"^horde-raw-eval (-?\d+) (-?\d+) (-?\d+)$")
+EVAL_RE = re.compile(r"^horde-eval-debug eval=(-?\d+)$")
 
 SCRIPTED_GAMES = (
     # A legal ordinary en-passant capture by the Horde side.
@@ -213,18 +214,19 @@ def to_hordetest_fen(fen: str) -> str:
     return " ".join(fields)
 
 
-def raw_eval_batch(
+def network_eval_batch(
     executable: Path,
     prefix: Iterable[str],
     fens: Sequence[str],
     hordetest: bool,
     cwd: Path,
     timeout: float,
-) -> list[tuple[int, int, int]]:
+) -> tuple[list[tuple[int, int, int]], list[int]]:
     commands = list(prefix)
     for fen in fens:
         commands.append(f"position fen {to_hordetest_fen(fen) if hordetest else fen}")
         commands.append("horde-raw-eval")
+        commands.append("horde-eval-debug")
     commands.append("quit")
 
     completed = subprocess.run(
@@ -242,17 +244,41 @@ def raw_eval_batch(
             f"{executable.name} exited with {completed.returncode}:\n{output[-4000:]}"
         )
 
-    values = [
+    raw_values = [
         tuple(map(int, match.groups()))
         for line in output.splitlines()
         if (match := RAW_RE.fullmatch(line.strip()))
     ]
-    if len(values) != len(fens):
+    eval_values = [
+        int(match.group(1))
+        for line in output.splitlines()
+        if (match := EVAL_RE.fullmatch(line.strip()))
+    ]
+    if len(raw_values) != len(fens) or len(eval_values) != len(fens):
         raise RuntimeError(
-            f"{executable.name} returned {len(values)} raw evaluations for "
-            f"{len(fens)} positions:\n{output[-4000:]}"
+            f"{executable.name} returned {len(raw_values)} raw and "
+            f"{len(eval_values)} final evaluations for {len(fens)} positions:\n"
+            f"{output[-4000:]}"
         )
-    return values
+    return raw_values, eval_values
+
+
+def raw_eval_batch(
+    executable: Path,
+    prefix: Iterable[str],
+    fens: Sequence[str],
+    hordetest: bool,
+    cwd: Path,
+    timeout: float,
+) -> list[tuple[int, int, int]]:
+    """Compatibility wrapper for raw-only determinism consumers."""
+    return network_eval_batch(executable, prefix, fens, hordetest, cwd, timeout)[0]
+
+
+def with_rule50(fen: str, count: int) -> str:
+    fields = fen.split()
+    fields[4] = str(count)
+    return " ".join(fields)
 
 
 def validate_paths(args: argparse.Namespace) -> None:
@@ -353,7 +379,7 @@ def main() -> int:
             for start in range(0, len(positions), args.batch_size):
                 batch = positions[start : start + args.batch_size]
                 candidate_job = pool.submit(
-                    raw_eval_batch,
+                    network_eval_batch,
                     args.candidate,
                     candidate_prefix,
                     batch,
@@ -362,7 +388,7 @@ def main() -> int:
                     args.timeout,
                 )
                 oracle_job = pool.submit(
-                    raw_eval_batch,
+                    network_eval_batch,
                     args.oracle,
                     oracle_prefix,
                     batch,
@@ -370,11 +396,11 @@ def main() -> int:
                     temp,
                     args.timeout,
                 )
-                candidate_values = candidate_job.result()
-                oracle_values = oracle_job.result()
+                candidate_raw, candidate_eval = candidate_job.result()
+                oracle_raw, oracle_eval = oracle_job.result()
 
                 for offset, (candidate, oracle) in enumerate(
-                    zip(candidate_values, oracle_values, strict=True)
+                    zip(candidate_raw, oracle_raw, strict=True)
                 ):
                     if candidate != oracle:
                         index = start + offset
@@ -382,11 +408,49 @@ def main() -> int:
                             f"raw NNUE mismatch at position {index}: "
                             f"candidate={candidate}, oracle={oracle}, fen={batch[offset]}"
                         )
+                for offset, (candidate, oracle) in enumerate(
+                    zip(candidate_eval, oracle_eval, strict=True)
+                ):
+                    if candidate != oracle:
+                        index = start + offset
+                        raise RuntimeError(
+                            f"final NNUE mismatch at position {index}: "
+                            f"candidate={candidate}, oracle={oracle}, fen={batch[offset]}"
+                        )
                 checked += len(batch)
                 print(f"parity {checked}/{len(positions)}", flush=True)
 
+            rule50_positions = [with_rule50(positions[0], count) for count in (0, 50, 90, 99)]
+            candidate_job = pool.submit(
+                network_eval_batch,
+                args.candidate,
+                candidate_prefix,
+                rule50_positions,
+                False,
+                temp,
+                args.timeout,
+            )
+            oracle_job = pool.submit(
+                network_eval_batch,
+                args.oracle,
+                oracle_prefix,
+                rule50_positions,
+                True,
+                temp,
+                args.timeout,
+            )
+            candidate_raw, candidate_eval = candidate_job.result()
+            oracle_raw, oracle_eval = oracle_job.result()
+            if candidate_raw != oracle_raw or candidate_eval != oracle_eval:
+                raise RuntimeError(
+                    "rule50-stratified NNUE mismatch: "
+                    f"candidate_raw={candidate_raw}, oracle_raw={oracle_raw}, "
+                    f"candidate_eval={candidate_eval}, oracle_eval={oracle_eval}"
+                )
+            print("rule50 parity 0/50/90/99", flush=True)
+
     print(
-        f"Run 6B raw NNUE parity completed successfully: {len(positions)} positions",
+        f"Run 6B raw/final NNUE parity completed successfully: {len(positions)} positions",
         flush=True,
     )
     return 0
