@@ -1316,10 +1316,17 @@ moves_loop:  // When in check, search starts here
                 }
 
                 // SEE based pruning for captures and checks
-                // Avoid pruning sacrifices of our last piece for stalemate
+                // Avoid pruning tactically critical moves by our last piece.
+                // White Horde pawns are excluded from non-pawn material, so the
+                // orthodox test mistakes a lone promotion plus any number of
+                // Horde pawns for the last White piece. Use the extinction unit
+                // count for White while preserving the orthodox Black guard.
+                const bool lastPiece =
+                  us == WHITE ? pos.count<ALL_PIECES>(WHITE) == 1
+                              : pos.non_pawn_material(BLACK) == PieceValue[movedPiece];
                 int margin = 177 * depth + captHist * 34 / 1024;
                 if (!extinctionCapture
-                    && (alpha >= VALUE_DRAW || pos.non_pawn_material(us) != PieceValue[movedPiece])
+                    && (alpha >= VALUE_DRAW || !lastPiece)
                     && !pos.see_ge(move, -margin)
                     && HORDE_PRUNING_ACTIVE(HordeDisableCaptureSee))
                 {
