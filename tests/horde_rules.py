@@ -81,6 +81,14 @@ def main() -> int:
 
     output = run_engine(
         executable,
+        "setoption name UCI_Variant value horde",
+        "isready",
+    )
+    require(output, "readyok", "fixed UCI variant selection")
+    reject(output, "was already added", "fixed UCI variant selection")
+
+    output = run_engine(
+        executable,
         "setoption name UCI_Chess960 value true",
         "isready",
         "position startpos",
