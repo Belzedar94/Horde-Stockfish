@@ -53,8 +53,8 @@ jobs:
           PY
       - name: Build and verify Horde-Stockfish
         run: |
-          make -j2 -C src ARCH=${{ matrix.arch }} build
-          make -j2 -C src ARCH=${{ matrix.arch }} GIT_FULL_SHA=${{ github.sha }} GIT_DIFFINDEX= data-generator
+          make -j2 -C src ARCH=${{ matrix.arch }} EXTRALDFLAGS=-static build
+          make -j2 -C src ARCH=${{ matrix.arch }} EXTRALDFLAGS=-static GIT_FULL_SHA=${{ github.sha }} GIT_DIFFINDEX= data-generator
           python3 tests/horde_rules.py src/stockfish
           python3 tests/horde_network_contract.py src/stockfish
           python3 tests/horde_bench.py src/stockfish --runs 1
