@@ -1573,15 +1573,18 @@ bool Position::see_ge(Move m, int threshold) const {
     if (is_horde_extinction_capture(m))
         return true;
 
-    // Only deal with normal moves, assume others pass a simple SEE
-    if (m.type_of() != NORMAL)
+    // En passant follows the normal exchange sequence after removing the
+    // captured pawn from its actual square.
+    if (m.type_of() != NORMAL && m.type_of() != EN_PASSANT)
         return VALUE_ZERO >= threshold;
 
     Square from = m.from_sq(), to = m.to_sq();
 
     assert(piece_on(from) != NO_PIECE);
 
-    int swap = PieceValue[piece_on(to)] - threshold;
+    Piece capturedPiece =
+      m.type_of() == EN_PASSANT ? make_piece(~sideToMove, PAWN) : piece_on(to);
+    int swap = PieceValue[capturedPiece] - threshold;
     if (swap < 0)
         return false;
 
@@ -1590,7 +1593,9 @@ bool Position::see_ge(Move m, int threshold) const {
         return true;
 
     assert(color_of(piece_on(from)) == sideToMove);
-    Bitboard occupied  = pieces() ^ from ^ to;  // xoring to is important for pinned piece logic
+    Bitboard occupied = pieces() ^ from ^ to;  // xoring to is important for pinned piece logic
+    if (m.type_of() == EN_PASSANT)
+        occupied ^= to - pawn_push(sideToMove);
     Color    stm       = sideToMove;
     Bitboard attackers = attackers_to(to, occupied);
     Bitboard stmAttackers, bb;
