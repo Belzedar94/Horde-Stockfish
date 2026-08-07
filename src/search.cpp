@@ -68,6 +68,7 @@ using namespace Search;
 namespace {
 
 constexpr u64 NODES_LIMIT_OUTPUT = 10'000'000;
+constexpr Value HORDE_LEGACY_PAWN_VALUE = Value(152);
 
 constexpr int SEARCHEDLIST_CAPACITY = 32;
 using SearchedList                  = ValueList<Move, SEARCHEDLIST_CAPACITY>;
@@ -199,6 +200,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeLegacyPawnCaptureFutility = bool(options["HordeLegacyPawnCaptureFutility"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1301,8 +1303,11 @@ moves_loop:  // When in check, search starts here
                 // Futility pruning for captures
                 if (!extinctionCapture && !givesCheck && lmrDepth < 8)
                 {
+                    Value capturedValue = hordeLegacyPawnCaptureFutility && capturedPiece == W_PAWN
+                                          ? HORDE_LEGACY_PAWN_VALUE
+                                          : PieceValue[capturedPiece];
                     Value futilityValue = ss->staticEval + 234 + 247 * lmrDepth
-                                        + PieceValue[capturedPiece] + 134 * captHist / 1024;
+                                        + capturedValue + 134 * captHist / 1024;
 
                     if (futilityValue <= alpha
                         && HORDE_PRUNING_ACTIVE(HordeDisableCaptureFutility))
