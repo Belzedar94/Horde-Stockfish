@@ -68,6 +68,7 @@ using namespace Search;
 namespace {
 
 constexpr u64 NODES_LIMIT_OUTPUT = 10'000'000;
+constexpr Value HORDE_LEGACY_PAWN_VALUE = Value(152);
 
 constexpr int SEARCHEDLIST_CAPACITY = 32;
 using SearchedList                  = ValueList<Move, SEARCHEDLIST_CAPACITY>;
@@ -199,6 +200,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeLegacyPawnQsearchFutility = bool(options["HordeLegacyPawnQsearchFutility"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -2036,7 +2038,12 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
                     continue;
                 }
 
-                Value futilityValue = futilityBase + PieceValue[pos.piece_on(move.to_sq())];
+                Piece capturedPiece = pos.piece_on(move.to_sq());
+                Value capturedValue =
+                  hordeLegacyPawnQsearchFutility && capturedPiece == W_PAWN
+                    ? HORDE_LEGACY_PAWN_VALUE
+                    : PieceValue[capturedPiece];
+                Value futilityValue = futilityBase + capturedValue;
 
                 // If static eval + value of piece we are going to capture is
                 // much lower than alpha, we can prune this move.
