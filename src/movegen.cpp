@@ -264,16 +264,21 @@ Move* generate<LEGAL>(const Position& pos, Move* moveList) {
     if (pos.horde_extinction())
         return moveList;
 
-    Color    us     = pos.side_to_move();
-    Bitboard pinned = us == BLACK ? pos.blockers_for_king(us) & pos.pieces(us) : 0;
-    Square   ksq    = us == BLACK ? pos.square<KING>(us) : SQ_NONE;
-    Move*    cur    = moveList;
+    Color us  = pos.side_to_move();
+    Move* cur = moveList;
 
     moveList =
       pos.checkers() ? generate<EVASIONS>(pos, moveList) : generate<NON_EVASIONS>(pos, moveList);
+
+    // White has no royal king in Horde, so every generated move is legal.
+    if (us == WHITE)
+        return moveList;
+
+    Bitboard pinned = pos.blockers_for_king(BLACK) & pos.pieces(BLACK);
+    Square   ksq    = pos.square<KING>(BLACK);
+
     while (cur != moveList)
-        if (us == BLACK
-            && ((pinned & cur->from_sq()) || cur->from_sq() == ksq || cur->type_of() == EN_PASSANT)
+        if (((pinned & cur->from_sq()) || cur->from_sq() == ksq || cur->type_of() == EN_PASSANT)
             && !pos.legal(*cur))
             *cur = *(--moveList);
         else
