@@ -312,6 +312,12 @@ Of those, 10,485,760 bytes belong to the 32-bucket Royal transformer. This is
 an intentionally expensive stress point whose NPS cost must be measured before
 the bucket map is retained for training.
 
+An independent Python trainer-side reference regenerates the deterministic P0
+payload without loading C++ parameters and compares every emitted accumulator,
+activation, affine layer, STM output, and final value against the C++ scalar
+receipt. This closes the initial layer-by-layer integer parity gate; it is not
+a substitute for parity on a trained, serialized network.
+
 The reference admits only biases whose magnitude is at most `2^30`. Combined
 with the fixed active-row capacities and weight types, this analytically keeps
 every signed 32-bit affine sum in range. It does not use saturation or depend

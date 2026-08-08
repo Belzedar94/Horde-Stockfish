@@ -44,6 +44,7 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
             tests/horde_v2_features.cpp -o /tmp/horde-v2-features
           /tmp/horde-v2-features
+          python3 tests/horde_v2_trainer_parity.py /tmp/horde-v2-features
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
       - name: Verify material corpus
@@ -63,6 +64,7 @@ jobs:
           tests/horde_network_contract.py
           tests/horde_bench.py
           tests/horde_genfens.py
+          tests/horde_v2_trainer_parity.py
           tests/horde_nnue_parity.py
           tests/horde_nnue_determinism.py
 
@@ -84,6 +86,7 @@ jobs:
             -fsanitize=address,undefined -fno-omit-frame-pointer \
             tests/horde_v2_features.cpp -o /tmp/horde-v2-features-sanitize
           /tmp/horde-v2-features-sanitize
+          python3 tests/horde_v2_trainer_parity.py /tmp/horde-v2-features-sanitize
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
       - name: Verify material corpus
@@ -181,6 +184,7 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
             tests/horde_v2_features.cpp -o horde-v2-features.exe
           ./horde-v2-features.exe
+          python tests/horde_v2_trainer_parity.py ./horde-v2-features.exe
           python scripts/horde/verify_baseline.py
           python tests/horde_rules.py src/stockfish.exe
           python tests/horde_material_corpus.py src/stockfish.exe

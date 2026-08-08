@@ -8,6 +8,7 @@
 #include <iostream>
 #include <numeric>
 #include <random>
+#include <string_view>
 
 #include "../src/nnue/horde_v2_features.h"
 #include "../src/nnue/horde_v2_full_refresh.h"
@@ -17,6 +18,8 @@ using namespace Stockfish;
 using namespace Stockfish::Eval::NNUE::HordeV2;
 
 namespace {
+
+constexpr u64 ScalarFixtureSeed = 0x4856325F42415345ULL;
 
 std::array<Piece, SQUARE_NB> horde_start_board() {
     std::array<Piece, SQUARE_NB> board{};
@@ -55,9 +58,52 @@ sorted_prefix(std::array<Eval::NNUE::IndexType, Capacity> values, std::size_t si
     return values;
 }
 
+template<typename T, std::size_t Size>
+void emit_json_array(const char* name, const std::array<T, Size>& values, bool leadingComma) {
+    std::cout << (leadingComma ? ",\"" : "\"") << name << "\":[";
+    for (std::size_t index = 0; index < Size; ++index)
+    {
+        if (index != 0)
+            std::cout << ',';
+        std::cout << +values[index];
+    }
+    std::cout << ']';
+}
+
+int emit_scalar_receipt() {
+    ScalarNetwork network(make_deterministic_parameters(ScalarFixtureSeed));
+    const auto    board = horde_start_board();
+    const auto    white = network.evaluate_full_refresh(board, WHITE, 0);
+    const auto    black = network.evaluate_full_refresh(board, BLACK, 0);
+    assert(white.valid());
+    assert(black.valid());
+
+    std::cout << '{';
+    std::cout << "\"seed\":" << ScalarFixtureSeed;
+    std::cout << ",\"parameter_bytes\":" << ScalarParameterBytes;
+    emit_json_array("royal_accumulator", white.royalAccumulator, true);
+    emit_json_array("global_accumulator", white.globalAccumulator, true);
+    emit_json_array("transformed", white.transformed, true);
+    emit_json_array("hidden0_affine", white.hidden0Affine, true);
+    emit_json_array("hidden0", white.hidden0, true);
+    emit_json_array("hidden1_affine", white.hidden1Affine, true);
+    emit_json_array("hidden1", white.hidden1, true);
+    std::cout << ",\"white_output_affine\":" << white.outputAffine;
+    std::cout << ",\"black_output_affine\":" << black.outputAffine;
+    std::cout << ",\"white_pre_rule50\":" << white.preRule50Value;
+    std::cout << ",\"black_pre_rule50\":" << black.preRule50Value;
+    std::cout << ",\"white_value\":" << int(white.value);
+    std::cout << ",\"black_value\":" << int(black.value);
+    std::cout << "}\n";
+    return 0;
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc == 2 && std::string_view(argv[1]) == "--scalar-receipt")
+        return emit_scalar_receipt();
+
     constexpr std::array<Piece, FIXED_ROLE_NB> FixedRolePieces = {
       W_PAWN, W_KNIGHT, W_BISHOP, W_ROOK, W_QUEEN,
       B_PAWN, B_KNIGHT, B_BISHOP, B_ROOK, B_QUEEN, B_KING};
@@ -256,7 +302,7 @@ int main() {
 
     // Exercise the exact V2_BASE_P0 integer path with a non-zero deterministic
     // payload. Both STM heads share every preceding layer.
-    ScalarNetwork deterministicNetwork(make_deterministic_parameters(0x4856325F42415345ULL));
+    ScalarNetwork deterministicNetwork(make_deterministic_parameters(ScalarFixtureSeed));
     const auto    whiteTrace = deterministicNetwork.evaluate_full_refresh(startBoard, WHITE, 0);
     const auto    blackTrace = deterministicNetwork.evaluate_full_refresh(startBoard, BLACK, 0);
     assert(whiteTrace.valid());
