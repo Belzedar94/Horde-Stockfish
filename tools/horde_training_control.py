@@ -309,8 +309,10 @@ def _torch_batch(sparse: SparseBatch, device: torch.device) -> LegacyBatch:
 def _rule50_postprocess(output: Tensor, rule50_count: Tensor) -> Tensor:
     """Apply the engine's integer rule-50 damping with an STE gradient."""
 
-    pre_postprocessor = output * NNUE_TO_SCORE
-    rule50 = torch.clamp(rule50_count, 0, 100).to(dtype=pre_postprocessor.dtype)
+    pre_float = output * NNUE_TO_SCORE
+    pre_integer = torch.trunc(pre_float)
+    pre_postprocessor = pre_float + (pre_integer - pre_float).detach()
+    rule50 = torch.clamp(rule50_count, 0, 100).to(dtype=pre_float.dtype)
     damped_float = pre_postprocessor * (100.0 - rule50) / 100.0
     damped_integer = torch.trunc(damped_float)
     damped_ste = damped_float + (damped_integer - damped_float).detach()
@@ -1066,7 +1068,8 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 "rule50": {
                     "input": "HORDE_BIN_V1 rule50_count",
                     "forward": (
-                        "clamp(trunc_toward_zero(v0 * (100 - min(rule50, 100)) / 100), "
+                        "clamp(trunc_toward_zero(trunc_toward_zero(v0) * "
+                        "(100 - min(rule50, 100)) / 100), "
                         "-31506, 31506)"
                     ),
                     "v0": "float network output multiplied by 600",

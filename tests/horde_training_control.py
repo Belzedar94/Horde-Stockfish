@@ -145,17 +145,23 @@ def test_named_initialization() -> None:
 
 def test_rule50_postprocessor() -> None:
     output = torch.tensor(
-        [100.9 / 600.0, -100.9 / 600.0, 100.9 / 600.0],
+        [
+            100.9 / 600.0,
+            -100.9 / 600.0,
+            101.9 / 600.0,
+            -101.9 / 600.0,
+            100.9 / 600.0,
+        ],
         requires_grad=True,
     )
-    rule50 = torch.tensor([50, 50, 100])
+    rule50 = torch.tensor([50, 50, 33, 33, 100])
     observed = control._rule50_postprocess(output, rule50)
-    expected = torch.tensor([50.0, -50.0, 0.0])
+    expected = torch.tensor([50.0, -50.0, 67.0, -67.0, 0.0])
     if not torch.equal(observed, expected):
         raise AssertionError(f"rule-50 integer forward changed: {observed}")
     observed.sum().backward()
-    expected_gradient = torch.tensor([300.0, 300.0, 0.0])
-    if not torch.equal(output.grad, expected_gradient):
+    expected_gradient = torch.tensor([300.0, 300.0, 402.0, 402.0, 0.0])
+    if not torch.allclose(output.grad, expected_gradient, rtol=0.0, atol=1.0e-4):
         raise AssertionError(f"rule-50 STE gradient changed: {output.grad}")
 
 
