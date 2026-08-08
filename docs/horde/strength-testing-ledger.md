@@ -74,11 +74,20 @@ First wave, all at priority 1000:
 
 Second wave consists of zero-game structural candidates with green artifact
 CI: `test/white-legal-generation-fastpath`, `test/fixed-role-gives-check`,
-`test/fixed-role-do-move-checkers`, `test/horde-material-correction`, and
-`test/white-piece-count-see-guard`. The last branch now points to
+`test/fixed-role-do-move-checkers`, `test/qsearch-terminal-recheck`,
+`test/horde-material-correction`, and `test/white-piece-count-see-guard`. The
+last branch now points to
 `dfa4746188baaaebad4fe675ed0f10f692293e74`; its previous CI failure was only a
 stale deterministic-bench receipt, and all four artifact jobs pass on the new
 head.
+
+Third wave keeps four additional ideas orthogonal: exact promotion SEE at
+`11e9cad9c2d7525383d6d1842b6fd410a16e6a8a`, exact en-passant SEE at
+`8261fa2c44140b67f3c6736851dfc56f19eecea0`, legacy Horde-pawn capture stat
+score at `5ffb8496c5465efc39ab8cf2eb24397ab647dfde`, and legacy Horde-pawn
+capture-futility value at `805e5bc2e94a8b9419f4301903b8e44cc558d27f`. Each has
+green artifact CI and zero previous games. Promotion ordering, qsearch
+futility, SEE value, and main-search futility remain separate experiments.
 
 Do not restart candidates whose V1 direction was already poor without new
 evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
