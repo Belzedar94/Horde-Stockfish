@@ -46,12 +46,14 @@ try:
         make_sparse_batch,
     )
     from .horde_training_models import (
+        AbsoluteNonKingV2Model,
         HIDDEN0_LANES,
         HIDDEN1_LANES,
         HordeV2Model,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
+        V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
     from .horde_training_split_audit import audit_pair
     from .horde_wdl import (
@@ -72,12 +74,14 @@ except ImportError:
         make_sparse_batch,
     )
     from horde_training_models import (
+        AbsoluteNonKingV2Model,
         HIDDEN0_LANES,
         HIDDEN1_LANES,
         HordeV2Model,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
+        V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
     from horde_training_split_audit import audit_pair
     from horde_wdl import (
@@ -98,15 +102,24 @@ V2_FEATURE_SCHEMA = "V2_BASE_P0"
 V2_ARCHITECTURES = {
     "v2-64x192": {
         "schema": "V2_BASE_P0_64X192",
-        "royal_lanes": 64,
+        "first_domain": "royal",
+        "first_lanes": 64,
         "global_lanes": 192,
         "serialized_parameter_bytes": 2_902_344,
     },
     "v2-128x128": {
         "schema": "V2_BASE_P0_128X128",
-        "royal_lanes": 128,
+        "first_domain": "royal",
+        "first_lanes": 128,
         "global_lanes": 128,
         "serialized_parameter_bytes": 5_433_672,
+    },
+    "v2-c1-abs64x192": {
+        "schema": "V2_C1_ABS_NONKING_64X192",
+        "first_domain": "absolute_nonking",
+        "first_lanes": 64,
+        "global_lanes": 192,
+        "serialized_parameter_bytes": 362_824,
     },
 }
 ARCHITECTURE_CHOICES = (LEGACY_ARCHITECTURE, *V2_ARCHITECTURES)
@@ -303,22 +316,37 @@ def _checkpoint_schema(name: str) -> str:
 
 def _v2_structure(name: str) -> dict[str, object]:
     config = V2_ARCHITECTURES[name]
-    royal_lanes = int(config["royal_lanes"])
+    first_domain = str(config["first_domain"])
+    first_lanes = int(config["first_lanes"])
     global_lanes = int(config["global_lanes"])
-    transformed = royal_lanes + global_lanes
+    transformed = first_lanes + global_lanes
+    if first_domain == "royal":
+        first_domain_receipt: dict[str, object] = {
+            "name": "royal",
+            "dimensions": V2_ROYAL_DIMENSIONS,
+            "lanes": first_lanes,
+            "black_king_buckets": 32,
+            "horizontal_mirror": "black king canonicalized to files E-H",
+            "includes_black_king": False,
+        }
+    elif first_domain == "absolute_nonking":
+        first_domain_receipt = {
+            "name": "absolute_nonking",
+            "dimensions": V2_ABSOLUTE_NONKING_DIMENSIONS,
+            "lanes": first_lanes,
+            "fixed_roles": 10,
+            "orientation": "absolute A1-H8",
+            "source_projection": "G0 rows 0-639; Black king row omitted",
+            "includes_black_king": False,
+        }
+    else:  # pragma: no cover - static architecture table
+        raise TrainingError(f"unknown V2 first domain: {first_domain}")
     structure: dict[str, object] = {
         "schema": config["schema"],
         "feature_schema": V2_FEATURE_SCHEMA,
         "feature_order": "physical squares A1 through H8",
         "domains": [
-            {
-                "name": "royal",
-                "dimensions": V2_ROYAL_DIMENSIONS,
-                "lanes": royal_lanes,
-                "black_king_buckets": 32,
-                "horizontal_mirror": "black king canonicalized to files E-H",
-                "includes_black_king": False,
-            },
+            first_domain_receipt,
             {
                 "name": "global",
                 "dimensions": V2_GLOBAL_DIMENSIONS,
@@ -346,11 +374,13 @@ def _make_model(name: str, seed: int) -> nn.Module:
     if name == LEGACY_ARCHITECTURE:
         return LegacyHPModel(seed)
     config = V2_ARCHITECTURES[name]
-    return HordeV2Model(
-        int(config["royal_lanes"]),
-        int(config["global_lanes"]),
-        seed,
-    )
+    first_lanes = int(config["first_lanes"])
+    global_lanes = int(config["global_lanes"])
+    if config["first_domain"] == "royal":
+        return HordeV2Model(first_lanes, global_lanes, seed)
+    if config["first_domain"] == "absolute_nonking":
+        return AbsoluteNonKingV2Model(first_lanes, global_lanes, seed)
+    raise TrainingError(f"unknown V2 first domain: {config['first_domain']}")
 
 
 def _splitmix64(state: int) -> tuple[int, int]:

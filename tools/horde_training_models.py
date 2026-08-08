@@ -33,6 +33,7 @@ LEGACY_BUCKETS = 8
 HIDDEN0_LANES = 32
 HIDDEN1_LANES = 32
 NNUE_TO_SCORE = 600.0
+V2_ABSOLUTE_NONKING_DIMENSIONS = 10 * 64
 
 
 class LegacyModelBatch(Protocol):
@@ -240,6 +241,99 @@ class HordeV2Model(nn.Module):
     def gradient_groups(self) -> dict[str, Iterable[nn.Parameter]]:
         return {
             "royal_transformer": (self.royal_weights, self.royal_bias),
+            "global_transformer": (self.global_weights, self.global_bias),
+            "dense_trunk": (
+                self.hidden0_weights,
+                self.hidden0_bias,
+                self.hidden1_weights,
+                self.hidden1_bias,
+            ),
+            "output": (self.output_weights, self.output_bias),
+        }
+
+
+class AbsoluteNonKingV2Model(nn.Module):
+    """C1 control with absolute non-king rows instead of Royal-relative rows."""
+
+    def __init__(self, absolute_lanes: int, global_lanes: int, seed: int) -> None:
+        super().__init__()
+        self.absolute_lanes = absolute_lanes
+        self.global_lanes = global_lanes
+        self.absolute_nonking_weights = _uniform_parameter(
+            (V2_ABSOLUTE_NONKING_DIMENSIONS, absolute_lanes),
+            seed,
+            "v2.absolute_nonking_weights",
+            0.012,
+        )
+        self.absolute_nonking_bias = nn.Parameter(
+            torch.full((absolute_lanes,), 0.45)
+        )
+        self.global_weights = _uniform_parameter(
+            (V2_GLOBAL_DIMENSIONS, global_lanes), seed, "v2.global_weights", 0.012
+        )
+        self.global_bias = nn.Parameter(torch.full((global_lanes,), 0.45))
+        transformed = absolute_lanes + global_lanes
+        self.hidden0_weights = _uniform_parameter(
+            (HIDDEN0_LANES, transformed), seed, "v2.hidden0_weights", 0.018
+        )
+        self.hidden0_bias = nn.Parameter(torch.full((HIDDEN0_LANES,), 0.20))
+        self.hidden1_weights = _uniform_parameter(
+            (HIDDEN1_LANES, HIDDEN0_LANES), seed, "v2.hidden1_weights", 0.025
+        )
+        self.hidden1_bias = nn.Parameter(torch.full((HIDDEN1_LANES,), 0.20))
+        self.output_weights = _uniform_parameter(
+            (2, HIDDEN1_LANES), seed, "v2.output_weights", 0.020
+        )
+        self.output_bias = nn.Parameter(torch.zeros(2))
+
+    @staticmethod
+    def absolute_nonking_features(batch: V2ModelBatch) -> tuple[Tensor, Tensor]:
+        """Project G0 onto its ten non-king physical role planes."""
+
+        keep = batch.v2_global < V2_ABSOLUTE_NONKING_DIMENSIONS
+        prefix = torch.cat(
+            (
+                torch.zeros(1, dtype=batch.global_offsets.dtype, device=keep.device),
+                torch.cumsum(keep.to(dtype=batch.global_offsets.dtype), dim=0),
+            )
+        )
+        offsets = prefix.index_select(0, batch.global_offsets)
+        return batch.v2_global[keep], offsets
+
+    def forward(self, batch: V2ModelBatch) -> Tensor:
+        absolute_indices, absolute_offsets = self.absolute_nonking_features(batch)
+        absolute = _sparse_sum(
+            absolute_indices,
+            absolute_offsets,
+            self.absolute_nonking_weights,
+            self.absolute_nonking_bias,
+        )
+        global_ = _sparse_sum(
+            batch.v2_global,
+            batch.global_offsets,
+            self.global_weights,
+            self.global_bias,
+        )
+        transformed = torch.clamp(torch.cat((absolute, global_), dim=1), 0.0, 1.0)
+        hidden0 = torch.clamp(
+            functional.linear(transformed, self.hidden0_weights, self.hidden0_bias),
+            0.0,
+            1.0,
+        )
+        hidden1 = torch.clamp(
+            functional.linear(hidden0, self.hidden1_weights, self.hidden1_bias),
+            0.0,
+            1.0,
+        )
+        all_heads = functional.linear(hidden1, self.output_weights, self.output_bias)
+        return all_heads.gather(1, batch.side_to_move.unsqueeze(1)).squeeze(1)
+
+    def gradient_groups(self) -> dict[str, Iterable[nn.Parameter]]:
+        return {
+            "absolute_nonking_transformer": (
+                self.absolute_nonking_weights,
+                self.absolute_nonking_bias,
+            ),
             "global_transformer": (self.global_weights, self.global_bias),
             "dense_trunk": (
                 self.hidden0_weights,

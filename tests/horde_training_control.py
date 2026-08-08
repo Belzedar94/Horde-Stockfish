@@ -153,19 +153,46 @@ def test_v2_gradient_path() -> None:
         results=torch.round(2.0 * fixture.result_targets - 1.0).to(dtype=torch.long),
         score_eligible=torch.ones_like(fixture.scores, dtype=torch.bool),
     )
-    expected_groups = {
-        "royal_transformer",
-        "global_transformer",
-        "dense_trunk",
-        "output",
+    cuda_batch = None
+    if torch.cuda.is_available():
+        cuda_batch = control.V2Batch(
+            **{
+                field: getattr(batch, field).to("cuda")
+                for field in control.V2Batch.__dataclass_fields__
+            }
+        )
+    expected_architectures = {
+        "v2-64x192": (
+            "royal",
+            64,
+            192,
+            2_902_344,
+            "royal_transformer",
+        ),
+        "v2-128x128": (
+            "royal",
+            128,
+            128,
+            5_433_672,
+            "royal_transformer",
+        ),
+        "v2-c1-abs64x192": (
+            "absolute_nonking",
+            64,
+            192,
+            362_824,
+            "absolute_nonking_transformer",
+        ),
     }
-    expected_widths = {
-        "v2-64x192": (64, 192, 2_902_344),
-        "v2-128x128": (128, 128, 5_433_672),
-    }
-    common_initial_states: dict[str, torch.Tensor] = {}
+    common_initial_states: dict[tuple[str, tuple[int, ...]], torch.Tensor] = {}
 
-    for architecture, (royal_lanes, global_lanes, serialized_bytes) in expected_widths.items():
+    for architecture, (
+        first_domain,
+        first_lanes,
+        global_lanes,
+        serialized_bytes,
+        first_gradient_group,
+    ) in expected_architectures.items():
         structure = control._v2_structure(architecture)
         if structure["structural_sha256"] != control._sha256_bytes(
             control._compact_json(
@@ -179,15 +206,27 @@ def test_v2_gradient_path() -> None:
             raise AssertionError(f"{architecture} structural hash is not self-consistent")
         domains = structure["domains"]
         if (
-            domains[0]["lanes"] != royal_lanes
+            domains[0]["name"] != first_domain
+            or domains[0]["lanes"] != first_lanes
             or domains[1]["lanes"] != global_lanes
             or structure["serialized_parameter_bytes"] != serialized_bytes
         ):
             raise AssertionError(f"{architecture} width receipt changed: {structure}")
 
         model = control._make_model(architecture, 0xC0FFEE)
+        if first_domain == "absolute_nonking":
+            absolute_indices, absolute_offsets = model.absolute_nonking_features(batch)
+            expected_indices = batch.v2_global[
+                batch.v2_global < control.V2_ABSOLUTE_NONKING_DIMENSIONS
+            ]
+            if not torch.equal(absolute_indices, expected_indices):
+                raise AssertionError("C1 absolute domain retained a non-physical G0 row")
+            if not torch.equal(absolute_offsets, batch.royal_offsets):
+                raise AssertionError("C1 absolute domain did not omit exactly the Black king")
         before = control._state_sha256(model)
         for name in (
+            "global_weights",
+            "global_bias",
             "hidden0_weights",
             "hidden0_bias",
             "hidden1_weights",
@@ -196,16 +235,23 @@ def test_v2_gradient_path() -> None:
             "output_bias",
         ):
             value = getattr(model, name).detach().clone()
-            if name in common_initial_states and not torch.equal(
-                common_initial_states[name], value
+            key = (name, tuple(value.shape))
+            if key in common_initial_states and not torch.equal(
+                common_initial_states[key], value
             ):
                 raise AssertionError(f"shared V2 initialization changed for {name}")
-            common_initial_states.setdefault(name, value)
+            common_initial_states.setdefault(key, value)
 
         optimizer = control._make_optimizer(model, control.DEFAULT_LEARNING_RATE)
         composite, *_ = control.loss_terms(model(batch), batch, 0.6, calibration())
         composite.mean().backward()
         norms = control._gradient_norms(model)
+        expected_groups = {
+            first_gradient_group,
+            "global_transformer",
+            "dense_trunk",
+            "output",
+        }
         if set(norms) != expected_groups:
             raise AssertionError(f"{architecture} gradient domains changed: {norms}")
         optimizer.step()
@@ -214,6 +260,14 @@ def test_v2_gradient_path() -> None:
             raise AssertionError(f"{architecture} optimizer step did not change the model")
         if not control._all_finite(model):
             raise AssertionError(f"{architecture} produced non-finite parameters")
+        if cuda_batch is not None:
+            cuda_model = control._make_model(architecture, 0xC0FFEE).to("cuda")
+            with torch.no_grad():
+                cuda_output = cuda_model(cuda_batch)
+            if cuda_output.device.type != "cuda" or not bool(
+                torch.isfinite(cuda_output).all().cpu()
+            ):
+                raise AssertionError(f"{architecture} forward is not CUDA-safe")
 
 
 def test_wdl_label_path() -> None:

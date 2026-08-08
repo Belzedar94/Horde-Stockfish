@@ -398,7 +398,7 @@ def main() -> int:
         if v2_partial_receipt["run"]["complete"] is not False:
             raise AssertionError("partial V2 trainer run was incorrectly marked complete")
 
-        wrong_width_output = root / "wrong-v2-width-resume"
+        wrong_architecture_output = root / "wrong-v2-architecture-resume"
         try:
             control.train(
                 _arguments(
@@ -406,8 +406,8 @@ def main() -> int:
                     validation,
                     split_receipt,
                     wdl_calibration,
-                    wrong_width_output,
-                    architecture="v2-128x128",
+                    wrong_architecture_output,
+                    architecture="v2-c1-abs64x192",
                     resume=v2_partial / "checkpoint.pt",
                 )
             )
@@ -415,9 +415,11 @@ def main() -> int:
             if "architecture mismatch" not in str(error):
                 raise
         else:
-            raise AssertionError("V2 trainer resumed a checkpoint from another width")
-        if wrong_width_output.exists():
-            raise AssertionError("wrong-width V2 resume created a partial output directory")
+            raise AssertionError("V2 trainer resumed a checkpoint from another architecture")
+        if wrong_architecture_output.exists():
+            raise AssertionError(
+                "wrong-architecture V2 resume created a partial output directory"
+            )
 
         v2_resumed_receipt = control.train(
             _arguments(
@@ -471,6 +473,26 @@ def main() -> int:
             or not v2_wide_receipt["run"]["complete"]
         ):
             raise AssertionError("wide V2 training control did not complete correctly")
+
+        c1_absolute = root / "v2-c1-abs64x192-full"
+        c1_receipt = control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                c1_absolute,
+                architecture="v2-c1-abs64x192",
+            )
+        )
+        if (
+            c1_receipt["architecture"]["schema"]
+            != "V2_C1_ABS_NONKING_64X192"
+            or c1_receipt["architecture"]["domains"][0]["name"]
+            != "absolute_nonking"
+            or not c1_receipt["run"]["complete"]
+        ):
+            raise AssertionError("C1 absolute-content training control did not complete")
 
         print(
             "Horde trainer resume parity passed: "

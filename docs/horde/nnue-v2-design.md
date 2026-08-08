@@ -685,6 +685,16 @@ container, trained candidate, or strength result. C0 therefore closes only the
 mechanical split control; C1 remains the first test of whether Royal-relative
 content is useful.
 
+The C1 trainer control is `v2-c1-abs64x192`, schema
+`V2_C1_ABS_NONKING_64X192`. Against `v2-64x192`, it preserves G0 192, the
+256-lane dense input, trunk, two STM heads, initialization policy, labels,
+optimizer, and schedule. Its first 64 lanes instead consume the ten absolute
+non-king G0 role planes: 640 rows, no Black-king bucket, and no reflection.
+This makes the first-domain representation the only semantic variable. It is
+not parameter matched: the absolute control serializes 362,824 parameter bytes
+and the Royal candidate 2,902,344. C1 must therefore judge any fixed-node gain
+against the Royal table's measured refresh, cache, and equal-time cost.
+
 After training, fixed-node Elo and uninstrumented NPS remain separate axes.
 Practical equivalence margins are 2 Elo and 1% NPS. A larger/slower point must
 show a positive 95% lower confidence bound in fixed-node Elo against the

@@ -125,6 +125,16 @@ the other. This is real-data training plumbing only: enabling both widths does
 not skip the C0 split-equivalence, C1 absolute-content, and C2 width controls
 or make a 4,096-record canary a strength comparison.
 
+The isolated C1 content control is exposed as `v2-c1-abs64x192`. It keeps the
+same 192-lane G0 transformer, 256-lane dense input, trunk, heads, labels,
+optimizer, and schedule as `v2-64x192`; only the 64-lane first domain changes.
+The control projects G0 onto its ten absolute non-king role planes (640 rows),
+with no king bucket or reflection, while the candidate uses the 20,480-row
+Royal-relative domain. Its distinct `V2_C1_ABS_NONKING_64X192` schema prevents
+cross-architecture resume. The absolute control has 362,824 serialized
+parameter bytes versus 2,902,344 for the Royal candidate, so C1 is explicitly
+a content-and-cost decision rather than a parameter-matched comparison.
+
 The reference recipe uses lambda 0.6, RAdam, a lower output-head learning rate,
 the legacy dense quantization bounds, and a deterministic bounded-memory
 SplitMix64 block shuffle. Parameter initialization derives an independent
