@@ -25,6 +25,11 @@ SOURCE = """\
 8/7P/8/8/8/8/8/5k2 b - - 24 38
 """
 
+MIRROR_PAIR = (
+    "8/8/8/8/8/8/P7/4k2r b k a3 0 1",
+    "8/8/8/8/8/8/7P/r2k4 b q h3 0 1",
+)
+
 
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="horde-book-split-") as raw:
@@ -43,6 +48,10 @@ def main() -> int:
             raise AssertionError(f"split gates are not closed: {receipt}")
         if receipt["train"]["records"] + receipt["validation"]["records"] != 8:
             raise AssertionError(f"split lost records: {receipt}")
+        if receipt["schema"] != splitter.SCHEMA_V2:
+            raise AssertionError(f"default split is not mirror-safe V2: {receipt}")
+        if not receipt["disjoint_canonical_groups"]:
+            raise AssertionError(f"canonical opening groups cross roles: {receipt}")
 
         actual = splitter.split_book(source, 3, 1)
         if actual[0] != train.read_bytes() or actual[1] != validation.read_bytes():
@@ -68,6 +77,38 @@ def main() -> int:
                 raise
         else:
             raise AssertionError("splitter accepted duplicate physical positions")
+
+        left_key = " ".join(MIRROR_PAIR[0].split()[:4])
+        right_key = " ".join(MIRROR_PAIR[1].split()[:4])
+        if splitter.horizontal_mirror_position_key(left_key) != right_key:
+            raise AssertionError("horizontal FEN reflection changed")
+        if (
+            splitter.canonical_horizontal_position_key(left_key)
+            != splitter.canonical_horizontal_position_key(right_key)
+        ):
+            raise AssertionError("mirror pair does not share one canonical group")
+
+        mirror_source = root / "mirrors.epd"
+        mirror_source.write_text(
+            "\n".join((*MIRROR_PAIR, SOURCE.strip())) + "\n",
+            encoding="ascii",
+            newline="\n",
+        )
+        mirror_train, mirror_validation, mirror_receipt = splitter.split_book(
+            mirror_source, 3, 1
+        )
+        left_in_train = MIRROR_PAIR[0].encode("ascii") in mirror_train
+        right_in_train = MIRROR_PAIR[1].encode("ascii") in mirror_train
+        left_in_validation = MIRROR_PAIR[0].encode("ascii") in mirror_validation
+        right_in_validation = MIRROR_PAIR[1].encode("ascii") in mirror_validation
+        if left_in_train != right_in_train or left_in_validation != right_in_validation:
+            raise AssertionError("horizontal mirror pair crossed split roles")
+        if mirror_receipt["source"]["multi_record_groups"] < 1:
+            raise AssertionError("mirror group was not recorded")
+
+        legacy = splitter.split_book(source, 3, 1, canonical_horizontal=False)[2]
+        if legacy["schema"] != splitter.SCHEMA_V1:
+            raise AssertionError("legacy exact-key receipt lost its V1 identity")
 
     print("Horde training-book split tests passed")
     return 0
