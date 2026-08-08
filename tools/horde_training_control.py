@@ -410,6 +410,10 @@ def validate_dataset_pair(
         "training and validation use different teacher networks",
     )
     _require(
+        train_manifest["label_contract"] == validation_manifest["label_contract"],
+        "training and validation use different label contracts",
+    )
+    _require(
         _generation_contract(train_manifest) == _generation_contract(validation_manifest),
         "training and validation generation settings differ",
     )
@@ -471,6 +475,7 @@ def validate_dataset_pair(
             "source_commit": train_manifest["source_commit"],
             "producer_sha256": train_manifest["producer_sha256"],
             "network": train_manifest["network"],
+            "label_contract": train_manifest["label_contract"],
             "generation": _generation_contract(train_manifest),
         },
         "book_split": {

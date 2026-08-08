@@ -27,6 +27,9 @@ inline constexpr std::size_t      HordeBinV1RecordSize = 48;
 inline constexpr std::string_view HordeBinV1SchemaName = "HORDE_BIN_V1";
 inline constexpr std::string_view HordeBinV1SchemaSha256 =
   "B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4";
+inline constexpr std::string_view HordeLabelContractName = "HORDE_LABEL_CONTRACT_V1";
+inline constexpr std::string_view HordeLabelContractSha256 =
+  "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22";
 
 using HordeBinV1Record = std::array<u8, HordeBinV1RecordSize>;
 

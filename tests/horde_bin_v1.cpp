@@ -56,6 +56,15 @@ int main() {
             "move encoding changed");
     require(record[46] == 1 && record[47] == 2, "result or terminal-reason encoding changed");
 
+    sample.result = 0;
+    require(!Data::encode_horde_bin_v1(sample, record),
+            "decisive terminal reason accepted a draw result");
+    sample.result        = 1;
+    sample.outcomeReason = Data::HordeOutcomeReason::STALEMATE;
+    require(!Data::encode_horde_bin_v1(sample, record),
+            "draw terminal reason accepted a decisive result");
+    sample.outcomeReason = Data::HordeOutcomeReason::EXTINCTION;
+
     sample.playedMove = Move(SQ_A1, SQ_A2);
     require(!Data::encode_horde_bin_v1(sample, record), "illegal played move was accepted");
     sample.playedMove = Move(SQ_A1, SQ_B1);
@@ -82,6 +91,10 @@ int main() {
     manifest.maxGamePly        = 4;
     manifest.openingCount      = 1;
     require(bool(Data::validate_horde_bin_v1_manifest(manifest)), "valid manifest was rejected");
+    require(Data::HordeLabelContractName == "HORDE_LABEL_CONTRACT_V1"
+              && Data::HordeLabelContractSha256
+                   == "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22",
+            "label-contract identity changed");
     manifest.sourceDirty = true;
     require(!Data::validate_horde_bin_v1_manifest(manifest), "dirty source was accepted");
     manifest.sourceDirty   = false;

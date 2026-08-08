@@ -709,6 +709,13 @@ class Generator {
                     fail("Synchronous Horde training search returned no principal variation");
                     return;
                 }
+                if (!search.exact
+                    || std::any_of(search.lines.begin(), search.lines.end(),
+                                   [](const auto& line) { return !line.exact; }))
+                {
+                    fail("Synchronous Horde training search returned a bound score");
+                    return;
+                }
 
                 const Move bestMove = search.pv[0];
                 const Move playedMove =

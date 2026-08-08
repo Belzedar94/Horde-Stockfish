@@ -37,7 +37,7 @@ namespace {
 constexpr std::array<u8, 8> FileMagic     = {'H', 'O', 'R', 'D', 'E', 'B', 'I', 'N'};
 constexpr u16               FormatVersion = 1;
 constexpr std::string_view  CapabilityJson =
-  R"({"schema":"HORDE_BIN_V1","schema_sha256":"B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4","write":true,"record_size":48,"header_size":2048})";
+  R"({"schema":"HORDE_BIN_V1","schema_sha256":"B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4","label_contract":{"schema":"HORDE_LABEL_CONTRACT_V1","schema_sha256":"C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"},"write":true,"record_size":48,"header_size":2048})";
 
 bool little_endian_host() {
     constexpr u16 value = 1;
@@ -113,7 +113,9 @@ manifest_json(const HordeBinV1Manifest& manifest, u64 records, std::string_view 
          << manifest.networkSha256 << "\"},\"book_sha256\":\"" << manifest.bookSha256
          << "\",\"producer_sha256\":\"" << manifest.producerSha256 << "\",\"payload_sha256\":\""
          << payloadSha256
-         << "\",\"generation\":{\"requested_records\":" << manifest.requestedRecords
+         << "\",\"label_contract\":{\"schema\":\"" << HordeLabelContractName
+         << "\",\"schema_sha256\":\"" << HordeLabelContractSha256
+         << "\"},\"generation\":{\"requested_records\":" << manifest.requestedRecords
          << ",\"seed\":\"" << manifest.seed << "\",\"threads\":" << manifest.threads
          << ",\"hash_mb\":" << manifest.hashMb << ",\"depth\":" << manifest.depth
          << ",\"nodes\":" << manifest.nodes
@@ -182,6 +184,12 @@ DataResult encode_horde_bin_v1(const TrainingDataSample& sample, HordeBinV1Recor
         || reason > int(HordeOutcomeReason::FIVEFOLD_REPETITION))
         return DataResult::failure(DataError::OUTCOME_OUT_OF_RANGE,
                                    "Training outcome reason is not a Horde terminal reason");
+    const bool decisive = sample.outcomeReason == HordeOutcomeReason::CHECKMATE
+                       || sample.outcomeReason == HordeOutcomeReason::EXTINCTION;
+    if (decisive != (sample.result != 0))
+        return DataResult::failure(
+          DataError::OUTCOME_RESULT_MISMATCH,
+          "Training result contradicts the registered Horde terminal reason");
 
     Position  position;
     StateInfo state{};

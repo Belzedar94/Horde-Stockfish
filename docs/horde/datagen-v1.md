@@ -6,7 +6,7 @@
 
 Each file starts with a 2,048-byte header and continues with fixed 48-byte records. The first eight bytes are ASCII `HORDEBIN`. Little-endian `uint16` values at offsets 8 and 10 contain format version `1` and header size `2048`. A little-endian `uint32` at offset 12 gives the length of the compact UTF-8 JSON manifest beginning at offset 16. Every unused header byte is zero.
 
-The manifest binds the file to the full source commit, dirty-state marker, Run 6B network SHA-256, opening-book SHA-256, producer executable SHA-256, exact generation settings, record count, and SHA-256 of the record payload. Seeds are decimal strings so consumers do not lose 64-bit precision.
+The manifest binds the file to the full source commit, dirty-state marker, Run 6B network SHA-256, opening-book SHA-256, producer executable SHA-256, exact generation settings, record count, and SHA-256 of the record payload. It also binds the external [`HORDE_LABEL_CONTRACT_V1`](../../schemas/horde-label-contract-v1.json) by schema name and complete SHA-256. Seeds are decimal strings so consumers do not lose 64-bit precision.
 
 The complete byte layout, piece codes, flags, result perspective, and terminal-reason values are frozen in [`schemas/horde-bin-v1.schema.json`](../../schemas/horde-bin-v1.schema.json). The SHA-256 of that schema is part of the generator capability handshake and every file manifest.
 
@@ -14,9 +14,9 @@ The complete byte layout, piece codes, flags, result perspective, and terminal-r
 
 The board is encoded as 64 four-bit physical piece codes. It supports the kingless White Horde, the single Black king, all promoted White pieces, up to 36 White pieces, and up to 52 pieces in total. Only Black castling rights are representable. The en-passant square, rule-50 clock, game ply, side to move, best move, and played move are sufficient for exact physical FEN reconstruction and audit; repetition history remains a game-level property.
 
-Scores and results are relative to the side to move in the stored position. `score` is the raw internal `Value` produced by the exact Horde-Stockfish search, before UCI centipawn conversion. `best_move` is the label selected by the principal search. `played_move` records the move used to advance self-play and may differ when deterministic exploration is scheduled.
+Scores and results are relative to the side to move in the stored position. `score` is the raw internal `Value` produced by a completed exact Horde-Stockfish root search, before UCI centipawn conversion. The producer rejects bound scores. Search evaluation and terminal logic have already incorporated rule 50 into this teacher value, so a trainer must never apply the prediction postprocessor to the stored score. `best_move` is the label selected by the principal search. `played_move` records the move used to advance self-play and may differ when deterministic exploration is scheduled.
 
-Games are labeled only after `Position::outcome()` returns an exact terminal result. Checkmate, Horde extinction, stalemate, Horde fortress, the automatic fifty-move rule, and fivefold repetition have distinct reason codes. The separate per-color insufficient-winning-material predicate is never treated as an automatic draw. A game that reaches the generator safety ply limit without a terminal result is discarded, not mislabeled.
+Games are labeled only after `Position::outcome()` returns an exact terminal result. The side-to-move result is derived by comparing each stored position with the terminal winner. Checkmate and Horde extinction require a decisive result; stalemate, Horde fortress, the automatic fifty-move rule, and fivefold repetition require a draw. The encoder rejects every contradictory result/reason pair. The separate per-color insufficient-winning-material predicate is never treated as an automatic draw. A game that reaches the generator safety ply limit without a terminal result is discarded, not mislabeled. No class weighting or result resampling occurs at generation time.
 
 ## Generation boundary
 

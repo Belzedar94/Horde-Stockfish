@@ -21,6 +21,8 @@ RECORD_SIZE = 48
 SCHEMA_NAME = "HORDE_BIN_V1"
 SCHEMA_SHA256 = "B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4"
 RUN6B_SHA256 = "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+LABEL_CONTRACT_NAME = "HORDE_LABEL_CONTRACT_V1"
+LABEL_CONTRACT_SHA256 = "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"
 
 PIECE_NAMES = {
     0: "empty",
@@ -121,6 +123,7 @@ def parse_header(payload: bytes) -> dict[str, Any]:
             "book_sha256",
             "producer_sha256",
             "payload_sha256",
+            "label_contract",
             "generation",
         ],
         "manifest fields are incomplete or out of order",
@@ -170,6 +173,14 @@ def parse_header(payload: bytes) -> dict[str, Any]:
     _require(
         bool(re.fullmatch(r"[0-9A-F]{64}", str(manifest.get("payload_sha256")))),
         "manifest payload SHA-256 is invalid",
+    )
+    _require(
+        manifest.get("label_contract")
+        == {
+            "schema": LABEL_CONTRACT_NAME,
+            "schema_sha256": LABEL_CONTRACT_SHA256,
+        },
+        "manifest label contract mismatch",
     )
     generation = manifest.get("generation")
     generation_keys = [

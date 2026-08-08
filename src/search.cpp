@@ -389,10 +389,12 @@ Search::TrainingSearchResult Search::Worker::training_search(Position&          
         result.lines.clear();
         result.lines.reserve(multiPV);
         for (usize i = 0; i < multiPV; ++i)
-            result.lines.push_back({rootMoves[i].score, rootMoves[i].pv});
+            result.lines.push_back(
+              {rootMoves[i].score, rootMoves[i].pv, !rootMoves[i].score_is_bound()});
         result.value = result.lines.front().value;
         result.pv    = result.lines.front().pv;
         result.depth = rootDepth;
+        result.exact = result.lines.front().exact;
     };
 
     while (rootDepth < targetDepth && rootDepth + 1 < MAX_PLY && !threads.stop

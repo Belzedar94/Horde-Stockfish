@@ -18,6 +18,8 @@ import horde_compare_training_checkpoints as checkpoint_compare  # noqa: E402
 import horde_training_control as control  # noqa: E402
 from horde_bin_v1 import (  # noqa: E402
     HEADER_SIZE,
+    LABEL_CONTRACT_NAME,
+    LABEL_CONTRACT_SHA256,
     MAGIC,
     RECORD_SIZE,
     RUN6B_SHA256,
@@ -62,6 +64,10 @@ def _write_dataset(path: Path, *, first: int, count: int, book_sha256: str, seed
         "book_sha256": book_sha256,
         "producer_sha256": "2" * 64,
         "payload_sha256": hashlib.sha256(payload).hexdigest().upper(),
+        "label_contract": {
+            "schema": LABEL_CONTRACT_NAME,
+            "schema_sha256": LABEL_CONTRACT_SHA256,
+        },
         "generation": {
             "requested_records": count,
             "seed": str(seed),

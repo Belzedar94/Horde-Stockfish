@@ -17,12 +17,16 @@ from typing import Any, Sequence
 TIMEOUT_SECONDS = 120.0
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = REPO_ROOT / "schemas" / "horde-bin-v1.schema.json"
+LABEL_SCHEMA = REPO_ROOT / "schemas" / "horde-label-contract-v1.json"
 CAPABILITY_JSON = (
     '{"schema":"HORDE_BIN_V1","schema_sha256":'
     '"B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4",'
+    '"label_contract":{"schema":"HORDE_LABEL_CONTRACT_V1","schema_sha256":'
+    '"C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"},'
     '"write":true,"record_size":48,"header_size":2048}'
 )
 SCHEMA_SHA256 = "B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4"
+LABEL_CONTRACT_SHA256 = "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"
 RUN6B_SHA256 = "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
 TEST_SEED = "horde-bin-v1-wire-test"
 TEST_RECORDS = 4
@@ -131,6 +135,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     observed_schema_sha = hashlib.sha256(SCHEMA.read_bytes()).hexdigest().upper()
     if observed_schema_sha != SCHEMA_SHA256:
         raise AssertionError(f"HORDE_BIN_V1 schema SHA-256 mismatch: {observed_schema_sha}")
+    observed_label_sha = hashlib.sha256(LABEL_SCHEMA.read_bytes()).hexdigest().upper()
+    if observed_label_sha != LABEL_CONTRACT_SHA256:
+        raise AssertionError(
+            f"Horde label-contract SHA-256 mismatch: {observed_label_sha}"
+        )
     decoder = import_tool("horde_bin_v1")
     training_decoder = import_tool("horde_training_decoder")
     run6b = import_tool("horde_run6b")
@@ -175,6 +184,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise AssertionError("manifest producer identity mismatch")
         if manifest["book_sha256"] != book_sha:
             raise AssertionError("manifest book identity mismatch")
+        if manifest["label_contract"] != {
+            "schema": "HORDE_LABEL_CONTRACT_V1",
+            "schema_sha256": LABEL_CONTRACT_SHA256,
+        }:
+            raise AssertionError("manifest label contract mismatch")
         if coverage["outcome_reasons"] != {"extinction": TEST_RECORDS}:
             raise AssertionError(f"forced-extinction fixture was not preserved: {coverage}")
         if coverage["results"] != {"1": TEST_RECORDS}:
@@ -270,6 +284,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             pass
         else:
             raise AssertionError("trainer decoder accepted a tampered payload")
+
+        unbound = root / "unbound-labels.bin"
+        unbound_payload = bytearray(first.read_bytes())
+        label_offset = unbound_payload.find(LABEL_CONTRACT_SHA256.encode("ascii"))
+        if label_offset < 0:
+            raise AssertionError("generated manifest does not contain the label-contract hash")
+        unbound_payload[label_offset : label_offset + 64] = b"0" * 64
+        unbound.write_bytes(unbound_payload)
+        try:
+            training_decoder.HordeBinV1Dataset(unbound)
+        except decoder.FormatError:
+            pass
+        else:
+            raise AssertionError("trainer decoder accepted an unbound label contract")
 
         second_command = generator_command(
             output=second,

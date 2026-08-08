@@ -174,6 +174,7 @@ struct TrainingSearchRequest {
 struct TrainingSearchLine {
     Value   value = VALUE_NONE;
     PVMoves pv;
+    bool    exact = false;
 };
 
 struct TrainingSearchResult {
@@ -182,6 +183,7 @@ struct TrainingSearchResult {
     std::vector<TrainingSearchLine> lines;
     u64                             nodes = 0;
     Depth                           depth = 0;
+    bool                            exact = false;
 };
 
 

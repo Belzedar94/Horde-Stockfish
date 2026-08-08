@@ -491,6 +491,7 @@ def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
                 "producer_sha256": dataset.manifest["producer_sha256"],
                 "book_sha256": dataset.manifest["book_sha256"],
                 "network": dataset.manifest["network"],
+                "label_contract": dataset.manifest["label_contract"],
             },
             "sample_identity": "(payload_sha256, local_record_index)",
             "record_count": len(dataset),
