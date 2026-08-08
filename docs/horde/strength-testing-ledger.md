@@ -421,6 +421,23 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
 - Learning: halving unused accumulator capacity improves memory footprint but
   does not remove enough hot-path work to justify STC by itself.
 
+### 2026-08-08 - Fixed-role White legality gate
+
+- Hypothesis: replace the generic `has_king(WHITE)` piece-count lookup in
+  `Position::legal()` with the invariant fixed Horde role `WHITE`.
+- Scope: one condition in `src/position.cpp`; castling rejection and every
+  Black legality path remained unchanged.
+- Validation: Horde rules, the Run 6B contract, and three deterministic
+  315,576-node benches passed with the accepted best-move digest.
+- Local speed screen: 48 start-position pairs measured `0.999089` geometric
+  and only 19/48 favorable. Two independent 32-pair ten-position bench samples
+  measured `1.020430` and `0.989705`; after removing one external pause from
+  each tail, the second sample was only `1.011058`. Across the complete local
+  screen the robust gain remained below one percent and was not stable between
+  suites.
+- Decision: rejected locally as insufficiently clear low-hanging fruit; no
+  commit, push, or OpenBench workload. The source change was reverted.
+
 ### 2026-08-07 — Fixed-role check-square setup
 
 - Hypothesis: replace the generic opponent-king detection and orientation in
