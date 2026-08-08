@@ -19,6 +19,43 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
 - Local speed screening uses identical BMI2 builds and alternating paired
   benches. OpenBench remains authoritative for playing strength.
 
+## Invalidated OpenBench samples
+
+### 2026-08-08 - V1 opening book and clock-safety reset
+
+- A complete database audit found 75 time losses and zero crashes in 56,632
+  Horde games across tests 172-229. Every workload used
+  `HORDE_openings.epd`, `8.0+0.08`, and the engine default
+  `Move Overhead=10`.
+- The affected tests were 172 (13 time losses), 173 (2), 176 (4), 177 (1),
+  178 (1), 181 (1), 183 (1), 185 (1), 194 (5), 197 (2), 198 (3), 213 (1),
+  224 (3), 228 (19), and 229 (18). Tests with no reported defect were also
+  stopped before further sampling so results from different book and clock
+  contracts cannot be combined.
+- Seventeen raw PGN failures from tests 173, 176, 177, 183, 194, 213, and 224
+  were reconstructed under Horde rules. All decisive failures ended in a
+  legal, non-terminal position immediately before the losing engine should
+  move. Sixteen affected the Horde side and one affected the royal side.
+  Eleven were candidate losses and six were baseline losses, proving a common
+  clock defect while also showing that some diffs amplified it.
+- Summing the per-move UCI times left between -187 and 510 milliseconds before
+  the missing move. Seven games had already exhausted their nominal budget;
+  the other ten had only enough reserve to be consumed by accumulated process
+  and controller latency over 55-67 moves. Direct searches from every critical
+  FEN returned in 11-22 milliseconds with only 20 milliseconds on the clock,
+  excluding a deterministic search hang.
+- Independently, the matched V1 book control supplied only 11.5% assignment-
+  decisive pairs, `U = 0.0925`, 88% Black-Black pairs, and 93.25% Black wins.
+  The low information rate and repeated book wrap make the defect-free subset
+  unsuitable for comparing small search changes.
+- Decision: all V1 workloads are invalid and remain stopped. No LLR or Elo
+  from tests 172-229 may promote a change.
+- Restart contract: wait until OpenBench PR 39 is reviewed, merged, deployed,
+  and `HORDE_openings_v2.epd` is visible in Supported. Recreate selected tests
+  from game zero with Run 6B on both sides and exact symmetric options
+  `Threads=1 Hash=32 "Move Overhead=50"`. Any time loss, crash, illegal move,
+  or abort invalidates the new sample immediately.
+
 ## Registered experiments
 
 ### 2026-08-07 - Treat White Horde pawns as null-move material
