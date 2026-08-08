@@ -98,9 +98,20 @@ First wave, all at priority 1000:
    samples measured `1.084210` and `1.025097`; their combined geometric ratio
    is `1.054239`, with 55/64 favorable pairs and identical fixed work and best
    moves. All four artifact jobs pass.
-4. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
+4. `test/fixed-royal-slider-blockers` at
+   `acbacc48fdaabe49512d2dff89880f8f9ead95c6`. It replaces only the generic
+   White king lookup and early return in `set_check_info()` with the fixed
+   zero blockers/pinners state required by Horde, while retaining the complete
+   Black royal-side calculation. Horde rules, the Run 6B contract, and three
+   deterministic 315,576-node benches passed with the accepted best-move
+   digest. Forty-eight alternating start-position depth-18 pairs measured
+   `1.037351` geometric, `1.039771` trimmed, and 39/48 favorable. Thirty-two
+   alternating depth-16 ten-position bench pairs measured `1.019999`
+   geometric, `1.018788` trimmed, and 25/32 favorable. Fixed work and best
+   moves were identical, and all four artifact jobs pass.
+5. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
    Its defect-free V1 sample had LLR `+0.97` after 4,096 games.
-5. `test/movepicker-legacy-pawn` at
+6. `test/movepicker-legacy-pawn` at
    `a7161dc472672ac09d9e9616766e9bb1b01c37a1`. Its early V1 signal was LLR
    `+0.51`, but one time loss invalidates the 1,536-game sample.
 
