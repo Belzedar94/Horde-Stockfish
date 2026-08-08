@@ -1,8 +1,8 @@
 {
-  "schema": "HORDE_V2_WIDTH_RECEIPT_V1",
-  "source_sha": "4c3a6fbc96b09e0b3af24127ef104d5c7a8a5fd1",
-  "actions_run": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31262354030",
-  "artifact_id": 9023186033,
+  "schema": "HORDE_V2_WIDTH_RECEIPT_V2",
+  "source_sha": "2468720a236b6d7b58052930040147df2843e022",
+  "actions_run": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31263565118",
+  "artifact_id": 9023510138,
   "runner": {
     "image": "ubuntu-24.04",
     "architecture": "x86_64",
@@ -17,10 +17,10 @@
     "debug": false,
     "fixture": "PERF_COMMON_V1",
     "binaries_sha256": {
-      "256x256": "d23bf2fa56da65ba210061edfa7f7196a5ca341757b4889d9846a6ca9c5784c2",
-      "128x256": "08b2dca5944efbd4e8fffed76de49fe9f0bcd6947d5a2c00edc361d1a18c33ad",
-      "128x128": "3c6824f45265060b842bc8827dd768238fa9f28a4753971263e8808661be92ff",
-      "64x192": "cf1f21d6a8ab6f28705a23022a074a0f59c9435cd6f5b514cae97926ace0b5c6"
+      "256x256": "5645d8e3aef67bcf0411395140742adabeda8490f8bb853a352bb1c48b66c6f9",
+      "128x256": "0d9020b31031b61c90e537ef79ce58541b29085ef69081588224c98901fff60d",
+      "128x128": "3de10ca9a5725e932ffc1f09ef43361978ee8d05778e9d88880b6197d2e80639",
+      "64x192": "5093b6231b86df69fcaceb8ab323c19a00ce7b8a67fc4119f385139c88319702"
     }
   },
   "search": {
@@ -32,6 +32,21 @@
     "bootstrap_samples": 20000,
     "nodes": 2190067,
     "bestmoves_sha256": "c70b3de48455427520354d66fb5cc60aa888b113ddf05da53769ac2195832024",
+    "root_evals": [-107, -119, -106, -107, -118, -118, -107, -107, -106, -107],
+    "root_evals_sha256": "7495735c871de29635d69809875fa98820d94489d37eec5b892548579e0bf87b",
+    "root_scores": [
+      "cp:-11:exact:nodes=554847|bestmove g5g6 ponder g8h6",
+      "cp:16:exact:nodes=68302|bestmove f3f4 ponder a4a5",
+      "cp:-15:exact:nodes=50041|bestmove e3e4 ponder d5d4",
+      "cp:-9:exact:nodes=105096|bestmove g1g2 ponder d3d2",
+      "cp:0:exact:nodes=1151081|bestmove c6d5 ponder g4g5",
+      "mate:1:exact:nodes=338|bestmove a8a1",
+      "cp:0:exact:nodes=15065|bestmove a7a8q ponder e8e7",
+      "cp:0:exact:nodes=19591|bestmove a1h8 ponder e8f7",
+      "cp:-5:exact:nodes=16579|bestmove d4d5 ponder e8e7",
+      "cp:-15:exact:nodes=209127|bestmove a1e1 ponder e8d7"
+    ],
+    "root_scores_sha256": "f8e917366f04bd080b389d23795a6c6c93d3c855d190ecf628ff0b79e143b90a",
     "orders": [
       ["256x256", "128x256", "64x192", "128x128"],
       ["128x128", "64x192", "256x256", "128x256"],
@@ -47,10 +62,10 @@
       ["256x256", "128x256", "128x128", "64x192"]
     ],
     "raw_nps": {
-      "256x256": [942369, 945624, 938734, 943994, 940750, 938734, 943994, 944808, 946442, 941154, 943181, 948902],
-      "128x256": [1048380, 1050895, 1044879, 1049888, 1053423, 1047878, 1059026, 1041401, 1053423, 1050895, 1049385, 1031590],
-      "128x128": [1164929, 1155098, 1171785, 1163691, 1165549, 1168659, 1169282, 1155708, 1171785, 1168035, 1169282, 1169282],
-      "64x192": [1183180, 1187671, 1178088, 1190253, 1181265, 1179357, 1185101, 1177455, 1192846, 1188316, 1188961, 1192197]
+      "256x256": [938332, 935526, 938332, 940750, 927601, 943587, 942775, 939942, 939942, 937930, 936326, 943587],
+      "128x256": [1052916, 1051400, 1049385, 1051905, 1052410, 1031590, 1051905, 1050391, 1049888, 1050895, 1051905, 1047878],
+      "128x128": [1173040, 1166169, 1170532, 1169282, 1171158, 1166169, 1166791, 1161223, 1173040, 1167413, 1168035, 1171158],
+      "64x192": [1152666, 1179357, 1185742, 1186385, 1178088, 1183180, 1182541, 1181265, 1180629, 1165549, 1180629, 1182541]
     }
   },
   "summary": {
@@ -59,38 +74,38 @@
     "training_speed_lower_bound": 0.95,
     "widths": {
       "256x256": {
-        "median_nps": 943587.5,
-        "mad_nps": 2235.0,
-        "ratio_to_fastest": 0.7957108985640634,
-        "ratio_ci95_low": 0.7943822395860644,
-        "ratio_ci95_high": 0.7972629494332373,
-        "ratio_ci95_half_width": 0.0014403549235864621,
+        "median_nps": 939137.0,
+        "mad_nps": 2212.0,
+        "ratio_to_fastest": 0.796747050700922,
+        "ratio_ci95_low": 0.7934003494509597,
+        "ratio_ci95_high": 0.8007418197520564,
+        "ratio_ci95_half_width": 0.003670735150548332,
         "precision_gate": true,
         "training_speed_gate": false
       },
       "128x256": {
-        "median_nps": 1049636.5,
-        "mad_nps": 2772.5,
-        "ratio_to_fastest": 0.8844434772622107,
-        "ratio_ci95_low": 0.8801453385151319,
-        "ratio_ci95_high": 0.8877667733015745,
-        "ratio_ci95_half_width": 0.003810717393221308,
-        "precision_gate": true,
+        "median_nps": 1051147.5,
+        "mad_nps": 1008.5,
+        "ratio_to_fastest": 0.8906614483798212,
+        "ratio_ci95_low": 0.8855573872571816,
+        "ratio_ci95_high": 0.8961011874420253,
+        "ratio_ci95_half_width": 0.005271900092421844,
+        "precision_gate": false,
         "training_speed_gate": false
       },
       "128x128": {
-        "median_nps": 1168347.0,
-        "mad_nps": 3108.0,
-        "ratio_to_fastest": 0.9837172965228028,
-        "ratio_ci95_low": 0.9806545284481227,
-        "ratio_ci95_high": 0.9868119156957371,
-        "ratio_ci95_half_width": 0.003078693623807194,
+        "median_nps": 1168658.5,
+        "mad_nps": 2489.5,
+        "ratio_to_fastest": 0.9919240207204272,
+        "ratio_ci95_low": 0.9876080805493128,
+        "ratio_ci95_high": 0.9975426759734164,
+        "ratio_ci95_half_width": 0.004967297712051788,
         "precision_gate": true,
         "training_speed_gate": true
       },
       "64x192": {
-        "median_nps": 1186386.0,
-        "mad_nps": 4494.0,
+        "median_nps": 1180947.0,
+        "mad_nps": 1913.5,
         "ratio_to_fastest": 1.0,
         "ratio_ci95_low": 1.0,
         "ratio_ci95_high": 1.0,
