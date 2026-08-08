@@ -34,6 +34,9 @@
 #include "misc.h"
 #include "nnue/network.h"
 #include "nnue/nnue_common.h"
+#if defined(HORDE_V2_PERF)
+#include "nnue/horde_v2_performance.h"
+#endif
 #include "numa.h"
 #include "perft.h"
 #include "position.h"
@@ -338,6 +341,23 @@ void Engine::save_network(const std::optional<std::filesystem::path>& file) {
 // utility functions
 
 void Engine::trace_eval() const {
+#if defined(HORDE_V2_PERF)
+    const auto features = Eval::NNUE::HordeV2::extract_full_refresh_features(pos);
+    if (!features.valid())
+    {
+        sync_cout << "horde-v2-perf-eval invalid" << sync_endl;
+        return;
+    }
+
+    using PerformanceNetwork = Eval::NNUE::HordeV2::PerformanceNetwork;
+    PerformanceNetwork::Frame   frame{};
+    PerformanceNetwork::Scratch scratch{};
+    const auto&                 performanceNetwork = Eval::NNUE::HordeV2::performance_network();
+    performanceNetwork.full_refresh(frame, features);
+    const auto result = performanceNetwork.propagate(frame, scratch, pos.side_to_move(),
+                                                     pos.rule50_count());
+    sync_cout << "horde-v2-perf-eval " << int(result.value) << sync_endl;
+#else
     StateListPtr trace_states(new std::deque<StateInfo>(1));
     Position     p;
     p.set(pos.fen(), false, &trace_states->back());
@@ -345,6 +365,7 @@ void Engine::trace_eval() const {
     verify_network();
 
     sync_cout << "\n" << Eval::trace(p, *network) << sync_endl;
+#endif
 }
 
 Eval::NNUE::RawNetworkOutput Engine::raw_evaluation() const {

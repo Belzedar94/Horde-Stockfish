@@ -568,10 +568,11 @@ its lazy stack to the real search worker. It is absent from normal builds and
 uses no UCI switch that could leak into a release. The dispatch-only V2 width
 option in the `Horde correctness` workflow builds all four AVX2 binaries
 sequentially on one runner. `tests/horde_v2_engine_widths.py` randomizes their
-paired order, rejects any node-count or best-move-digest mismatch, retains every
-raw NPS sample and bootstraps paired ratio intervals. These synthetic results
-select which widths are cheap enough to train; they are not playing-strength
-evidence.
+paired order, rejects any root-evaluation, per-position root score, node-count
+or best-move mismatch, retains every raw NPS sample and bootstraps paired ratio
+intervals. The root-evaluation pass remains outside the timed search. These
+synthetic results select which widths are cheap enough to train; they are not
+playing-strength evidence.
 
 The first accepted AVX2 search receipt is frozen in
 `docs/horde/nnue-v2-width-receipt.json` at source commit `4c3a6fbc`. All four

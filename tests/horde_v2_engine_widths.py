@@ -26,6 +26,10 @@ BOOTSTRAP_SAMPLES = 20_000
 class SearchReceipt:
     nodes: int
     bestmoves_sha256: str
+    root_scores_sha256: str
+    root_evals_sha256: str
+    root_scores: tuple[str, ...]
+    root_evals: tuple[int, ...]
     nps: int
 
 
@@ -66,7 +70,9 @@ def parse_engines(specs: list[str]) -> dict[str, Path]:
 
 
 def run_engine(engine: Path, depth: int, timeout: float) -> SearchReceipt:
-    command = f"bench 16 1 {depth} default depth\nquit\n".encode("ascii")
+    command = (
+        f"bench 16 1 1 default eval\nbench 16 1 {depth} default depth\nquit\n"
+    ).encode("ascii")
     completed = subprocess.run(
         [str(engine)],
         input=command,
@@ -81,19 +87,62 @@ def run_engine(engine: Path, depth: int, timeout: float) -> SearchReceipt:
             f"{engine.name} exited with {completed.returncode}:\n{output[-4000:]}"
         )
 
-    node_match = re.search(r"Nodes searched\s*:\s*(\d+)", output)
-    nps_match = re.search(r"Nodes/second\s*:\s*(\d+)", output)
-    if not node_match or not nps_match:
+    node_matches = re.findall(r"Nodes searched\s*:\s*(\d+)", output)
+    nps_matches = re.findall(r"Nodes/second\s*:\s*(\d+)", output)
+    if len(node_matches) < 2 or len(nps_matches) < 2:
         raise RuntimeError(f"{engine.name} emitted an incomplete benchmark receipt")
+
+    root_evals = tuple(
+        int(line.split()[1])
+        for line in output.splitlines()
+        if line.startswith("horde-v2-perf-eval ")
+    )
+    if len(root_evals) != 10:
+        raise RuntimeError(f"{engine.name} emitted {len(root_evals)} root evals; expected 10")
 
     bestmoves = [line for line in output.splitlines() if line.startswith("bestmove ")]
     if len(bestmoves) != 10:
         raise RuntimeError(f"{engine.name} emitted {len(bestmoves)} best moves; expected 10")
 
+    root_scores: list[str] = []
+    current_score: str | None = None
+    for line in output.splitlines():
+        score_match = re.search(r"^info .*\bscore (cp|mate) (-?\d+)\b", line)
+        if score_match:
+            node_match = re.search(r"\bnodes (\d+)\b", line)
+            if node_match is None:
+                raise RuntimeError(f"{engine.name} emitted a root score without a node count")
+            padded = f" {line} "
+            bound = (
+                "lowerbound"
+                if " lowerbound " in padded
+                else "upperbound"
+                if " upperbound " in padded
+                else "exact"
+            )
+            current_score = (
+                f"{score_match.group(1)}:{score_match.group(2)}:{bound}:"
+                f"nodes={node_match.group(1)}"
+            )
+        elif line.startswith("bestmove "):
+            if current_score is None:
+                raise RuntimeError(f"{engine.name} emitted a best move without a root score")
+            root_scores.append(f"{current_score}|{line}")
+            current_score = None
+
+    if len(root_scores) != 10:
+        raise RuntimeError(f"{engine.name} emitted {len(root_scores)} root scores; expected 10")
+
     return SearchReceipt(
-        nodes=int(node_match.group(1)),
+        nodes=int(node_matches[-1]),
         bestmoves_sha256=hashlib.sha256("|".join(bestmoves).encode("ascii")).hexdigest(),
-        nps=int(nps_match.group(1)),
+        root_scores_sha256=hashlib.sha256("|".join(root_scores).encode("ascii")).hexdigest(),
+        root_evals_sha256=hashlib.sha256(
+            "|".join(str(value) for value in root_evals).encode("ascii")
+        ).hexdigest(),
+        root_scores=tuple(root_scores),
+        root_evals=root_evals,
+        nps=int(nps_matches[-1]),
     )
 
 
@@ -131,14 +180,21 @@ def main() -> int:
     labels = list(engines)
     samples: dict[str, list[int]] = {label: [] for label in labels}
     orders: list[list[str]] = []
-    expected_tree: tuple[int, str] | None = None
+    expected_tree: tuple[int, str, str, str] | None = None
+    canonical_receipt: SearchReceipt | None = None
 
     for label, engine in engines.items():
         for _ in range(args.warmups):
             receipt = run_engine(engine, args.depth, args.timeout)
-            tree = (receipt.nodes, receipt.bestmoves_sha256)
+            tree = (
+                receipt.nodes,
+                receipt.bestmoves_sha256,
+                receipt.root_scores_sha256,
+                receipt.root_evals_sha256,
+            )
             if expected_tree is None:
                 expected_tree = tree
+                canonical_receipt = receipt
             elif tree != expected_tree:
                 raise RuntimeError(f"Warmup search tree differs for {label}: {tree} != {expected_tree}")
 
@@ -149,9 +205,15 @@ def main() -> int:
         orders.append(order)
         for label in order:
             receipt = run_engine(engines[label], args.depth, args.timeout)
-            tree = (receipt.nodes, receipt.bestmoves_sha256)
+            tree = (
+                receipt.nodes,
+                receipt.bestmoves_sha256,
+                receipt.root_scores_sha256,
+                receipt.root_evals_sha256,
+            )
             if expected_tree is None:
                 expected_tree = tree
+                canonical_receipt = receipt
             elif tree != expected_tree:
                 raise RuntimeError(
                     f"Search tree differs for {label} in round {round_index + 1}: "
@@ -179,9 +241,9 @@ def main() -> int:
             "training_speed_gate": lower >= 0.95,
         }
 
-    assert expected_tree is not None
+    assert expected_tree is not None and canonical_receipt is not None
     result = {
-        "schema": "HORDE_V2_WIDTH_BENCH_V1",
+        "schema": "HORDE_V2_WIDTH_BENCH_V2",
         "source_sha": os.environ.get("GITHUB_SHA", ""),
         "depth": args.depth,
         "rounds": args.rounds,
@@ -191,6 +253,10 @@ def main() -> int:
         "bootstrap_samples": BOOTSTRAP_SAMPLES,
         "nodes": expected_tree[0],
         "bestmoves_sha256": expected_tree[1],
+        "root_scores_sha256": expected_tree[2],
+        "root_evals_sha256": expected_tree[3],
+        "root_scores": list(canonical_receipt.root_scores),
+        "root_evals": list(canonical_receipt.root_evals),
         "fastest_by_median": fastest,
         "orders": orders,
         "raw_nps": samples,
