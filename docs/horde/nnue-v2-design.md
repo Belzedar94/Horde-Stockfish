@@ -135,6 +135,18 @@ Refresh policy:
 - en passant: remove the pawn from its physical captured square;
 - null move: change only the selected output row; neither transformer changes.
 
+The engineering reference now implements this policy directly from the
+engine's `DirtyPiece` contract. Global always receives remove/add row deltas.
+Royal receives the same non-king deltas while `RoyalKey` is unchanged and is
+rebuilt exactly once from the target board when the bucket or mirror bit
+changes. The source trace is immutable, so undo is a stack restore rather than
+an inferred inverse update. Focused synthetic `DirtyPiece` parity covers quiet
+moves, ordinary captures, en passant, promotion captures, Black-king moves,
+the d/e mirror boundary, castling, null-head selection, 256 randomized
+fixed-role transitions, and source restoration. Wiring the same state through
+real `Position::do_move()` stacks and search transitions remains a separate
+engineering gate.
+
 In an 80-game V3 opening-book probe, 876 of 5,303 Black mainline moves were king
 moves (16.5%, including 10 castlings). Search-node rates can differ materially,
 so instrumented engine measurements are mandatory before freezing the bucket

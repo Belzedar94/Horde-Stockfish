@@ -43,6 +43,20 @@ std::array<Piece, SQUARE_NB> horde_start_board() {
     return board;
 }
 
+std::array<Piece, SQUARE_NB> incremental_base_board() {
+    std::array<Piece, SQUARE_NB> board{};
+    board[SQ_E8] = B_KING;
+    board[SQ_A8] = B_ROOK;
+    board[SQ_H8] = B_ROOK;
+    board[SQ_C4] = B_PAWN;
+    board[SQ_F5] = B_PAWN;
+    board[SQ_A2] = W_PAWN;
+    board[SQ_B7] = W_PAWN;
+    board[SQ_D4] = W_ROOK;
+    board[SQ_E5] = W_PAWN;
+    return board;
+}
+
 std::array<Piece, SQUARE_NB>
 horizontal_reflection(const std::array<Piece, SQUARE_NB>& board) {
     std::array<Piece, SQUARE_NB> reflected{};
@@ -96,6 +110,62 @@ int emit_scalar_receipt() {
     std::cout << ",\"black_value\":" << int(black.value);
     std::cout << "}\n";
     return 0;
+}
+
+DirtyPiece make_dirty(Piece  piece,
+                      Square from,
+                      Square to,
+                      Piece  removePiece = NO_PIECE,
+                      Square removeSquare = SQ_NONE,
+                      Piece  addPiece = NO_PIECE,
+                      Square addSquare = SQ_NONE) {
+    DirtyPiece dirty{};
+    dirty.pc        = piece;
+    dirty.from      = from;
+    dirty.to        = to;
+    dirty.remove_sq = removeSquare;
+    dirty.add_sq    = addSquare;
+    dirty.remove_pc = removePiece;
+    dirty.add_pc    = addPiece;
+    return dirty;
+}
+
+void assert_same_evaluation(const ScalarTrace& actual, const ScalarTrace& expected) {
+    assert(actual.valid());
+    assert(expected.valid());
+    assert(actual.royalAccumulator == expected.royalAccumulator);
+    assert(actual.globalAccumulator == expected.globalAccumulator);
+    assert(actual.transformed == expected.transformed);
+    assert(actual.hidden0Affine == expected.hidden0Affine);
+    assert(actual.hidden0 == expected.hidden0);
+    assert(actual.hidden1Affine == expected.hidden1Affine);
+    assert(actual.hidden1 == expected.hidden1);
+    assert(actual.outputAffine == expected.outputAffine);
+    assert(actual.preRule50Value == expected.preRule50Value);
+    assert(actual.value == expected.value);
+    assert(actual.royalKey == expected.royalKey);
+}
+
+void assert_incremental_transition(ScalarNetwork&                         network,
+                                   const std::array<Piece, SQUARE_NB>& sourceBoard,
+                                   const std::array<Piece, SQUARE_NB>& targetBoard,
+                                   const DirtyPiece&                    dirty,
+                                   Color                                targetSideToMove,
+                                   int                                  targetRule50,
+                                   bool                                 expectRoyalRefresh) {
+    const ScalarTrace source = network.evaluate_full_refresh(sourceBoard, ~targetSideToMove, 0);
+    const ScalarTrace expected =
+      network.evaluate_full_refresh(targetBoard, targetSideToMove, targetRule50);
+    const ScalarTrace actual =
+      network.evaluate_incremental(dirty, targetBoard, source, targetSideToMove, targetRule50);
+
+    assert_same_evaluation(actual, expected);
+    assert(actual.royalRefreshed == expectRoyalRefresh);
+
+    // Undo restores the saved source frame; the transition must never mutate it.
+    const ScalarTrace refreshedSource =
+      network.evaluate_full_refresh(sourceBoard, ~targetSideToMove, 0);
+    assert_same_evaluation(source, refreshedSource);
 }
 
 }  // namespace
@@ -393,10 +463,117 @@ int main(int argc, char* argv[]) {
     assert(deterministicNetwork.evaluate_full_refresh(startBoard, Color(COLOR_NB), 0).error
            == ScalarEvalError::INVALID_SIDE_TO_MOVE);
 
+    const auto incrementalBase = incremental_base_board();
+    assert(extract_full_refresh_features(incrementalBase).valid());
+
+    auto quietTarget       = incrementalBase;
+    quietTarget[SQ_A2]     = NO_PIECE;
+    quietTarget[SQ_A3]     = W_PAWN;
+    const auto quietDirty  = make_dirty(W_PAWN, SQ_A2, SQ_A3);
+    assert_incremental_transition(
+      deterministicNetwork, incrementalBase, quietTarget, quietDirty, BLACK, 0, false);
+
+    auto captureTarget      = incrementalBase;
+    captureTarget[SQ_D4]    = NO_PIECE;
+    captureTarget[SQ_C4]    = W_ROOK;
+    const auto captureDirty = make_dirty(W_ROOK, SQ_D4, SQ_C4, B_PAWN, SQ_C4);
+    assert_incremental_transition(
+      deterministicNetwork, incrementalBase, captureTarget, captureDirty, BLACK, 0, false);
+
+    auto epTarget       = incrementalBase;
+    epTarget[SQ_E5]     = NO_PIECE;
+    epTarget[SQ_F5]     = NO_PIECE;
+    epTarget[SQ_F6]     = W_PAWN;
+    const auto epDirty  = make_dirty(W_PAWN, SQ_E5, SQ_F6, B_PAWN, SQ_F5);
+    assert_incremental_transition(
+      deterministicNetwork, incrementalBase, epTarget, epDirty, BLACK, 0, false);
+
+    auto promotionTarget       = incrementalBase;
+    promotionTarget[SQ_B7]     = NO_PIECE;
+    promotionTarget[SQ_A8]     = W_QUEEN;
+    const auto promotionDirty  =
+      make_dirty(W_PAWN, SQ_B7, SQ_NONE, B_ROOK, SQ_A8, W_QUEEN, SQ_A8);
+    assert_incremental_transition(
+      deterministicNetwork, incrementalBase, promotionTarget, promotionDirty, BLACK, 0, false);
+
+    auto kingTarget       = incrementalBase;
+    kingTarget[SQ_E8]     = NO_PIECE;
+    kingTarget[SQ_E7]     = B_KING;
+    const auto kingDirty  = make_dirty(B_KING, SQ_E8, SQ_E7);
+    assert_incremental_transition(
+      deterministicNetwork, incrementalBase, kingTarget, kingDirty, WHITE, 1, true);
+
+    // d8/e8 share a canonical Royal bucket, but the mirror bit is part of the
+    // key and therefore still forces a refresh.
+    auto mirrorCrossingTarget      = incrementalBase;
+    mirrorCrossingTarget[SQ_E8]    = NO_PIECE;
+    mirrorCrossingTarget[SQ_D8]    = B_KING;
+    const auto mirrorCrossingDirty = make_dirty(B_KING, SQ_E8, SQ_D8);
+    assert_incremental_transition(deterministicNetwork, incrementalBase, mirrorCrossingTarget,
+                                  mirrorCrossingDirty, WHITE, 1, true);
+
+    auto castlingTarget       = incrementalBase;
+    castlingTarget[SQ_E8]     = NO_PIECE;
+    castlingTarget[SQ_H8]     = NO_PIECE;
+    castlingTarget[SQ_G8]     = B_KING;
+    castlingTarget[SQ_F8]     = B_ROOK;
+    const auto castlingDirty  =
+      make_dirty(B_KING, SQ_E8, SQ_G8, B_ROOK, SQ_H8, B_ROOK, SQ_F8);
+    assert_incremental_transition(
+      deterministicNetwork, incrementalBase, castlingTarget, castlingDirty, WHITE, 1, true);
+
+    // Randomized quiet transitions cover every fixed role and arbitrary
+    // RoyalKey changes without relying on chess legality or move generation.
+    std::mt19937 transitionRng(0x494E4352);
+    for (int sample = 0; sample < 256; ++sample)
+    {
+        std::array<Piece, SQUARE_NB> sourceBoard{};
+        std::array<int, SQUARE_NB>   transitionSquares{};
+        std::iota(transitionSquares.begin(), transitionSquares.end(), 0);
+        std::shuffle(transitionSquares.begin(), transitionSquares.end(), transitionRng);
+
+        const int whiteCount   = 1 + int(transitionRng() % MaxHordeSidePieces);
+        const int blackNonKing = int(transitionRng() % MaxRoyalSidePieces);
+        int       cursor       = 0;
+        sourceBoard[transitionSquares[cursor++]] = B_KING;
+        for (int index = 0; index < whiteCount; ++index)
+            sourceBoard[transitionSquares[cursor++]] = HordeRoles[roleDistribution(transitionRng)];
+        for (int index = 0; index < blackNonKing; ++index)
+            sourceBoard[transitionSquares[cursor++]] = RoyalRoles[roleDistribution(transitionRng)];
+
+        const Square from = Square(transitionSquares[transitionRng() % cursor]);
+        const Square to   = Square(transitionSquares[cursor]);
+        const Piece  piece = sourceBoard[from];
+        auto         targetBoard = sourceBoard;
+        targetBoard[from]        = NO_PIECE;
+        targetBoard[to]          = piece;
+
+        const auto sourceFeatures = extract_full_refresh_features(sourceBoard);
+        const auto targetFeatures = extract_full_refresh_features(targetBoard);
+        assert(sourceFeatures.valid());
+        assert(targetFeatures.valid());
+        assert_incremental_transition(deterministicNetwork, sourceBoard, targetBoard,
+                                      make_dirty(piece, from, to), ~color_of(piece), sample % 101,
+                                      sourceFeatures.royalKey != targetFeatures.royalKey);
+    }
+
+    const ScalarTrace incrementalSource =
+      deterministicNetwork.evaluate_full_refresh(incrementalBase, WHITE, 0);
+    DirtyPiece invalidDirty = quietDirty;
+    invalidDirty.pc         = W_KING;
+    assert(deterministicNetwork
+             .evaluate_incremental(invalidDirty, quietTarget, incrementalSource, BLACK, 0)
+             .error
+           == ScalarEvalError::INVALID_DIRTY_PIECE);
+    assert(deterministicNetwork
+             .evaluate_incremental(quietDirty, quietTarget, ScalarTrace{}, BLACK, 0)
+             .error
+           == ScalarEvalError::INVALID_SOURCE_TRACE);
+
     std::cout << "Horde V2 feature contracts passed: "
               << FixedRolePieceSquareDimensions << " global and "
               << RoyalPieceSquareDimensions << " Royal indices; full-refresh "
               << startFeatures.globalSize << "+" << startFeatures.royalSize
               << " active rows; scalar P0=" << whiteTrace.preRule50Value << "/"
-              << blackTrace.preRule50Value << "\n";
+              << blackTrace.preRule50Value << "; incremental=263/263\n";
 }

@@ -173,6 +173,8 @@ enum class ScalarEvalError {
     INVALID_PARAMETERS,
     INVALID_POSITION,
     INVALID_SIDE_TO_MOVE,
+    INVALID_SOURCE_TRACE,
+    INVALID_DIRTY_PIECE,
 };
 
 struct ScalarTrace {
@@ -186,6 +188,8 @@ struct ScalarTrace {
     Accumulator                              outputAffine = 0;
     i32                                      preRule50Value = 0;
     Value                                    value          = VALUE_ZERO;
+    RoyalKey                                royalKey{RoyalBucketCount, false};
+    bool                                    royalRefreshed = false;
     FullRefreshError                         featureError   = FullRefreshError::NONE;
     ScalarEvalError                          error          = ScalarEvalError::NONE;
 
@@ -203,14 +207,9 @@ class ScalarNetwork {
                           Color                               sideToMove,
                           int                                 rule50Count) const noexcept {
         ScalarTrace trace{};
-        if (!parameters_.valid())
+        if (const ScalarEvalError error = common_error(sideToMove); error != ScalarEvalError::NONE)
         {
-            trace.error = ScalarEvalError::INVALID_PARAMETERS;
-            return trace;
-        }
-        if (sideToMove != WHITE && sideToMove != BLACK)
-        {
-            trace.error = ScalarEvalError::INVALID_SIDE_TO_MOVE;
+            trace.error = error;
             return trace;
         }
 
@@ -224,13 +223,10 @@ class ScalarNetwork {
 
         trace.royalAccumulator  = parameters_.royalBias;
         trace.globalAccumulator = parameters_.globalBias;
+        trace.royalKey          = features.royalKey;
+        trace.royalRefreshed    = true;
 
-        for (std::size_t active = 0; active < features.royalSize; ++active)
-        {
-            const std::size_t offset = std::size_t(features.royal[active]) * RoyalLanes;
-            for (IndexType lane = 0; lane < RoyalLanes; ++lane)
-                trace.royalAccumulator[lane] += parameters_.royalWeights[offset + lane];
-        }
+        refresh_royal(features, trace.royalAccumulator);
         for (std::size_t active = 0; active < features.globalSize; ++active)
         {
             const std::size_t offset = std::size_t(features.global[active]) * GlobalLanes;
@@ -238,6 +234,153 @@ class ScalarNetwork {
                 trace.globalAccumulator[lane] += parameters_.globalWeights[offset + lane];
         }
 
+        return propagate(std::move(trace), sideToMove, rule50Count);
+    }
+
+    [[nodiscard]] ScalarTrace
+    evaluate_incremental(const DirtyPiece&                    dirty,
+                         const std::array<Piece, SQUARE_NB>& targetBoard,
+                         const ScalarTrace&                   source,
+                         Color                                sideToMove,
+                         int                                  rule50Count) const noexcept {
+        ScalarTrace trace{};
+        if (const ScalarEvalError error = common_error(sideToMove); error != ScalarEvalError::NONE)
+        {
+            trace.error = error;
+            return trace;
+        }
+        if (!source.valid() || !is_valid_royal_key(source.royalKey))
+        {
+            trace.error = ScalarEvalError::INVALID_SOURCE_TRACE;
+            return trace;
+        }
+
+        const FullRefreshFeatures features = extract_full_refresh_features(targetBoard);
+        if (!features.valid())
+        {
+            trace.error        = ScalarEvalError::INVALID_POSITION;
+            trace.featureError = features.error;
+            return trace;
+        }
+        if (!valid_dirty_piece(dirty))
+        {
+            trace.error = ScalarEvalError::INVALID_DIRTY_PIECE;
+            return trace;
+        }
+
+        trace.globalAccumulator = source.globalAccumulator;
+        trace.royalAccumulator  = source.royalAccumulator;
+        trace.royalKey          = features.royalKey;
+
+        if (!apply_global_delta(trace.globalAccumulator, dirty.pc, dirty.from, -1)
+            || (dirty.to != SQ_NONE
+                && !apply_global_delta(trace.globalAccumulator, dirty.pc, dirty.to, 1))
+            || (dirty.remove_sq != SQ_NONE
+                && !apply_global_delta(
+                  trace.globalAccumulator, dirty.remove_pc, dirty.remove_sq, -1))
+            || (dirty.add_sq != SQ_NONE
+                && !apply_global_delta(trace.globalAccumulator, dirty.add_pc, dirty.add_sq, 1)))
+        {
+            trace.error = ScalarEvalError::INVALID_DIRTY_PIECE;
+            return trace;
+        }
+
+        if (trace.royalKey != source.royalKey)
+        {
+            trace.royalAccumulator = parameters_.royalBias;
+            refresh_royal(features, trace.royalAccumulator);
+            trace.royalRefreshed = true;
+        }
+        else
+        {
+            const auto applyRoyal = [&](Piece piece, Square square, int sign) {
+                return piece == B_KING
+                    || apply_royal_delta(trace.royalAccumulator, piece, square, trace.royalKey, sign);
+            };
+            if (!applyRoyal(dirty.pc, dirty.from, -1)
+                || (dirty.to != SQ_NONE && !applyRoyal(dirty.pc, dirty.to, 1))
+                || (dirty.remove_sq != SQ_NONE
+                    && !applyRoyal(dirty.remove_pc, dirty.remove_sq, -1))
+                || (dirty.add_sq != SQ_NONE && !applyRoyal(dirty.add_pc, dirty.add_sq, 1)))
+            {
+                trace.error = ScalarEvalError::INVALID_DIRTY_PIECE;
+                return trace;
+            }
+        }
+
+        return propagate(std::move(trace), sideToMove, rule50Count);
+    }
+
+    [[nodiscard]] ScalarTrace evaluate_incremental(const DirtyPiece&  dirty,
+                                                   const Position&    target,
+                                                   const ScalarTrace& source) const noexcept {
+        return evaluate_incremental(dirty, target.piece_array(), source, target.side_to_move(),
+                                    target.rule50_count());
+    }
+
+    [[nodiscard]] ScalarTrace evaluate_full_refresh(const Position& pos) const noexcept {
+        return evaluate_full_refresh(pos.piece_array(), pos.side_to_move(), pos.rule50_count());
+    }
+
+   private:
+    [[nodiscard]] ScalarEvalError common_error(Color sideToMove) const noexcept {
+        if (!parameters_.valid())
+            return ScalarEvalError::INVALID_PARAMETERS;
+        if (sideToMove != WHITE && sideToMove != BLACK)
+            return ScalarEvalError::INVALID_SIDE_TO_MOVE;
+        return ScalarEvalError::NONE;
+    }
+
+    [[nodiscard]] static bool valid_dirty_piece(const DirtyPiece& dirty) noexcept {
+        return is_registered_piece(dirty.pc) && is_ok(dirty.from)
+            && (dirty.to == SQ_NONE || is_ok(dirty.to))
+            && (dirty.remove_sq == SQ_NONE
+                || (is_ok(dirty.remove_sq) && is_registered_piece(dirty.remove_pc)))
+            && (dirty.add_sq == SQ_NONE
+                || (is_ok(dirty.add_sq) && is_registered_piece(dirty.add_pc)));
+    }
+
+    [[nodiscard]] bool apply_global_delta(std::array<Accumulator, GlobalLanes>& accumulator,
+                                          Piece                                  piece,
+                                          Square                                 square,
+                                          int                                    sign) const noexcept {
+        const IndexType index = fixed_role_piece_square_index(piece, square);
+        if (index == InvalidFeatureIndex)
+            return false;
+
+        const std::size_t offset = std::size_t(index) * GlobalLanes;
+        for (IndexType lane = 0; lane < GlobalLanes; ++lane)
+            accumulator[lane] += sign * parameters_.globalWeights[offset + lane];
+        return true;
+    }
+
+    [[nodiscard]] bool apply_royal_delta(std::array<Accumulator, RoyalLanes>& accumulator,
+                                         Piece                                 piece,
+                                         Square                                square,
+                                         RoyalKey                              key,
+                                         int                                   sign) const noexcept {
+        const IndexType index = royal_piece_square_index(piece, square, key);
+        if (index == InvalidRoyalFeatureIndex)
+            return false;
+
+        const std::size_t offset = std::size_t(index) * RoyalLanes;
+        for (IndexType lane = 0; lane < RoyalLanes; ++lane)
+            accumulator[lane] += sign * parameters_.royalWeights[offset + lane];
+        return true;
+    }
+
+    void refresh_royal(const FullRefreshFeatures&              features,
+                       std::array<Accumulator, RoyalLanes>& accumulator) const noexcept {
+        for (std::size_t active = 0; active < features.royalSize; ++active)
+        {
+            const std::size_t offset = std::size_t(features.royal[active]) * RoyalLanes;
+            for (IndexType lane = 0; lane < RoyalLanes; ++lane)
+                accumulator[lane] += parameters_.royalWeights[offset + lane];
+        }
+    }
+
+    [[nodiscard]] ScalarTrace
+    propagate(ScalarTrace trace, Color sideToMove, int rule50Count) const noexcept {
         for (IndexType lane = 0; lane < RoyalLanes; ++lane)
             trace.transformed[lane] =
               clipped_activation(trace.royalAccumulator[lane], FtActivationShift);
@@ -280,11 +423,6 @@ class ScalarNetwork {
         return trace;
     }
 
-    [[nodiscard]] ScalarTrace evaluate_full_refresh(const Position& pos) const noexcept {
-        return evaluate_full_refresh(pos.piece_array(), pos.side_to_move(), pos.rule50_count());
-    }
-
-   private:
     ScalarParameters parameters_;
 };
 
