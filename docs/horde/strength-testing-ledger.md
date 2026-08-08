@@ -63,12 +63,21 @@ not count as strength evidence and will not be combined with the new samples.
 
 First wave, all at priority 1000:
 
-1. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
+1. `test/black-outcome-fastpath` at
+   `bca714f45b99524f92057f9bd7144b6397636856`. The candidate returned the
+   exact same result and reason as the accepted baseline on 100,000
+   deterministic reachable Black-to-move positions plus twelve edge fixtures;
+   every call also preserved FEN, key, state pointer, ply, rule50, repetition,
+   and `pos_is_ok()`. Forty-eight alternating start-position depth-18 pairs
+   measured a `1.012807` speed ratio, while sixteen alternating depth-16
+   ten-position bench pairs measured `1.038213`; fixed work and best moves were
+   identical. All four artifact jobs pass.
+2. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
    Its defect-free V1 sample had LLR `+0.97` after 4,096 games.
-2. `test/outcome-fastpath` at `bffa9a10ff4c3ce7ea61361f98d2814ffa1c6256`.
+3. `test/outcome-fastpath` at `bffa9a10ff4c3ce7ea61361f98d2814ffa1c6256`.
    Its early V1 signal was LLR `+0.73`, but four time losses invalidate the
    1,600-game sample.
-3. `test/movepicker-legacy-pawn` at
+4. `test/movepicker-legacy-pawn` at
    `a7161dc472672ac09d9e9616766e9bb1b01c37a1`. Its early V1 signal was LLR
    `+0.51`, but one time loss invalidates the 1,536-game sample.
 
