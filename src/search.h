@@ -398,6 +398,7 @@ class Worker {
 
     usize                     threadIdx, numaThreadIdx, numaTotal;
     NumaReplicatedAccessToken numaAccessToken;
+    bool                      hordeDisableOneKingSingular = false;
 
     // Reductions lookup table initialized at startup
     std::array<int, MAX_MOVES> reductions;  // [depth or moveNumber]

@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeDisableOneKingSingular = bool(options["HordeDisableOneKingSingular"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1411,7 +1412,7 @@ moves_loop:  // When in check, search starts here
         // The one-king game has fewer interchangeable king-safety replies.
         // Let singular verification start two plies earlier.
         const int oneKingSingularBonus =
-          HORDE_PRUNING_ACTIVE(HordeDisableOneKingSingular) ? 2 : 0;
+          !hordeDisableOneKingSingular && HORDE_PRUNING_ACTIVE(HordeDisableOneKingSingular) ? 2 : 0;
         if (!rootNode && move == ttData.move && !excludedMove
             && depth >= 6 + ss->ttPv - oneKingSingularBonus
             && is_valid(ttData.value) && !is_decisive(ttData.value) && (ttData.bound & BOUND_LOWER)
