@@ -158,7 +158,8 @@ MovePicker::MovePicker(const Position&              p,
                        const CapturePieceToHistory* cph,
                        const PieceToHistory**       ch,
                        const SharedHistories*       sh,
-                       int                          pl) :
+                       int                          pl,
+                       bool                         useEvasionCaptureHistory) :
     pos(p),
     mainHistory(mh),
     lowPlyHistory(lph),
@@ -167,7 +168,8 @@ MovePicker::MovePicker(const Position&              p,
     sharedHistory(sh),
     ttMove(ttm),
     depth(d),
-    ply(pl) {
+    ply(pl),
+    hordeEvasionCaptureHistory(useEvasionCaptureHistory) {
 
     if (pos.checkers())
         stage = EVASION_TT + !(ttm && pos.pseudo_legal(ttm));
@@ -252,7 +254,13 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
         else  // Type == EVASIONS
         {
             if (pos.capture_stage(m))
+            {
                 m.value = PieceValue[capturedPiece] + (1 << 28);
+                if (hordeEvasionCaptureHistory && us == BLACK && m.type_of() == NORMAL
+                    && pos.count<ALL_PIECES>(WHITE) > 1)
+                    m.value = (1 << 28) + (*captureHistory)[pc][to][type_of(capturedPiece)]
+                            + 7 * int(PieceValue[capturedPiece]);
+            }
             else
                 m.value = (*mainHistory)[us][m.raw()] + (*continuationHistory[0])[pc][to];
         }
