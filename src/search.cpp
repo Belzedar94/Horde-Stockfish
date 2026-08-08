@@ -95,7 +95,10 @@ int correction_value(const Worker& w, const Position& pos, const Stack* const ss
     const auto& shared = w.sharedHistory;
     const int   pcv    = shared.pawn_correction_entry(pos)[us].pawn;
     const int   micv   = shared.minor_piece_correction_entry(pos)[us].minor;
-    const int   wnpcv  = shared.nonpawn_correction_entry<WHITE>(pos)[us].nonPawnWhite;
+    const int wnpcv =
+      w.skip_white_zero_nonpawn_correction() && !pos.non_pawn_material(WHITE)
+        ? 0
+        : shared.nonpawn_correction_entry<WHITE>(pos)[us].nonPawnWhite;
     const int   bnpcv  = shared.nonpawn_correction_entry<BLACK>(pos)[us].nonPawnBlack;
     const int   cntcv =
       m.is_ok()
@@ -199,6 +202,8 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeSkipWhiteZeroNonPawnCorrection =
+      bool(options["HordeSkipWhiteZeroNonPawnCorrection"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));

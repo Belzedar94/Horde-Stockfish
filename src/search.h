@@ -338,6 +338,10 @@ class Worker {
 
     void ensure_network_replicated();
 
+    bool skip_white_zero_nonpawn_correction() const {
+        return hordeSkipWhiteZeroNonPawnCorrection;
+    }
+
     // Public because they need to be updatable by the stats
     ButterflyHistory mainHistory;
     LowPlyHistory    lowPlyHistory;
@@ -415,6 +419,8 @@ class Worker {
     // Used by NNUE
     Eval::NNUE::AccumulatorStack  accumulatorStack;
     Eval::NNUE::AccumulatorCaches refreshTable;
+
+    bool hordeSkipWhiteZeroNonPawnCorrection = false;
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;
