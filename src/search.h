@@ -338,6 +338,10 @@ class Worker {
 
     void ensure_network_replicated();
 
+    bool gate_black_capture_continuation_correction() const {
+        return hordeGateBlackCaptureContinuationCorrection;
+    }
+
     // Public because they need to be updatable by the stats
     ButterflyHistory mainHistory;
     LowPlyHistory    lowPlyHistory;
@@ -415,6 +419,8 @@ class Worker {
     // Used by NNUE
     Eval::NNUE::AccumulatorStack  accumulatorStack;
     Eval::NNUE::AccumulatorCaches refreshTable;
+
+    bool hordeGateBlackCaptureContinuationCorrection = false;
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;

@@ -89,6 +89,13 @@ using SearchedList                  = ValueList<Move, SEARCHEDLIST_CAPACITY>;
 // (*Scaler) All tuned parameters at time controls shorter than
 // optimized for require verifications at longer time controls
 
+bool black_captured_horde_unit(const Position& pos, const Stack* const ss) {
+    const Move  move     = (ss - 1)->currentMove;
+    const Piece captured = pos.captured_piece();
+    return move.is_ok() && move.type_of() == NORMAL && captured != NO_PIECE
+        && color_of(captured) == WHITE;
+}
+
 int correction_value(const Worker& w, const Position& pos, const Stack* const ss) {
     const Color us     = pos.side_to_move();
     const auto  m      = (ss - 1)->currentMove;
@@ -97,8 +104,10 @@ int correction_value(const Worker& w, const Position& pos, const Stack* const ss
     const int   micv   = shared.minor_piece_correction_entry(pos)[us].minor;
     const int   wnpcv  = shared.nonpawn_correction_entry<WHITE>(pos)[us].nonPawnWhite;
     const int   bnpcv  = shared.nonpawn_correction_entry<BLACK>(pos)[us].nonPawnBlack;
-    const int   cntcv =
-      m.is_ok()
+    const bool gateContinuation =
+      w.gate_black_capture_continuation_correction() && black_captured_horde_unit(pos, ss);
+    const int cntcv =
+      m.is_ok() && !gateContinuation
           ? 8761
             * ((*(ss - 2)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()]
                + (*(ss - 4)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()])
@@ -128,7 +137,9 @@ void update_correction_history(const Position& pos,
     shared.nonpawn_correction_entry<WHITE>(pos)[us].nonPawnWhite << bonus * nonPawnWeight / 128;
     shared.nonpawn_correction_entry<BLACK>(pos)[us].nonPawnBlack << bonus * nonPawnWeight / 128;
 
-    if (m.is_ok())
+    if (m.is_ok()
+        && !(workerThread.gate_black_capture_continuation_correction()
+             && black_captured_horde_unit(pos, ss)))
     {
         const Square to = m.to_sq();
         const Piece  pc = pos.piece_on(to);
@@ -199,6 +210,8 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeGateBlackCaptureContinuationCorrection =
+      bool(options["HordeGateBlackCaptureContinuationCorrection"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
