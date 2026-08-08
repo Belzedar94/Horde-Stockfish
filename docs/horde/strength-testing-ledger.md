@@ -56,6 +56,38 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
   `Threads=1 Hash=32 "Move Overhead=50"`. Any time loss, crash, illegal move,
   or abort invalidates the new sample immediately.
 
+## Prepared V2 restart queue
+
+The V1 results below are used only to prioritize fresh V2 workloads. They do
+not count as strength evidence and will not be combined with the new samples.
+
+First wave, all at priority 1000:
+
+1. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
+   Its defect-free V1 sample had LLR `+0.97` after 4,096 games.
+2. `test/outcome-fastpath` at `bffa9a10ff4c3ce7ea61361f98d2814ffa1c6256`.
+   Its early V1 signal was LLR `+0.73`, but four time losses invalidate the
+   1,600-game sample.
+3. `test/movepicker-legacy-pawn` at
+   `a7161dc472672ac09d9e9616766e9bb1b01c37a1`. Its early V1 signal was LLR
+   `+0.51`, but one time loss invalidates the 1,536-game sample.
+
+Second wave consists of zero-game structural candidates with green artifact
+CI: `test/white-legal-generation-fastpath`, `test/fixed-role-gives-check`,
+`test/fixed-role-do-move-checkers`, `test/horde-material-correction`, and
+`test/white-piece-count-see-guard`. The last branch now points to
+`dfa4746188baaaebad4fe675ed0f10f692293e74`; its previous CI failure was only a
+stale deterministic-bench receipt, and all four artifact jobs pass on the new
+head.
+
+Do not restart candidates whose V1 direction was already poor without new
+evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
+2,048 games), `test/see-legacy-white-pawn-value` (LLR `-0.85` after 1,752),
+`test/white-pawn-advance-ordering` (LLR `-1.08` after 2,048),
+`test/white-pawn-support-ordering` (LLR `-0.49` after 640),
+`test/promotion-capture-ordering` (LLR `-1.42` after 1,536), and
+`test/white-pawn-lmr` (LLR `-0.72` after 2,048).
+
 ## Registered experiments
 
 ### 2026-08-07 - Treat White Horde pawns as null-move material
