@@ -542,6 +542,25 @@ def verify_builder_bias_rejection() -> None:
     raise AssertionError("container builder accepted an unsafe bias")
 
 
+def verify_position_oracles(oracles: Iterable[Path], networks: Iterable[Path]) -> int:
+    network_args = [str(path) for path in networks]
+    count = 0
+    for oracle in oracles:
+        completed = subprocess.run(
+            [str(oracle), *network_args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        expected = f"containers={len(network_args)}"
+        if expected not in completed.stdout:
+            raise AssertionError(
+                f"position oracle {oracle} did not report {expected}: {completed.stdout!r}"
+            )
+        count += 1
+    return count
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -558,6 +577,13 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="additional trained container to verify after the synthetic fixtures",
     )
+    parser.add_argument(
+        "--position-oracle",
+        action="append",
+        type=Path,
+        default=[],
+        help="real Position stack oracle; repeat for each scalar or SIMD build",
+    )
     return parser.parse_args()
 
 
@@ -571,19 +597,27 @@ def main() -> int:
     for network in requested_networks:
         if not network.is_file():
             raise FileNotFoundError(f"container network does not exist: {network}")
+    position_oracles = [path.expanduser().resolve() for path in args.position_oracle]
+    for oracle in position_oracles:
+        if not oracle.is_file():
+            raise FileNotFoundError(f"position oracle does not exist: {oracle}")
 
     with tempfile.TemporaryDirectory(prefix="horde-v2-container-") as temporary:
         root = Path(temporary)
         synthetic = create_synthetic_networks(root)
         receipts = [compare_network(oracles, network) for network in synthetic]
         receipts.extend(compare_network(oracles, network) for network in requested_networks)
+        position_oracle_count = verify_position_oracles(
+            position_oracles, [*synthetic, *requested_networks]
+        )
         corruptions = verify_corruptions(oracles[0], synthetic[-1], root)
         verify_builder_bias_rejection()
 
     print(
         "Horde V2 integer container parity passed: "
         + ", ".join(f"{schema}={digest[:12]}" for schema, digest in receipts)
-        + f", oracles={len(oracles)}, corruptions={corruptions}"
+        + f", oracles={len(oracles)}, position_oracles={position_oracle_count}, "
+        + f"corruptions={corruptions}"
     )
     return 0
 

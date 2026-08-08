@@ -76,9 +76,11 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 -Isrc \
             tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
             src/data/sha256.cpp -o /tmp/horde-v2-container-avx2
+          make -j2 -C src ARCH=x86-64 ${{ matrix.make_args }} horde-v2-position-test-bin
           python3 tests/horde_v2_container_parity.py \
             --oracle /tmp/horde-v2-container \
-            --oracle /tmp/horde-v2-container-avx2
+            --oracle /tmp/horde-v2-container-avx2 \
+            --position-oracle src/horde-v2-position-test
       - name: Verify experimental V2 real Position stack
         run: |
           make -j2 -C src ARCH=x86-64 ${{ matrix.make_args }} horde-v2-position-test-bin
@@ -200,10 +202,11 @@ jobs:
             -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc \
             tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
             src/data/sha256.cpp -o /tmp/horde-v2-container-sanitize
-          python3 tests/horde_v2_container_parity.py \
-            --oracle /tmp/horde-v2-container-sanitize
           make -j2 -C src ARCH=x86-64 sanitize="address undefined" debug=yes optimize=no \
             EXTRACXXFLAGS="-O1 -fno-inline" horde-v2-position-test-bin
+          python3 tests/horde_v2_container_parity.py \
+            --oracle /tmp/horde-v2-container-sanitize \
+            --position-oracle src/horde-v2-position-test
           src/horde-v2-position-test
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
@@ -323,10 +326,11 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 -Isrc \
             tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
             src/data/sha256.cpp -o horde-v2-container-avx2.exe
+          make -j2 -C src ARCH=x86-64 horde-v2-position-test-bin
           python tests/horde_v2_container_parity.py \
             --oracle ./horde-v2-container.exe \
-            --oracle ./horde-v2-container-avx2.exe
-          make -j2 -C src ARCH=x86-64 horde-v2-position-test-bin
+            --oracle ./horde-v2-container-avx2.exe \
+            --position-oracle src/horde-v2-position-test.exe
           src/horde-v2-position-test.exe
           python scripts/horde/verify_baseline.py
           python tests/horde_rules.py src/stockfish.exe

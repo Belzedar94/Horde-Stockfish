@@ -6,9 +6,12 @@
 #include <array>
 #include <cstdlib>
 #include <filesystem>
+#include <initializer_list>
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 #include "nnue/horde_v2_container.h"
 
@@ -16,6 +19,10 @@ using namespace Stockfish;
 using namespace Stockfish::Eval::NNUE::HordeV2;
 
 namespace {
+
+static_assert(std::is_constructible_v<ContainerNetwork<>, const ContainerParameters&>);
+static_assert(!std::is_constructible_v<ContainerNetwork<>, ContainerParameters&&>);
+static_assert(!std::is_constructible_v<ContainerNetwork<>, const ContainerParameters&&>);
 
 struct PositionFixture {
     const char* name;
@@ -141,7 +148,7 @@ bool same_array(const std::array<T, Size>& left, const std::array<T, Size>& righ
 void require_same(const ContainerTrace& scalar,
                   const ContainerTrace& selected,
                   std::string_view      name) {
-    if (scalar.featureError != selected.featureError
+    if (scalar.error != selected.error || scalar.featureError != selected.featureError
         || !same_array(scalar.firstAccumulator, selected.firstAccumulator)
         || !same_array(scalar.globalAccumulator, selected.globalAccumulator)
         || !same_array(scalar.transformed, selected.transformed)
@@ -152,6 +159,136 @@ void require_same(const ContainerTrace& scalar,
         || scalar.outputAffine != selected.outputAffine
         || scalar.preRule50Value != selected.preRule50Value || scalar.value != selected.value)
         fail(std::string("scalar/backend trace differs in ") + std::string(name));
+}
+
+std::array<Piece, SQUARE_NB>
+make_board(std::initializer_list<std::pair<Square, Piece>> pieces) {
+    std::array<Piece, SQUARE_NB> board{};
+    for (const auto& [square, piece] : pieces)
+        board[square] = piece;
+    return board;
+}
+
+DirtyPiece make_dirty(Piece  piece,
+                      Square from,
+                      Square to,
+                      Piece  removePiece  = NO_PIECE,
+                      Square removeSquare = SQ_NONE,
+                      Piece  addPiece     = NO_PIECE,
+                      Square addSquare    = SQ_NONE) {
+    DirtyPiece dirty{};
+    dirty.pc        = piece;
+    dirty.from      = from;
+    dirty.to        = to;
+    dirty.remove_pc = removePiece;
+    dirty.remove_sq = removeSquare;
+    dirty.add_pc    = addPiece;
+    dirty.add_sq    = addSquare;
+    return dirty;
+}
+
+template<typename Kernels>
+void verify_incremental_transition(const ContainerNetwork<Kernels>&       network,
+                                   const std::array<Piece, SQUARE_NB>& sourceBoard,
+                                   const DirtyPiece&                   rawDirty,
+                                   std::string_view                    name) {
+    NormalizedDirty dirty{};
+    if (!normalize_dirty_piece(rawDirty, dirty))
+        fail(std::string("invalid incremental fixture dirty: ") + std::string(name));
+
+    std::array<Piece, SQUARE_NB> targetBoard = sourceBoard;
+    if (!apply_normalized_dirty(targetBoard, dirty))
+        fail(std::string("incremental fixture transition failed: ") + std::string(name));
+
+    const FullRefreshFeatures sourceFeatures = extract_full_refresh_features(sourceBoard);
+    const FullRefreshFeatures targetFeatures = extract_full_refresh_features(targetBoard);
+    if (!sourceFeatures.valid() || !targetFeatures.valid())
+        fail(std::string("incremental fixture position invalid: ") + std::string(name));
+
+    typename ContainerNetwork<Kernels>::Frame source{};
+    typename ContainerNetwork<Kernels>::Frame child{};
+    typename ContainerNetwork<Kernels>::Frame refreshed{};
+    network.full_refresh(source, sourceFeatures);
+
+    const RoyalKey targetKey = network.first_domain_key(targetFeatures);
+    const bool     refresh   = network.requires_refresh(source.key, targetKey);
+    if (refresh)
+    {
+        if (!network.materialize_child(child, source, dirty, targetFeatures))
+            fail(std::string("incremental refresh failed: ") + std::string(name));
+    }
+    else if (!network.materialize_child_delta(child, source, dirty, targetKey))
+        fail(std::string("incremental delta was rejected: ") + std::string(name));
+
+    network.full_refresh(refreshed, targetFeatures);
+    if (child.first != refreshed.first || child.global != refreshed.global
+        || child.key != refreshed.key)
+        fail(std::string("incremental/full accumulator mismatch: ") + std::string(name));
+
+    const bool expectedRefresh = network.first_domain() == FirstDomain::ROYAL
+                              && sourceFeatures.royalKey != targetFeatures.royalKey;
+    if (refresh != expectedRefresh)
+        fail(std::string("wrong first-domain refresh decision: ") + std::string(name));
+
+    if (network.first_domain() == FirstDomain::ABSOLUTE_NONKING && dirty.pc == B_KING
+        && (dirty.add_sq == SQ_NONE
+            || (dirty.remove_sq == dirty.add_sq && dirty.remove_pc == dirty.add_pc))
+        && child.first != source.first)
+        fail(std::string("Black king changed absolute first domain: ") + std::string(name));
+
+    typename ContainerNetwork<Kernels>::Scratch incrementalScratch{};
+    typename ContainerNetwork<Kernels>::Scratch refreshScratch{};
+    const LeanEvalResult incremental = network.propagate(child, incrementalScratch, BLACK, 37);
+    const LeanEvalResult full         = network.propagate(refreshed, refreshScratch, BLACK, 37);
+    if (incrementalScratch.transformed != refreshScratch.transformed
+        || incrementalScratch.hidden0Affine != refreshScratch.hidden0Affine
+        || incrementalScratch.hidden0 != refreshScratch.hidden0
+        || incrementalScratch.hidden1Affine != refreshScratch.hidden1Affine
+        || incrementalScratch.hidden1 != refreshScratch.hidden1
+        || incremental.outputAffine != full.outputAffine
+        || incremental.preRule50Value != full.preRule50Value || incremental.value != full.value)
+        fail(std::string("incremental/full dense mismatch: ") + std::string(name));
+}
+
+template<typename Kernels>
+void verify_incremental_suite(const ContainerNetwork<Kernels>& network) {
+    const auto run = [&](std::string_view name, std::array<Piece, SQUARE_NB> board,
+                         const DirtyPiece& dirty) {
+        verify_incremental_transition(network, board, dirty, name);
+    };
+
+    run("quiet", make_board({{SQ_A2, W_PAWN}, {SQ_E8, B_KING}}),
+        make_dirty(W_PAWN, SQ_A2, SQ_A3));
+    run("capture",
+        make_board({{SQ_A2, W_PAWN}, {SQ_D2, W_ROOK}, {SQ_C2, B_PAWN}, {SQ_E8, B_KING}}),
+        make_dirty(W_ROOK, SQ_D2, SQ_C2, B_PAWN, SQ_C2));
+    run("en-passant",
+        make_board({{SQ_A2, W_PAWN}, {SQ_E5, W_PAWN}, {SQ_F5, B_PAWN}, {SQ_E8, B_KING}}),
+        make_dirty(W_PAWN, SQ_E5, SQ_F6, B_PAWN, SQ_F5));
+    run("promotion", make_board({{SQ_A2, W_PAWN}, {SQ_B7, W_PAWN}, {SQ_E8, B_KING}}),
+        make_dirty(W_PAWN, SQ_B7, SQ_NONE, NO_PIECE, SQ_NONE, W_QUEEN, SQ_B8));
+    run("promotion-capture",
+        make_board({{SQ_A2, W_PAWN}, {SQ_B7, W_PAWN}, {SQ_A8, B_ROOK}, {SQ_E8, B_KING}}),
+        make_dirty(W_PAWN, SQ_B7, SQ_NONE, B_ROOK, SQ_A8, W_QUEEN, SQ_A8));
+    run("king-same-mirror", make_board({{SQ_A2, W_PAWN}, {SQ_E8, B_KING}}),
+        make_dirty(B_KING, SQ_E8, SQ_F8));
+    run("king-cross-mirror", make_board({{SQ_A2, W_PAWN}, {SQ_D8, B_KING}}),
+        make_dirty(B_KING, SQ_D8, SQ_E8));
+    run("castle-orthodox",
+        make_board({{SQ_A2, W_PAWN}, {SQ_E8, B_KING}, {SQ_H8, B_ROOK}}),
+        make_dirty(B_KING, SQ_E8, SQ_G8, B_ROOK, SQ_H8, B_ROOK, SQ_F8));
+    run("castle-king-to-rook",
+        make_board({{SQ_A2, W_PAWN}, {SQ_E8, B_KING}, {SQ_G8, B_ROOK}}),
+        make_dirty(B_KING, SQ_E8, SQ_G8, B_ROOK, SQ_G8, B_ROOK, SQ_F8));
+    run("castle-rook-to-king",
+        make_board({{SQ_A2, W_PAWN}, {SQ_F8, B_KING}, {SQ_H8, B_ROOK}}),
+        make_dirty(B_KING, SQ_F8, SQ_G8, B_ROOK, SQ_H8, B_ROOK, SQ_F8));
+    run("castle-zero-king",
+        make_board({{SQ_A2, W_PAWN}, {SQ_G8, B_KING}, {SQ_H8, B_ROOK}}),
+        make_dirty(B_KING, SQ_G8, SQ_G8, B_ROOK, SQ_H8, B_ROOK, SQ_F8));
+    run("castle-zero-rook",
+        make_board({{SQ_A2, W_PAWN}, {SQ_E8, B_KING}, {SQ_F8, B_ROOK}}),
+        make_dirty(B_KING, SQ_E8, SQ_G8, B_ROOK, SQ_F8, B_ROOK, SQ_F8));
 }
 
 template<typename T, std::size_t Size>
@@ -208,6 +345,8 @@ int trace(const std::filesystem::path& path) {
 
     ContainerNetwork<ScalarLeanKernels>  scalar(loaded.parameters);
     ContainerNetwork<DefaultLeanKernels> selected(loaded.parameters);
+    verify_incremental_suite(scalar);
+    verify_incremental_suite(selected);
     std::cout << "{\"schema\":\"HORDE_V2_FULL_REFRESH_TRACE_V1\",\"network_schema\":\""
               << loaded.parameters.schemaName << "\",\"backend\":\"" << DefaultLeanBackendName
               << "\",\"file_sha256\":\"" << loaded.parameters.fileSha256

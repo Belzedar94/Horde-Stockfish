@@ -94,6 +94,19 @@ constexpr IndexType fixed_role_piece_square_index(Piece piece, Square square) no
            : IndexType(role) * SQUARE_NB + IndexType(square);
 }
 
+// The absolute first-domain control deliberately shares the first ten Global
+// rows (all registered non-king roles) and excludes the final Black-king role.
+constexpr IndexType absolute_nonking_piece_square_index(Piece piece, Square square) noexcept {
+    const FixedRole role = fixed_role(piece);
+    return role >= ROYAL_KING || !is_ok(square)
+           ? InvalidFeatureIndex
+           : IndexType(role) * SQUARE_NB + IndexType(square);
+}
+
+constexpr IndexType absolute_nonking_index_from_global(IndexType globalIndex) noexcept {
+    return globalIndex < RoyalNonKingRoleCount * SQUARE_NB ? globalIndex : InvalidFeatureIndex;
+}
+
 constexpr Square horizontal_flip(Square square) noexcept {
     return is_ok(square) ? Square(IndexType(square) ^ 7) : SQ_NONE;
 }
@@ -141,6 +154,11 @@ static_assert(fixed_role_piece_square_index(W_PAWN, SQ_A1) == 0);
 static_assert(fixed_role_piece_square_index(W_QUEEN, SQ_H8) == 4 * 64 + 63);
 static_assert(fixed_role_piece_square_index(B_PAWN, SQ_A1) == 5 * 64);
 static_assert(fixed_role_piece_square_index(B_KING, SQ_H8) == 10 * 64 + 63);
+static_assert(absolute_nonking_piece_square_index(W_PAWN, SQ_A1) == 0);
+static_assert(absolute_nonking_piece_square_index(B_QUEEN, SQ_H8) == 10 * 64 - 1);
+static_assert(absolute_nonking_piece_square_index(B_KING, SQ_A1) == InvalidFeatureIndex);
+static_assert(absolute_nonking_index_from_global(10 * 64 - 1) == 10 * 64 - 1);
+static_assert(absolute_nonking_index_from_global(10 * 64) == InvalidFeatureIndex);
 static_assert(fixed_role_piece_square_index(W_KING, SQ_E1) == InvalidFeatureIndex);
 static_assert(fixed_role_piece_square_index(NO_PIECE, SQ_A1) == InvalidFeatureIndex);
 static_assert(horizontal_flip(SQ_A1) == SQ_H1);

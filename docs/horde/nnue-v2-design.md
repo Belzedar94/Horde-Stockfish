@@ -84,15 +84,15 @@ production choice. They make refresh cost measurable before expensive training
 decides whether the king map has enough value.
 
 The current implementation checkpoint provides the G0/R0 index contract, a
-fail-closed full-refresh enumerator, and an engineering-only scalar P0 forward.
+fail-closed full-refresh enumerator, scalar and AVX2 integer forwards, an
+authenticated network container, and a production-layout incremental stack.
 The enumerator walks physical squares from A1 to H8, emits at most 52 Global
 and 51 Royal rows, rejects a White king, requires exactly one Black king, and
-enforces the 36/16 side capacities. The scalar path exercises non-zero bounded
-deterministic weights, both sparse transforms, the shared dense trunk, the two
-STM output rows, and the external rule-50 postprocessor. It has no production
-dispatch, file parser, production-layout accumulator, SIMD backend, or trained
-weights and therefore cannot replace the production evaluator. A separate
-engineering scalar incremental oracle exists for make/undo parity.
+enforces the 36/16 side capacities. The integer path exercises non-zero bounded
+weights, both sparse transforms, the shared dense trunk, the two STM output
+rows, and the external rule-50 postprocessor. It still has no production UCI
+dispatch or strength-qualified trained weights and therefore cannot replace
+the production evaluator.
 
 ## Dual refresh domains
 
@@ -146,14 +146,15 @@ moves, ordinary captures, en passant, promotion captures, Black-king moves,
 the d/e mirror boundary, castling, null-head selection, 256 randomized
 fixed-role transitions, and source restoration.
 
-The separate scalar reference stack now consumes the exact `Dirties` object
-filled by real `Position::do_move()`. It validates that each `DirtyPiece`
-reconstructs the complete target board before accepting a frame, keeps Run 6B's
-production `AccumulatorStack` untouched, restores undo by popping the saved
-frame, and mirrors search by not pushing for null moves. The deterministic
-integration receipt covers six focused special moves, 192 generated legal
-moves, 15 null transitions, every corresponding undo, and 17 Royal refreshes.
-Full refresh is compared after every transition.
+The separate scalar reference stack consumes the exact `Dirties` object filled
+by real `Position::do_move()`. It validates that each `DirtyPiece` reconstructs
+the complete target board before accepting a frame, keeps Run 6B's production
+`AccumulatorStack` untouched, restores undo by popping the saved frame, and
+mirrors search by not pushing for null moves. The deterministic integration
+receipt covers ten focused special moves, including four overlapping Chess960
+castling layouts, 192 generated legal moves, 15 null transitions, every
+corresponding undo, and 17 Royal refreshes. Full refresh is compared after
+every transition.
 
 That trace-heavy scalar stack remains a correctness oracle. It validates the
 parameter object, scans the target board, stores a complete board identity and
@@ -182,19 +183,27 @@ The lean scalar checkpoint matches the trace oracle layer by layer at
 paired with AVX2 row-update and dense kernels using the same frame and payload;
 the AVX2 path passes the same layer and transition receipts.
 
-The lean backend also has a production-layout `Position` stack. It allocates
-aligned frames once, stores no board copies or dense traces, and reuses the top
-frame across null moves. Ordinary children derive `RoyalKey` directly from the
-Black king and queue their sparse delta without enumerating the board. The
-pending same-key chain is materialized only when evaluation needs it. A
-Black-king key transition refreshes Royal while its target position is still
-available; Global remains incremental. The direct `Position` extractor
-preserves the A1-to-H8 trainer order without first copying or scanning a
-64-square array. Make/undo/null receipts compare every materialized frame with
-full refresh, include an unevaluated six-ply lazy batch, and require the same
-evaluation digest for all four `PERF_COMMON_V1` widths. The stack is not yet
-owned by `Thread` or selected by production evaluation dispatch, so standalone
-timings alone are not width-selection evidence.
+The lean backend also has a generic production-layout `Position` stack shared
+with authenticated containers. It allocates aligned frames once, stores no
+dense traces, and reuses the top frame across null moves. `DirtyPiece` is first
+normalized so inactive, potentially indeterminate piece fields are never read;
+all removals precede additions, including promotion, en passant and overlapping
+Chess960 castling squares. Ordinary children derive the first-domain key in
+O(1) and queue their sparse delta without enumerating the board. The pending
+same-key chain is materialized only when evaluation needs it. A Black-king key
+transition extracts the final sparse rows once and refreshes Royal while Global
+remains incremental.
+
+The stack has two compile-time policies over the same transition code. The
+production policy performs no 64-square scan on push, pop or evaluate. The
+validating policy retains one exact 64-byte board shadow and rejects any source,
+dirty-list or target mismatch transactionally. Correctness tests exercise both
+policies: the production policy covers special moves, lazy batches, null moves
+and generated legal sequences; the validating policy covers poisoned inactive
+fields and malformed or contradictory transitions. Make/undo/null receipts
+compare every materialized frame with full refresh and require the same integer
+layers under scalar and AVX2. The stack is not yet selected by production
+evaluation dispatch, so its engineering timings make no playing-strength claim.
 
 In an 80-game V3 opening-book probe, 876 of 5,303 Black mainline moves were king
 moves (16.5%, including 10 castlings). Search-node rates can differ materially,
@@ -565,12 +574,15 @@ legal full-refresh and dense sums inside signed 32-bit range.
 `tools/horde_v2_export.py` accepts only a clean, receipt-matched training
 checkpoint and writes the container exclusively. `tools/horde_v2_container.py`
 owns the canonical descriptor and an independent fail-closed reader.
-`src/nnue/horde_v2_container.cpp` owns the C++ reader and full-refresh path.
-`tests/horde_v2_container_parity.py` independently reconstructs sparse rows and
-every integer layer, compares Python with scalar and AVX2 C++, and verifies
-adversarial header, provenance, directory, payload, truncation, and parameter
-range failures on Linux and Windows. This path has no UCI dispatch and cannot
-replace Run 6B; it is an engineering gate for trained V2 checkpoints only.
+`src/nnue/horde_v2_container.cpp` owns the C++ reader and the container-specific
+full-refresh and incremental adapters. Both registered schemas use the shared
+lazy stack and dense propagation path. `tests/horde_v2_container_parity.py`
+independently reconstructs sparse rows and every integer layer, compares Python
+with scalar and AVX2 C++, invokes scalar and AVX2 real-`Position` stack oracles,
+and verifies adversarial header, provenance, directory, payload, truncation,
+and parameter-range failures on Linux and Windows. This path has no UCI
+dispatch and cannot replace Run 6B; it is an engineering gate for trained V2
+checkpoints only.
 
 The accepted implementation and the two exported canary checkpoints are frozen
 in `docs/horde/nnue-v2-integer-container-receipt.json` at source commit

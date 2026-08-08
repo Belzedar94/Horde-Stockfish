@@ -100,10 +100,11 @@ HEADERS = attacks.h benchmark.h bitboard.h evaluate.h genfens.h misc.h movegen.h
 		nnue/nnue_architecture.h nnue/nnue_common.h nnue/nnue_feature_transformer.h nnue/simd.h \
 		nnue/nnz_helper.h nnue/horde_legacy_network.h position.h search.h syzygy/tbprobe.h thread.h thread_native.h timeman.h \
 		tt.h tune.h types.h uci.h ucioption.h perft.h nnue/network.h nnue/horde_legacy_features.h nnue/horde_v2_features.h \
-		nnue/horde_v2_full_refresh.h nnue/horde_v2_widths.h nnue/horde_v2_scalar.h nnue/horde_v2_backend.h nnue/horde_v2_stack.h nnue/horde_v2_performance.h engine.h score.h numa.h memory.h shm.h shm_unix.h
+		nnue/horde_v2_full_refresh.h nnue/horde_v2_widths.h nnue/horde_v2_scalar.h nnue/horde_v2_backend.h nnue/horde_v2_stack.h nnue/horde_v2_container.h nnue/horde_v2_performance.h engine.h score.h numa.h memory.h shm.h shm_unix.h
 
 OBJS = $(notdir $(SRCS:.cpp=.o))
-HORDE_V2_POSITION_TEST_OBJ = horde_v2_position_stack_test.o
+HORDE_V2_POSITION_TEST_OBJS = horde_v2_position_stack_test.o horde_v2_container_test_impl.o \
+	horde_v2_container_sha256_test_impl.o
 
 HORDE_DATA_GENERATOR_SRCS = data/sha256.cpp data/horde_bin_v1.cpp data/training_data_generator.cpp
 HORDE_DATA_GENERATOR_HEADERS = data/sha256.h data/horde_bin_v1.h data/training_data.h \
@@ -1347,11 +1348,17 @@ config-sanity: net
 $(EXE): $(OBJS)
 	+$(CXX) -o $@ $(OBJS) $(LDFLAGS)
 
-$(HORDE_V2_POSITION_TEST_EXE): $(filter-out main.o,$(OBJS)) $(HORDE_V2_POSITION_TEST_OBJ)
-	+$(CXX) -o $@ $(filter-out main.o,$(OBJS)) $(HORDE_V2_POSITION_TEST_OBJ) $(LDFLAGS)
+$(HORDE_V2_POSITION_TEST_EXE): $(filter-out main.o,$(OBJS)) $(HORDE_V2_POSITION_TEST_OBJS)
+	+$(CXX) -o $@ $(filter-out main.o,$(OBJS)) $(HORDE_V2_POSITION_TEST_OBJS) $(LDFLAGS)
 
-$(HORDE_V2_POSITION_TEST_OBJ): ../tests/horde_v2_position_stack.cpp
+horde_v2_position_stack_test.o: ../tests/horde_v2_position_stack.cpp $(HEADERS)
 	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS)) -UNDEBUG -c -o $@ $<
+
+horde_v2_container_test_impl.o: nnue/horde_v2_container.cpp $(HEADERS) data/sha256.h
+	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS)) -c -o $@ $<
+
+horde_v2_container_sha256_test_impl.o: data/sha256.cpp data/sha256.h
+	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS)) -c -o $@ $<
 
 $(HORDE_DATA_GENERATOR_EXE): $(HORDE_DATA_GENERATOR_OBJS)
 	+$(CXX) -o $@ $(HORDE_DATA_GENERATOR_OBJS) $(LDFLAGS)

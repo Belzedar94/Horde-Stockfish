@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-#include "horde_v2_backend.h"
+#include "horde_v2_stack.h"
 
 namespace Stockfish::Eval::NNUE::HordeV2 {
 
@@ -121,8 +121,26 @@ struct ContainerLoadResult {
 
 ContainerLoadResult load_integer_container(const std::filesystem::path& path);
 
+enum class ContainerEvalError : std::uint8_t {
+    NONE,
+    INVALID_NETWORK,
+    INVALID_POSITION,
+    INVALID_SIDE_TO_MOVE,
+};
+
+inline constexpr RoyalKey NoContainerFirstDomainKey{RoyalBucketCount, false};
+
+struct alignas(64) ContainerAccumulatorFrame {
+    alignas(64) std::array<Accumulator, V2ContainerFirstLanes> first{};
+    alignas(64) std::array<Accumulator, V2ContainerGlobalLanes> global{};
+    RoyalKey key = NoContainerFirstDomainKey;
+};
+
+using ContainerDenseScratch = LeanDenseScratch<Width64x192>;
+
 struct alignas(64) ContainerTrace {
-    FullRefreshError featureError = FullRefreshError::NONE;
+    ContainerEvalError error        = ContainerEvalError::NONE;
+    FullRefreshError  featureError = FullRefreshError::NONE;
     alignas(64) std::array<Accumulator, V2ContainerFirstLanes> firstAccumulator{};
     alignas(64) std::array<Accumulator, V2ContainerGlobalLanes> globalAccumulator{};
     alignas(64) std::array<Activation, V2ContainerInputLanes> transformed{};
@@ -135,105 +153,259 @@ struct alignas(64) ContainerTrace {
     Value       value          = VALUE_NONE;
 
     [[nodiscard]] bool valid() const noexcept {
-        return featureError == FullRefreshError::NONE && value != VALUE_NONE;
+        return error == ContainerEvalError::NONE && featureError == FullRefreshError::NONE
+            && value != VALUE_NONE;
     }
 };
 
 template<typename Kernels = DefaultLeanKernels>
 class ContainerNetwork {
    public:
+    using Frame   = ContainerAccumulatorFrame;
+    using Scratch = ContainerDenseScratch;
+
     explicit ContainerNetwork(const ContainerParameters& parameters) :
         parameters_(parameters) {}
+    ContainerNetwork(ContainerParameters&&) = delete;
+    ContainerNetwork(const ContainerParameters&&) = delete;
+
+    [[nodiscard]] bool valid() const noexcept { return parameters_.valid(); }
+
+    [[nodiscard]] FirstDomain first_domain() const noexcept { return parameters_.firstDomain; }
+
+    [[nodiscard]] RoyalKey first_domain_key(const FullRefreshFeatures& features) const noexcept {
+        return parameters_.firstDomain == FirstDomain::ROYAL ? features.royalKey
+                                                              : NoContainerFirstDomainKey;
+    }
+
+    [[nodiscard]] RoyalKey first_domain_key(const Position& pos) const noexcept {
+        return parameters_.firstDomain == FirstDomain::ROYAL
+               ? royal_key(pos.square<KING>(BLACK))
+               : NoContainerFirstDomainKey;
+    }
+
+    [[nodiscard]] bool requires_refresh(RoyalKey sourceKey, RoyalKey targetKey) const noexcept {
+        if (parameters_.firstDomain == FirstDomain::ABSOLUTE_NONKING)
+            return sourceKey != NoContainerFirstDomainKey
+                || targetKey != NoContainerFirstDomainKey;
+        return !is_valid_royal_key(sourceKey) || !is_valid_royal_key(targetKey)
+            || sourceKey != targetKey;
+    }
+
+    void full_refresh(Frame& frame, const FullRefreshFeatures& features) const noexcept {
+        assert(valid());
+        assert(features.valid());
+        frame.first  = parameters_.firstBias;
+        frame.global = parameters_.globalBias;
+        frame.key    = first_domain_key(features);
+        refresh_first(frame.first, features);
+        refresh_global(frame.global, features);
+    }
+
+    [[nodiscard]] bool materialize_child_delta(Frame&                 child,
+                                               const Frame&           source,
+                                               const NormalizedDirty& dirty,
+                                               RoyalKey               targetKey) const noexcept {
+        if (requires_refresh(source.key, targetKey))
+            return false;
+
+        child.global = source.global;
+        apply_global_deltas(child.global, dirty);
+        child.first = source.first;
+        apply_first_deltas(child.first, dirty, targetKey);
+        child.key = targetKey;
+        return true;
+    }
+
+    [[nodiscard]] bool materialize_child(Frame&                     child,
+                                         const Frame&               source,
+                                         const NormalizedDirty&     dirty,
+                                         const FullRefreshFeatures& target) const noexcept {
+        assert(&child != &source);
+        assert(target.valid());
+
+        const RoyalKey targetKey = first_domain_key(target);
+        if (!requires_refresh(source.key, targetKey))
+            return materialize_child_delta(child, source, dirty, targetKey);
+
+        assert(parameters_.firstDomain == FirstDomain::ROYAL);
+        child.global = source.global;
+        apply_global_deltas(child.global, dirty);
+        child.key   = targetKey;
+        child.first = parameters_.firstBias;
+        refresh_first(child.first, target);
+        return true;
+    }
+
+    [[nodiscard]] LeanEvalResult propagate(const Frame& frame,
+                                           Scratch&     scratch,
+                                           Color        sideToMove,
+                                           int          rule50Count) const noexcept {
+        return propagate_dual_domain<Width64x192, Kernels>(
+          frame.first, frame.global, parameters_, scratch, sideToMove, rule50Count);
+    }
 
     [[nodiscard]] ContainerTrace evaluate_full_refresh(const std::array<Piece, SQUARE_NB>& board,
                                                        Color sideToMove,
                                                        int   rule50Count) const noexcept {
         ContainerTrace trace{};
-        const auto     features = extract_full_refresh_features(board);
-        if (!parameters_.valid() || !features.valid())
+        if (!valid())
         {
-            trace.featureError =
-              features.valid() ? FullRefreshError::INVALID_PIECE : features.error;
+            trace.error = ContainerEvalError::INVALID_NETWORK;
+            return trace;
+        }
+        if (sideToMove != WHITE && sideToMove != BLACK)
+        {
+            trace.error = ContainerEvalError::INVALID_SIDE_TO_MOVE;
             return trace;
         }
 
-        trace.firstAccumulator  = parameters_.firstBias;
-        trace.globalAccumulator = parameters_.globalBias;
+        const FullRefreshFeatures features = extract_full_refresh_features(board);
+        if (!features.valid())
+        {
+            trace.error        = ContainerEvalError::INVALID_POSITION;
+            trace.featureError = features.error;
+            return trace;
+        }
+
+        Frame frame{};
+        full_refresh(frame, features);
+        Scratch              scratch{};
+        const LeanEvalResult result = propagate(frame, scratch, sideToMove, rule50Count);
+
+        trace.firstAccumulator  = frame.first;
+        trace.globalAccumulator = frame.global;
+        trace.transformed       = scratch.transformed;
+        trace.hidden0Affine     = scratch.hidden0Affine;
+        trace.hidden0           = scratch.hidden0;
+        trace.hidden1Affine     = scratch.hidden1Affine;
+        trace.hidden1           = scratch.hidden1;
+        trace.outputAffine      = result.outputAffine;
+        trace.preRule50Value    = result.preRule50Value;
+        trace.value             = result.value;
+        return trace;
+    }
+
+   private:
+    void refresh_first(std::array<Accumulator, V2ContainerFirstLanes>& accumulator,
+                       const FullRefreshFeatures&                      features) const noexcept {
         if (parameters_.firstDomain == FirstDomain::ROYAL)
         {
             for (std::size_t active = 0; active < features.royalSize; ++active)
             {
                 const std::size_t row = features.royal[active];
-                Kernels::add_row(trace.firstAccumulator,
+                Kernels::add_row(accumulator,
                                  parameters_.firstWeights.data() + row * V2ContainerFirstLanes);
             }
-        }
-        else
-        {
-            for (std::size_t active = 0; active < features.globalSize; ++active)
-            {
-                const std::size_t row = features.global[active];
-                if (row < parameters_.firstRows)
-                    Kernels::add_row(trace.firstAccumulator,
-                                     parameters_.firstWeights.data() + row * V2ContainerFirstLanes);
-            }
+            return;
         }
 
         for (std::size_t active = 0; active < features.globalSize; ++active)
         {
-            const std::size_t row = features.global[active];
-            Kernels::add_row(trace.globalAccumulator,
-                             parameters_.globalWeights.data() + row * V2ContainerGlobalLanes);
+            const IndexType row = absolute_nonking_index_from_global(features.global[active]);
+            if (row != InvalidFeatureIndex)
+                Kernels::add_row(accumulator,
+                                 parameters_.firstWeights.data()
+                                   + std::size_t(row) * V2ContainerFirstLanes);
         }
-
-        for (std::size_t lane = 0; lane < V2ContainerFirstLanes; ++lane)
-            trace.transformed[lane] =
-              clipped_activation(trace.firstAccumulator[lane], FtActivationShift);
-        for (std::size_t lane = 0; lane < V2ContainerGlobalLanes; ++lane)
-            trace.transformed[V2ContainerFirstLanes + lane] =
-              clipped_activation(trace.globalAccumulator[lane], FtActivationShift);
-
-        for (std::size_t output = 0; output < Width64x192::Hidden0Lanes; ++output)
-        {
-            const std::size_t offset = output * V2ContainerInputLanes;
-            trace.hidden0Affine[output] =
-              Kernels::affine(trace.transformed.data(), parameters_.hidden0Weights.data() + offset,
-                              V2ContainerInputLanes, parameters_.hidden0Bias[output]);
-            trace.hidden0[output] =
-              clipped_activation(trace.hidden0Affine[output], DenseActivationShift);
-        }
-
-        for (std::size_t output = 0; output < Width64x192::Hidden1Lanes; ++output)
-        {
-            const std::size_t offset = output * Width64x192::Hidden0Lanes;
-            trace.hidden1Affine[output] =
-              Kernels::affine(trace.hidden0.data(), parameters_.hidden1Weights.data() + offset,
-                              Width64x192::Hidden0Lanes, parameters_.hidden1Bias[output]);
-            trace.hidden1[output] =
-              clipped_activation(trace.hidden1Affine[output], DenseActivationShift);
-        }
-
-        if (sideToMove != WHITE && sideToMove != BLACK)
-        {
-            trace.featureError = FullRefreshError::INVALID_PIECE;
-            return trace;
-        }
-        const std::size_t head   = std::size_t(sideToMove);
-        const std::size_t offset = head * Width64x192::Hidden1Lanes;
-        trace.outputAffine =
-          Kernels::affine(trace.hidden1.data(), parameters_.outputWeights.data() + offset,
-                          Width64x192::Hidden1Lanes, parameters_.outputBias[head]);
-        trace.preRule50Value = trace.outputAffine / ScalarOutputScale;
-        trace.value          = apply_rule50_postprocessor(trace.preRule50Value, rule50Count);
-        return trace;
     }
 
-   private:
+    void refresh_global(std::array<Accumulator, V2ContainerGlobalLanes>& accumulator,
+                        const FullRefreshFeatures&                       features) const noexcept {
+        for (std::size_t active = 0; active < features.globalSize; ++active)
+        {
+            const std::size_t row = features.global[active];
+            Kernels::add_row(accumulator,
+                             parameters_.globalWeights.data() + row * V2ContainerGlobalLanes);
+        }
+    }
+
+    void add_global(std::array<Accumulator, V2ContainerGlobalLanes>& accumulator,
+                    Piece                                            piece,
+                    Square                                           square) const noexcept {
+        const IndexType index = fixed_role_piece_square_index(piece, square);
+        assert(index != InvalidFeatureIndex);
+        Kernels::add_row(accumulator, parameters_.globalWeights.data()
+                                        + std::size_t(index) * V2ContainerGlobalLanes);
+    }
+
+    void subtract_global(std::array<Accumulator, V2ContainerGlobalLanes>& accumulator,
+                         Piece                                            piece,
+                         Square                                           square) const noexcept {
+        const IndexType index = fixed_role_piece_square_index(piece, square);
+        assert(index != InvalidFeatureIndex);
+        Kernels::subtract_row(accumulator, parameters_.globalWeights.data()
+                                             + std::size_t(index) * V2ContainerGlobalLanes);
+    }
+
+    void add_first(std::array<Accumulator, V2ContainerFirstLanes>& accumulator,
+                   Piece                                           piece,
+                   Square                                          square,
+                   RoyalKey                                       key) const noexcept {
+        const IndexType index = parameters_.firstDomain == FirstDomain::ROYAL
+                                ? royal_piece_square_index(piece, square, key)
+                                : absolute_nonking_piece_square_index(piece, square);
+        if (index == InvalidFeatureIndex)
+        {
+            assert(piece == B_KING);
+            return;
+        }
+        Kernels::add_row(accumulator, parameters_.firstWeights.data()
+                                        + std::size_t(index) * V2ContainerFirstLanes);
+    }
+
+    void subtract_first(std::array<Accumulator, V2ContainerFirstLanes>& accumulator,
+                        Piece                                           piece,
+                        Square                                          square,
+                        RoyalKey                                       key) const noexcept {
+        const IndexType index = parameters_.firstDomain == FirstDomain::ROYAL
+                                ? royal_piece_square_index(piece, square, key)
+                                : absolute_nonking_piece_square_index(piece, square);
+        if (index == InvalidFeatureIndex)
+        {
+            assert(piece == B_KING);
+            return;
+        }
+        Kernels::subtract_row(accumulator, parameters_.firstWeights.data()
+                                             + std::size_t(index) * V2ContainerFirstLanes);
+    }
+
+    void apply_global_deltas(std::array<Accumulator, V2ContainerGlobalLanes>& accumulator,
+                             const NormalizedDirty&                           dirty) const noexcept {
+        subtract_global(accumulator, dirty.pc, dirty.from);
+        if (dirty.remove_sq != SQ_NONE)
+            subtract_global(accumulator, dirty.remove_pc, dirty.remove_sq);
+        if (dirty.to != SQ_NONE)
+            add_global(accumulator, dirty.pc, dirty.to);
+        if (dirty.add_sq != SQ_NONE)
+            add_global(accumulator, dirty.add_pc, dirty.add_sq);
+    }
+
+    void apply_first_deltas(std::array<Accumulator, V2ContainerFirstLanes>& accumulator,
+                            const NormalizedDirty&                          dirty,
+                            RoyalKey                                       key) const noexcept {
+        subtract_first(accumulator, dirty.pc, dirty.from, key);
+        if (dirty.remove_sq != SQ_NONE)
+            subtract_first(accumulator, dirty.remove_pc, dirty.remove_sq, key);
+        if (dirty.to != SQ_NONE)
+            add_first(accumulator, dirty.pc, dirty.to, key);
+        if (dirty.add_sq != SQ_NONE)
+            add_first(accumulator, dirty.add_pc, dirty.add_sq, key);
+    }
+
     const ContainerParameters& parameters_;
 };
 
+template<typename Kernels = DefaultLeanKernels>
+using ContainerAccumulatorStack = LazyAccumulatorStack<ContainerNetwork<Kernels>>;
+
+template<typename Kernels = DefaultLeanKernels>
+using ValidatingContainerAccumulatorStack =
+  LazyAccumulatorStack<ContainerNetwork<Kernels>, true>;
+
 static_assert(V2ContainerFirstLanes + V2ContainerGlobalLanes == V2ContainerInputLanes);
 static_assert(V2ContainerInputLanes == Width64x192::TransformedLanes);
+static_assert(alignof(ContainerAccumulatorFrame) == 64);
 static_assert(alignof(ContainerTrace) == 64);
 
 }  // namespace Stockfish::Eval::NNUE::HordeV2

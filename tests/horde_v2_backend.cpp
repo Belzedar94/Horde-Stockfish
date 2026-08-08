@@ -138,8 +138,11 @@ void verify_transition(LeanNetwork<Width256x256>&          lean,
 
     LeanAccumulatorFrame<Width256x256> sourceFrame{};
     LeanAccumulatorFrame<Width256x256> childFrame{};
+    NormalizedDirty                    normalized{};
+    require(normalize_dirty_piece(dirty, normalized), label + ": invalid dirty transition");
     lean.full_refresh(sourceFrame, sourceFeatures);
-    lean.materialize_child(childFrame, sourceFrame, dirty, targetFeatures);
+    require(lean.materialize_child(childFrame, sourceFrame, normalized, targetFeatures),
+            label + ": child materialization failed");
 
     const ScalarTrace scalarSource = scalar.evaluate_full_refresh(sourceBoard, ~targetSide, 0);
     const ScalarTrace scalarTarget =
