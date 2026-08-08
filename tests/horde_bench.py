@@ -12,9 +12,9 @@ import sys
 from pathlib import Path
 
 
-EXPECTED_NODES = 315_576
+EXPECTED_NODES = 441_369
 EXPECTED_BESTMOVES_SHA256 = (
-    "fe9a5001c1997125ce34bf0ef119eab44570f5f363227bd4bab8e0db1f4e8592"
+    "20be8e46c53dbf479504fb4b4a6b94db17d6fec60c9cbd690b99bf80661ff4e7"
 )
 
 
