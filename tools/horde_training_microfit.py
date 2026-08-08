@@ -129,7 +129,7 @@ def _fixture_board(piece_count: int, variant: int) -> tuple[int, ...]:
         pool[index], pool[selected] = pool[selected], pool[index]
 
     king_squares = (60, 51, 42, 33, 24, 19, 10, 5)
-    king_square = king_squares[(piece_count + variant) % len(king_squares)]
+    king_square = 60 if piece_count == 52 else king_squares[(piece_count + variant) % len(king_squares)]
     pool = [entry for entry in pool if entry[0] != king_square]
 
     chosen = pool[: piece_count - 1]
@@ -281,9 +281,27 @@ def make_fixture_batch() -> tuple[TorchBatch, dict[str, object]]:
     return torch_batch, receipt
 
 
-def _uniform_parameter(shape: Sequence[int], generator: torch.Generator, radius: float) -> nn.Parameter:
+NAMED_INITIALIZATION_SCHEMA = "SHA256_NAMED_PARAMETER_SEED_V1"
+
+
+def _named_generator(seed: int, name: str) -> torch.Generator:
+    digest = hashlib.sha256()
+    digest.update(NAMED_INITIALIZATION_SCHEMA.encode("ascii") + b"\0")
+    digest.update(struct.pack("<Q", seed & ((1 << 64) - 1)))
+    digest.update(name.encode("utf-8"))
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(int.from_bytes(digest.digest()[:8], "little"))
+    return generator
+
+
+def _uniform_parameter(
+    shape: Sequence[int],
+    seed: int,
+    name: str,
+    radius: float,
+) -> nn.Parameter:
     value = torch.empty(tuple(shape), dtype=torch.float32)
-    value.uniform_(-radius, radius, generator=generator)
+    value.uniform_(-radius, radius, generator=_named_generator(seed, name))
     return nn.Parameter(value)
 
 
@@ -302,20 +320,27 @@ class LegacyHPModel(nn.Module):
 
     def __init__(self, seed: int) -> None:
         super().__init__()
-        generator = torch.Generator(device="cpu")
-        generator.manual_seed(seed)
         self.ft_weights = _uniform_parameter(
-            (LEGACY_DIMENSIONS, LEGACY_ACCUMULATOR_LANES), generator, 0.012
+            (LEGACY_DIMENSIONS, LEGACY_ACCUMULATOR_LANES), seed, "legacy.ft_weights", 0.012
         )
         self.ft_bias = nn.Parameter(torch.full((LEGACY_ACCUMULATOR_LANES,), 0.45))
-        self.psqt_weights = _uniform_parameter((LEGACY_DIMENSIONS, LEGACY_BUCKETS), generator, 0.004)
+        self.psqt_weights = _uniform_parameter(
+            (LEGACY_DIMENSIONS, LEGACY_BUCKETS), seed, "legacy.psqt_weights", 0.004
+        )
         self.hidden0_weights = _uniform_parameter(
-            (LEGACY_BUCKETS, 16, 2 * LEGACY_ACCUMULATOR_LANES), generator, 0.012
+            (LEGACY_BUCKETS, 16, 2 * LEGACY_ACCUMULATOR_LANES),
+            seed,
+            "legacy.hidden0_weights",
+            0.012,
         )
         self.hidden0_bias = nn.Parameter(torch.full((LEGACY_BUCKETS, 16), 0.20))
-        self.hidden1_weights = _uniform_parameter((LEGACY_BUCKETS, 32, 16), generator, 0.025)
+        self.hidden1_weights = _uniform_parameter(
+            (LEGACY_BUCKETS, 32, 16), seed, "legacy.hidden1_weights", 0.025
+        )
         self.hidden1_bias = nn.Parameter(torch.full((LEGACY_BUCKETS, 32), 0.20))
-        self.output_weights = _uniform_parameter((LEGACY_BUCKETS, 1, 32), generator, 0.020)
+        self.output_weights = _uniform_parameter(
+            (LEGACY_BUCKETS, 1, 32), seed, "legacy.output_weights", 0.020
+        )
         self.output_bias = nn.Parameter(torch.zeros((LEGACY_BUCKETS, 1)))
 
     def forward(self, batch: TorchBatch) -> Tensor:
@@ -386,22 +411,26 @@ class HordeV2Model(nn.Module):
         super().__init__()
         self.royal_lanes = royal_lanes
         self.global_lanes = global_lanes
-        generator = torch.Generator(device="cpu")
-        generator.manual_seed(seed)
         self.royal_weights = _uniform_parameter(
-            (V2_ROYAL_DIMENSIONS, royal_lanes), generator, 0.012
+            (V2_ROYAL_DIMENSIONS, royal_lanes), seed, "v2.royal_weights", 0.012
         )
         self.royal_bias = nn.Parameter(torch.full((royal_lanes,), 0.45))
         self.global_weights = _uniform_parameter(
-            (V2_GLOBAL_DIMENSIONS, global_lanes), generator, 0.012
+            (V2_GLOBAL_DIMENSIONS, global_lanes), seed, "v2.global_weights", 0.012
         )
         self.global_bias = nn.Parameter(torch.full((global_lanes,), 0.45))
         transformed = royal_lanes + global_lanes
-        self.hidden0_weights = _uniform_parameter((HIDDEN0_LANES, transformed), generator, 0.018)
+        self.hidden0_weights = _uniform_parameter(
+            (HIDDEN0_LANES, transformed), seed, "v2.hidden0_weights", 0.018
+        )
         self.hidden0_bias = nn.Parameter(torch.full((HIDDEN0_LANES,), 0.20))
-        self.hidden1_weights = _uniform_parameter((HIDDEN1_LANES, HIDDEN0_LANES), generator, 0.025)
+        self.hidden1_weights = _uniform_parameter(
+            (HIDDEN1_LANES, HIDDEN0_LANES), seed, "v2.hidden1_weights", 0.025
+        )
         self.hidden1_bias = nn.Parameter(torch.full((HIDDEN1_LANES,), 0.20))
-        self.output_weights = _uniform_parameter((2, HIDDEN1_LANES), generator, 0.020)
+        self.output_weights = _uniform_parameter(
+            (2, HIDDEN1_LANES), seed, "v2.output_weights", 0.020
+        )
         self.output_bias = nn.Parameter(torch.zeros(2))
 
     def forward(self, batch: TorchBatch) -> Tensor:
@@ -639,6 +668,7 @@ def build_receipt(steps: int, learning_rate: float) -> dict[str, object]:
             "model_seed": MODEL_SEED,
             "steps": steps,
             "optimizer": "SGD",
+            "initialization": NAMED_INITIALIZATION_SCHEMA,
             "learning_rate": learning_rate,
             "momentum": 0.9,
             "lambda": LAMBDA,

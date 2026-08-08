@@ -41,23 +41,23 @@
     "torch": "2.7.1+cu118"
   },
   "implementation": {
-    "decoder_sha256": "5F13228F0643BEF2758B4503719A255995EA9103F2E7872347A8BB48B86FF687",
-    "microfit_sha256": "E5061C2916384BED0F77E92518C69049DE95FFB923A189B960B5BBC518B1AFF0"
+    "decoder_sha256": "F9DA501F7282C7BE45FDC892875BEB27F7535E848523BE32FBBC95C710682D47",
+    "microfit_sha256": "E67DAD50875DDBE6514023EB0F6A5A96A36461F3B3E52AFF32E02B1E04AC172B"
   },
   "models": [
     {
-      "final_loss": 0.01798291690647602,
-      "final_state_sha256": "ABA63A781551ED1635460A721620A2514D41A4BF50810910DAA59AB564744742",
+      "final_loss": 0.017963141202926636,
+      "final_state_sha256": "4F5A392E0012B0B73938789123409D5126F99F0AFF1832A815FB2D2DA2F5E0A4",
       "first_step_gradient_l2": {
-        "dense_trunk": 0.001345849396273581,
-        "feature_transformer": 0.00022091853629677057,
-        "output": 0.01933285160356607,
-        "psqt": 0.19157264896741766
+        "dense_trunk": 0.001409366757355031,
+        "feature_transformer": 0.00016081157459851844,
+        "output": 0.02006896000393018,
+        "psqt": 0.19320716696840498
       },
-      "initial_loss": 0.04438801109790802,
-      "initial_state_sha256": "3E5A92577EED0D88A13F051EB8991FEA55B25C5633A11315AA85D7761E9CC242",
-      "loss_reduction": 0.026405094191432,
-      "loss_sha256": "02D7487A5B27E3A217C79682266F1AACAF939F57A523F9013F6B4B57B32CDCC4",
+      "initial_loss": 0.04474969208240509,
+      "initial_state_sha256": "690BBCD84CFFE597F608F31C7303CAF04271CE2F49AB4AFDF98362365DAD9133",
+      "loss_reduction": 0.026786550879478455,
+      "loss_sha256": "94A433B51B26498CBC4E5FBE37235AB6E4D867A4F1DC8727E2EE1B90A3CB3CC8",
       "name": "fresh-legacy-hp",
       "parameter_count": 602248,
       "repeat_count": 2,
@@ -78,18 +78,18 @@
       }
     },
     {
-      "final_loss": 0.038750387728214264,
-      "final_state_sha256": "81CAC39F7E65A9ADEFC1B96D18A86A103CC526B1ECFA93B8796F6A13F47CB7FD",
+      "final_loss": 0.03867795690894127,
+      "final_state_sha256": "159F6FFDC392F9337D626A3C44D3C3860A549769B87849CD5C2E1E1D74A85F16",
       "first_step_gradient_l2": {
-        "dense_trunk": 0.004290357705561851,
-        "global_transformer": 0.00019869684423132414,
-        "output": 0.0673432537078825,
-        "royal_transformer": 6.724032056165941e-05
+        "dense_trunk": 0.005007855219239285,
+        "global_transformer": 0.0001942293947396132,
+        "output": 0.061454656174877414,
+        "royal_transformer": 7.432532741702338e-05
       },
-      "initial_loss": 0.044092923402786255,
-      "initial_state_sha256": "78D7791AF633DE119535C2182896566BBE96C8E5EAE617A804A2707D561DF62D",
-      "loss_reduction": 0.005342535674571991,
-      "loss_sha256": "0DD93DAB05A9277E6A85033DA1C726F560D3D469FB686566C44A182DD8D1045F",
+      "initial_loss": 0.04341199994087219,
+      "initial_state_sha256": "1CCFA7FEFB291F984A05B2C973E649B3ACCF209DDA0301ED165812E4455E656B",
+      "loss_reduction": 0.0047340430319309235,
+      "loss_sha256": "FD42217EF8149E6F5D3298A23F306F113E63B8B5A62D21C71CFC01ABA9A50A37",
       "name": "v2-64+192",
       "parameter_count": 1455490,
       "repeat_count": 2,
@@ -110,18 +110,18 @@
       }
     },
     {
-      "final_loss": 0.03873957321047783,
-      "final_state_sha256": "10C061E9DB623E3AF733D5E99B7632C4FC4FF6C4763598846ECC75724C5C1618",
+      "final_loss": 0.038677845150232315,
+      "final_state_sha256": "63CAAFCE616BED4B1EEEEADBC80BE2019647946C0694414482E198C85CEDAE41",
       "first_step_gradient_l2": {
-        "dense_trunk": 0.004888483497188916,
-        "global_transformer": 0.00018304457505791848,
-        "output": 0.06770003996858846,
-        "royal_transformer": 0.00010776420176263719
+        "dense_trunk": 0.0050037572577832775,
+        "global_transformer": 0.000160839941028644,
+        "output": 0.061481496309382586,
+        "royal_transformer": 0.00010310968376198783
       },
-      "initial_loss": 0.04432569444179535,
-      "initial_state_sha256": "FDC1FBC377479C931D00D1B129E632C4A196CC2601452A74867E95C56FD4AEB5",
-      "loss_reduction": 0.00558612123131752,
-      "loss_sha256": "F8CAF3CE2F7857B064FC365A61F2230571F02EEEBD6C4141AB50D067595160FF",
+      "initial_loss": 0.04341353848576546,
+      "initial_state_sha256": "02C7A26A6D76972511FFE1831B9B1CD5C873392C7735BC7E6367596895E8F434",
+      "loss_reduction": 0.004735693335533142,
+      "loss_sha256": "56433F38BB9D57B6C658F1C4A95A5DBD5953400BBEF17015A75FE66AB6236D73",
       "name": "v2-128+128",
       "parameter_count": 2721154,
       "repeat_count": 2,
@@ -146,6 +146,7 @@
   "schema": "HORDE_NNUE_MICROFIT_V1",
   "training": {
     "eval_sigmoid_scale": 410.0,
+    "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
     "labels": "frozen synthetic engineering fixture in side-to-move frame",
     "lambda": 0.6,
     "learning_rate": 0.04,
