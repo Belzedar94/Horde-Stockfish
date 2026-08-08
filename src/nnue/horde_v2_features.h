@@ -34,11 +34,11 @@ enum FixedRole : int {
 };
 
 inline constexpr IndexType FixedRolePieceSquareDimensions = FIXED_ROLE_NB * SQUARE_NB;
-inline constexpr IndexType InvalidFeatureIndex             = FixedRolePieceSquareDimensions;
+inline constexpr IndexType InvalidFeatureIndex            = FixedRolePieceSquareDimensions;
 
-inline constexpr IndexType RoyalNonKingRoleCount       = ROYAL_KING;
-inline constexpr IndexType RoyalBucketCount            = RANK_NB * 4;
-inline constexpr IndexType RoyalPieceSquareDimensions  =
+inline constexpr IndexType RoyalNonKingRoleCount = ROYAL_KING;
+inline constexpr IndexType RoyalBucketCount      = RANK_NB * 4;
+inline constexpr IndexType RoyalPieceSquareDimensions =
   RoyalBucketCount * RoyalNonKingRoleCount * SQUARE_NB;
 inline constexpr IndexType InvalidRoyalFeatureIndex = RoyalPieceSquareDimensions;
 
@@ -111,17 +111,14 @@ constexpr IndexType royal_bucket(Square blackKingSquare) noexcept {
         return RoyalBucketCount;
 
     const Square canonicalKing = royal_orient(blackKingSquare, royal_mirror(blackKingSquare));
-    return IndexType(rank_of(canonicalKing)) * 4
-         + IndexType(file_of(canonicalKing) - FILE_E);
+    return IndexType(rank_of(canonicalKing)) * 4 + IndexType(file_of(canonicalKing) - FILE_E);
 }
 
 constexpr RoyalKey royal_key(Square blackKingSquare) noexcept {
     return {royal_bucket(blackKingSquare), royal_mirror(blackKingSquare)};
 }
 
-constexpr bool is_valid_royal_key(RoyalKey key) noexcept {
-    return key.bucket < RoyalBucketCount;
-}
+constexpr bool is_valid_royal_key(RoyalKey key) noexcept { return key.bucket < RoyalBucketCount; }
 
 constexpr IndexType royal_piece_square_index(Piece piece, Square square, RoyalKey key) noexcept {
     const FixedRole role = fixed_role(piece);

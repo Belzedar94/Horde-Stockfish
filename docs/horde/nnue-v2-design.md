@@ -143,9 +143,16 @@ changes. The source trace is immutable, so undo is a stack restore rather than
 an inferred inverse update. Focused synthetic `DirtyPiece` parity covers quiet
 moves, ordinary captures, en passant, promotion captures, Black-king moves,
 the d/e mirror boundary, castling, null-head selection, 256 randomized
-fixed-role transitions, and source restoration. Wiring the same state through
-real `Position::do_move()` stacks and search transitions remains a separate
-engineering gate.
+fixed-role transitions, and source restoration.
+
+The separate scalar reference stack now consumes the exact `Dirties` object
+filled by real `Position::do_move()`. It validates that each `DirtyPiece`
+reconstructs the complete target board before accepting a frame, keeps Run 6B's
+production `AccumulatorStack` untouched, restores undo by popping the saved
+frame, and mirrors search by not pushing for null moves. The deterministic
+integration receipt covers six focused special moves, 192 generated legal
+moves, 15 null transitions, every corresponding undo, and 17 Royal refreshes.
+Full refresh is compared after every transition.
 
 In an 80-game V3 opening-book probe, 876 of 5,303 Black mainline moves were king
 moves (16.5%, including 10 castlings). Search-node rates can differ materially,
@@ -471,9 +478,25 @@ Instrumented builds sample shadow full refreshes and record:
 - transformer cache hit rate and memory footprint;
 - benchmark and search NPS against the production evaluator.
 
-The topology benchmark compares split `256+256` against one combined 512-lane
-refresh using identical effective weights. This isolates refresh topology from
-network quality.
+`V2_BASE_P0` is an expressivity ceiling, not a presumed production size. Its
+10,865,992-byte payload must not silently become the budget for later feature
+blocks. Before adding contextual pawn or relational features, the optimized
+backend benchmarks these isolated width points with the same integer fixture:
+
+| Royal + Global lanes | Parameter bytes | Purpose |
+| --- | ---: | --- |
+| `256+256` | 10,865,992 | P0 accuracy/cost ceiling |
+| `128+256` | 5,618,504 | preserve the larger absolute-board domain |
+| `128+128` | 5,433,672 | symmetric compact control |
+| `64+192` | 2,902,344 | approximately 3 MB speed-first point |
+
+The topology benchmark also compares split `256+256` against one combined
+512-lane refresh using identical effective weights. This isolates refresh
+topology from network quality. Parameter bytes, active rows, refresh cost and
+cache footprint are reported separately: file size alone is not a speed proxy.
+No width or feature block advances because of validation loss alone. It must
+remain on the measured Elo/NPS Pareto frontier, and a slower point must earn
+enough playing strength to justify its throughput loss.
 
 ## Orthogonal experiment ladder
 
@@ -485,7 +508,8 @@ network quality.
 3. `V2_BASE_P0`: R0 256 + G0 256, one bucket, shared trunk, two final STM rows,
    deterministic micro-fit.
 4. Integer/full-refresh, scalar/SIMD, and incremental/full-refresh parity;
-   combined-512 versus split-256+256 performance; Royal-key refresh telemetry.
+   real `Position` make/undo/null parity; combined-512 versus split-256+256
+   performance; Royal-key refresh telemetry.
 
 ### Training control
 
@@ -498,8 +522,8 @@ network quality.
 7. A1: G0 256 + G0 256 implementation control, identical feature content and
    total parameter budget.
 8. A2: replace the first G0 half with R0 256.
-9. If R0 is promising, test one Royal bucket map at a time, then one Royal
-   width allocation at a time.
+9. If R0 is promising, test one Royal bucket map at a time, then the fixed
+   `256+256`, `128+256`, `128+128`, and `64+192` width points one at a time.
 10. Compare two final STM rows with one dense STM scalar or tiny embedding.
 11. Compare no count, one count feature, and White-count phase buckets as
     alternatives.

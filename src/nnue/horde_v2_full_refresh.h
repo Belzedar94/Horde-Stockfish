@@ -38,8 +38,8 @@ struct FullRefreshFeatures {
     std::array<IndexType, MaxRoyalInputPieces> royal{};
     std::size_t                                globalSize = 0;
     std::size_t                                royalSize  = 0;
-    RoyalKey                                  royalKey{RoyalBucketCount, false};
-    FullRefreshError                          error = FullRefreshError::NONE;
+    RoyalKey                                   royalKey{RoyalBucketCount, false};
+    FullRefreshError                           error = FullRefreshError::NONE;
 
     constexpr bool valid() const noexcept { return error == FullRefreshError::NONE; }
 };
@@ -50,9 +50,9 @@ constexpr FullRefreshFeatures
 extract_full_refresh_features(const std::array<Piece, SQUARE_NB>& board) noexcept {
     FullRefreshFeatures features{};
     Square              blackKingSquare = SQ_NONE;
-    std::size_t         whitePieces      = 0;
-    std::size_t         blackPieces      = 0;
-    std::size_t         blackKings       = 0;
+    std::size_t         whitePieces     = 0;
+    std::size_t         blackPieces     = 0;
+    std::size_t         blackKings      = 0;
 
     for (int rawSquare = 0; rawSquare < SQUARE_NB; ++rawSquare)
     {

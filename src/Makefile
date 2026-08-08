@@ -63,10 +63,13 @@ endif
 ### Executable name
 ifeq ($(target_windows),yes)
 	EXE = stockfish.exe
+	HORDE_V2_POSITION_TEST_EXE = horde-v2-position-test.exe
 else ifneq (,$(findstring wasm,$(ARCH)))
 	EXE = stockfish.js
+	HORDE_V2_POSITION_TEST_EXE = horde-v2-position-test
 else
 	EXE = stockfish
+	HORDE_V2_POSITION_TEST_EXE = horde-v2-position-test
 endif
 
 ### Installation dir definitions
@@ -92,9 +95,11 @@ HEADERS = attacks.h benchmark.h bitboard.h evaluate.h genfens.h misc.h movegen.h
 		nnue/layers/clipped_relu.h nnue/layers/sqr_clipped_relu.h nnue/nnue_accumulator.h \
 		nnue/nnue_architecture.h nnue/nnue_common.h nnue/nnue_feature_transformer.h nnue/simd.h \
 		nnue/nnz_helper.h nnue/horde_legacy_network.h position.h search.h syzygy/tbprobe.h thread.h thread_native.h timeman.h \
-		tt.h tune.h types.h uci.h ucioption.h perft.h nnue/network.h engine.h score.h numa.h memory.h shm.h shm_unix.h
+		tt.h tune.h types.h uci.h ucioption.h perft.h nnue/network.h nnue/horde_v2_features.h \
+		nnue/horde_v2_full_refresh.h nnue/horde_v2_scalar.h nnue/horde_v2_stack.h engine.h score.h numa.h memory.h shm.h shm_unix.h
 
 OBJS = $(notdir $(SRCS:.cpp=.o))
+HORDE_V2_POSITION_TEST_OBJ = horde_v2_position_stack_test.o
 
 VPATH = syzygy:nnue:nnue/features
 
@@ -1087,7 +1092,7 @@ ifneq ($(SUPPORTED_ARCH), true)
 endif
 
 
-.PHONY: help analyze build profile-build macos-lipo strip install clean net \
+.PHONY: help analyze build profile-build horde-v2-position-test-bin macos-lipo strip install clean net \
 	objclean profileclean config-sanity \
 	icx-profile-use icx-profile-make \
 	gcc-profile-use gcc-profile-make \
@@ -1209,7 +1214,7 @@ clean: objclean profileclean universalclean
 
 # clean binaries and objects
 objclean:
-	@rm -f stockfish stockfish.exe *.o ./syzygy/*.o ./nnue/*.o ./nnue/features/*.o $(BUILD_SHA_FILE) $(BUILD_DATE_FILE) $(BUILD_DIFFINDEX_FILE)
+	@rm -f stockfish stockfish.exe horde-v2-position-test horde-v2-position-test.exe *.o ./syzygy/*.o ./nnue/*.o ./nnue/features/*.o $(BUILD_SHA_FILE) $(BUILD_DATE_FILE) $(BUILD_DIFFINDEX_FILE)
 
 # clean auxiliary profiling files
 profileclean:
@@ -1237,6 +1242,8 @@ format:
 ### ==========================================================================
 
 all: $(EXE) .depend
+
+horde-v2-position-test-bin: $(HORDE_V2_POSITION_TEST_EXE)
 
 config-sanity: net
 	@echo ""
@@ -1311,6 +1318,12 @@ config-sanity: net
 
 $(EXE): $(OBJS)
 	+$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+
+$(HORDE_V2_POSITION_TEST_EXE): $(filter-out main.o,$(OBJS)) $(HORDE_V2_POSITION_TEST_OBJ)
+	+$(CXX) -o $@ $(filter-out main.o,$(OBJS)) $(HORDE_V2_POSITION_TEST_OBJ) $(LDFLAGS)
+
+$(HORDE_V2_POSITION_TEST_OBJ): ../tests/horde_v2_position_stack.cpp
+	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS)) -UNDEBUG -c -o $@ $<
 
 %.o: %.cpp
 	$(strip $(CXX) $(CPPFLAGS) $(CXXFLAGS)) -c -o $@ $<

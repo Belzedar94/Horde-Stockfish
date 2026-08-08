@@ -45,6 +45,10 @@ jobs:
             tests/horde_v2_features.cpp -o /tmp/horde-v2-features
           /tmp/horde-v2-features
           python3 tests/horde_v2_trainer_parity.py /tmp/horde-v2-features
+      - name: Verify experimental V2 real Position stack
+        run: |
+          make -j2 -C src ARCH=x86-64 ${{ matrix.make_args }} horde-v2-position-test-bin
+          src/horde-v2-position-test
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
       - name: Verify material corpus
@@ -87,6 +91,9 @@ jobs:
             tests/horde_v2_features.cpp -o /tmp/horde-v2-features-sanitize
           /tmp/horde-v2-features-sanitize
           python3 tests/horde_v2_trainer_parity.py /tmp/horde-v2-features-sanitize
+          make -j2 -C src ARCH=x86-64 sanitize="address undefined" debug=yes optimize=no \
+            EXTRACXXFLAGS="-O1 -fno-inline" horde-v2-position-test-bin
+          src/horde-v2-position-test
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
       - name: Verify material corpus
@@ -185,6 +192,8 @@ jobs:
             tests/horde_v2_features.cpp -o horde-v2-features.exe
           ./horde-v2-features.exe
           python tests/horde_v2_trainer_parity.py ./horde-v2-features.exe
+          make -j2 -C src ARCH=x86-64 horde-v2-position-test-bin
+          src/horde-v2-position-test.exe
           python scripts/horde/verify_baseline.py
           python tests/horde_rules.py src/stockfish.exe
           python tests/horde_material_corpus.py src/stockfish.exe

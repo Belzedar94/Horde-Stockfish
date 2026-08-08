@@ -49,11 +49,9 @@ inline constexpr std::size_t RoyalWeightCount =
   std::size_t(RoyalPieceSquareDimensions) * RoyalLanes;
 inline constexpr std::size_t GlobalWeightCount =
   std::size_t(FixedRolePieceSquareDimensions) * GlobalLanes;
-inline constexpr std::size_t Hidden0WeightCount =
-  std::size_t(Hidden0Lanes) * TransformedLanes;
-inline constexpr std::size_t Hidden1WeightCount =
-  std::size_t(Hidden1Lanes) * Hidden0Lanes;
-inline constexpr std::size_t OutputWeightCount = std::size_t(OutputHeads) * Hidden1Lanes;
+inline constexpr std::size_t Hidden0WeightCount = std::size_t(Hidden0Lanes) * TransformedLanes;
+inline constexpr std::size_t Hidden1WeightCount = std::size_t(Hidden1Lanes) * Hidden0Lanes;
+inline constexpr std::size_t OutputWeightCount  = std::size_t(OutputHeads) * Hidden1Lanes;
 inline constexpr std::size_t ScalarParameterBytes =
   RoyalWeightCount * sizeof(FtWeight) + GlobalWeightCount * sizeof(FtWeight)
   + (RoyalLanes + GlobalLanes) * sizeof(AffineBias)
@@ -69,10 +67,10 @@ constexpr Activation clipped_activation(Accumulator value, int shift) noexcept {
 }
 
 constexpr Value apply_rule50_postprocessor(i32 value, int rule50Count) noexcept {
-    const int r = std::clamp(rule50Count, 0, 100);
+    const int r      = std::clamp(rule50Count, 0, 100);
     const i32 damped = static_cast<i32>((static_cast<i64>(value) * (100 - r)) / 100);
-    return Value(std::clamp(damped, int(VALUE_TB_LOSS_IN_MAX_PLY) + 1,
-                            int(VALUE_TB_WIN_IN_MAX_PLY) - 1));
+    return Value(
+      std::clamp(damped, int(VALUE_TB_LOSS_IN_MAX_PLY) + 1, int(VALUE_TB_WIN_IN_MAX_PLY) - 1));
 }
 
 struct ScalarParameters {
@@ -144,26 +142,26 @@ inline ScalarParameters make_deterministic_parameters(u64 seed) {
 
     for (AffineBias& bias : parameters.royalBias)
         bias = Detail::bounded_signed<AffineBias>(state, 6144) + 4096;
-    Detail::fill_bounded<decltype(parameters.royalWeights), FtWeight>(
-      parameters.royalWeights, state, 31);
+    Detail::fill_bounded<decltype(parameters.royalWeights), FtWeight>(parameters.royalWeights,
+                                                                      state, 31);
 
     for (AffineBias& bias : parameters.globalBias)
         bias = Detail::bounded_signed<AffineBias>(state, 6144) + 4096;
-    Detail::fill_bounded<decltype(parameters.globalWeights), FtWeight>(
-      parameters.globalWeights, state, 31);
+    Detail::fill_bounded<decltype(parameters.globalWeights), FtWeight>(parameters.globalWeights,
+                                                                       state, 31);
 
-    Detail::fill_bounded<decltype(parameters.hidden0Bias), AffineBias>(
-      parameters.hidden0Bias, state, 4096);
+    Detail::fill_bounded<decltype(parameters.hidden0Bias), AffineBias>(parameters.hidden0Bias,
+                                                                       state, 4096);
     Detail::fill_bounded<decltype(parameters.hidden0Weights), DenseWeight>(
       parameters.hidden0Weights, state, 7);
-    Detail::fill_bounded<decltype(parameters.hidden1Bias), AffineBias>(
-      parameters.hidden1Bias, state, 4096);
+    Detail::fill_bounded<decltype(parameters.hidden1Bias), AffineBias>(parameters.hidden1Bias,
+                                                                       state, 4096);
     Detail::fill_bounded<decltype(parameters.hidden1Weights), DenseWeight>(
       parameters.hidden1Weights, state, 7);
-    Detail::fill_bounded<decltype(parameters.outputBias), AffineBias>(
-      parameters.outputBias, state, 4096);
-    Detail::fill_bounded<decltype(parameters.outputWeights), DenseWeight>(
-      parameters.outputWeights, state, 7);
+    Detail::fill_bounded<decltype(parameters.outputBias), AffineBias>(parameters.outputBias, state,
+                                                                      4096);
+    Detail::fill_bounded<decltype(parameters.outputWeights), DenseWeight>(parameters.outputWeights,
+                                                                          state, 7);
 
     return parameters;
 }
@@ -175,21 +173,25 @@ enum class ScalarEvalError {
     INVALID_SIDE_TO_MOVE,
     INVALID_SOURCE_TRACE,
     INVALID_DIRTY_PIECE,
+    SOURCE_POSITION_MISMATCH,
+    DIRTY_BOARD_MISMATCH,
+    STACK_UNINITIALIZED,
+    STACK_OVERFLOW,
 };
 
 struct ScalarTrace {
-    std::array<Accumulator, RoyalLanes>  royalAccumulator{};
-    std::array<Accumulator, GlobalLanes> globalAccumulator{};
+    std::array<Accumulator, RoyalLanes>      royalAccumulator{};
+    std::array<Accumulator, GlobalLanes>     globalAccumulator{};
     std::array<Activation, TransformedLanes> transformed{};
     std::array<Accumulator, Hidden0Lanes>    hidden0Affine{};
     std::array<Activation, Hidden0Lanes>     hidden0{};
     std::array<Accumulator, Hidden1Lanes>    hidden1Affine{};
     std::array<Activation, Hidden1Lanes>     hidden1{};
-    Accumulator                              outputAffine = 0;
+    Accumulator                              outputAffine   = 0;
     i32                                      preRule50Value = 0;
     Value                                    value          = VALUE_ZERO;
-    RoyalKey                                royalKey{RoyalBucketCount, false};
-    bool                                    royalRefreshed = false;
+    RoyalKey                                 royalKey{RoyalBucketCount, false};
+    bool                                     royalRefreshed = false;
     FullRefreshError                         featureError   = FullRefreshError::NONE;
     ScalarEvalError                          error          = ScalarEvalError::NONE;
 
@@ -198,14 +200,14 @@ struct ScalarTrace {
 
 class ScalarNetwork {
    public:
-    explicit ScalarNetwork(ScalarParameters parameters) : parameters_(std::move(parameters)) {}
+    explicit ScalarNetwork(ScalarParameters parameters) :
+        parameters_(std::move(parameters)) {}
 
     [[nodiscard]] const ScalarParameters& parameters() const noexcept { return parameters_; }
 
-    [[nodiscard]] ScalarTrace
-    evaluate_full_refresh(const std::array<Piece, SQUARE_NB>& board,
-                          Color                               sideToMove,
-                          int                                 rule50Count) const noexcept {
+    [[nodiscard]] ScalarTrace evaluate_full_refresh(const std::array<Piece, SQUARE_NB>& board,
+                                                    Color                               sideToMove,
+                                                    int rule50Count) const noexcept {
         ScalarTrace trace{};
         if (const ScalarEvalError error = common_error(sideToMove); error != ScalarEvalError::NONE)
         {
@@ -237,12 +239,11 @@ class ScalarNetwork {
         return propagate(std::move(trace), sideToMove, rule50Count);
     }
 
-    [[nodiscard]] ScalarTrace
-    evaluate_incremental(const DirtyPiece&                    dirty,
-                         const std::array<Piece, SQUARE_NB>& targetBoard,
-                         const ScalarTrace&                   source,
-                         Color                                sideToMove,
-                         int                                  rule50Count) const noexcept {
+    [[nodiscard]] ScalarTrace evaluate_incremental(const DirtyPiece&                   dirty,
+                                                   const std::array<Piece, SQUARE_NB>& targetBoard,
+                                                   const ScalarTrace&                  source,
+                                                   Color                               sideToMove,
+                                                   int rule50Count) const noexcept {
         ScalarTrace trace{};
         if (const ScalarEvalError error = common_error(sideToMove); error != ScalarEvalError::NONE)
         {
@@ -276,8 +277,8 @@ class ScalarNetwork {
             || (dirty.to != SQ_NONE
                 && !apply_global_delta(trace.globalAccumulator, dirty.pc, dirty.to, 1))
             || (dirty.remove_sq != SQ_NONE
-                && !apply_global_delta(
-                  trace.globalAccumulator, dirty.remove_pc, dirty.remove_sq, -1))
+                && !apply_global_delta(trace.globalAccumulator, dirty.remove_pc, dirty.remove_sq,
+                                       -1))
             || (dirty.add_sq != SQ_NONE
                 && !apply_global_delta(trace.globalAccumulator, dirty.add_pc, dirty.add_sq, 1)))
         {
@@ -295,12 +296,12 @@ class ScalarNetwork {
         {
             const auto applyRoyal = [&](Piece piece, Square square, int sign) {
                 return piece == B_KING
-                    || apply_royal_delta(trace.royalAccumulator, piece, square, trace.royalKey, sign);
+                    || apply_royal_delta(trace.royalAccumulator, piece, square, trace.royalKey,
+                                         sign);
             };
             if (!applyRoyal(dirty.pc, dirty.from, -1)
                 || (dirty.to != SQ_NONE && !applyRoyal(dirty.pc, dirty.to, 1))
-                || (dirty.remove_sq != SQ_NONE
-                    && !applyRoyal(dirty.remove_pc, dirty.remove_sq, -1))
+                || (dirty.remove_sq != SQ_NONE && !applyRoyal(dirty.remove_pc, dirty.remove_sq, -1))
                 || (dirty.add_sq != SQ_NONE && !applyRoyal(dirty.add_pc, dirty.add_sq, 1)))
             {
                 trace.error = ScalarEvalError::INVALID_DIRTY_PIECE;
@@ -316,6 +317,36 @@ class ScalarNetwork {
                                                    const ScalarTrace& source) const noexcept {
         return evaluate_incremental(dirty, target.piece_array(), source, target.side_to_move(),
                                     target.rule50_count());
+    }
+
+    // Null moves do not push the engine's NNUE accumulator stack because the
+    // physical board is unchanged. Re-run only the dense path so the selected
+    // STM head and rule50 postprocessor still follow the live Position.
+    [[nodiscard]] ScalarTrace evaluate_from_accumulators(const ScalarTrace& source,
+                                                         Color              sideToMove,
+                                                         int rule50Count) const noexcept {
+        ScalarTrace trace{};
+        if (const ScalarEvalError error = common_error(sideToMove); error != ScalarEvalError::NONE)
+        {
+            trace.error = error;
+            return trace;
+        }
+        if (!source.valid() || !is_valid_royal_key(source.royalKey))
+        {
+            trace.error = ScalarEvalError::INVALID_SOURCE_TRACE;
+            return trace;
+        }
+
+        trace.royalAccumulator  = source.royalAccumulator;
+        trace.globalAccumulator = source.globalAccumulator;
+        trace.royalKey          = source.royalKey;
+        trace.royalRefreshed    = false;
+        return propagate(std::move(trace), sideToMove, rule50Count);
+    }
+
+    [[nodiscard]] ScalarTrace evaluate_from_accumulators(const ScalarTrace& source,
+                                                         const Position&    target) const noexcept {
+        return evaluate_from_accumulators(source, target.side_to_move(), target.rule50_count());
     }
 
     [[nodiscard]] ScalarTrace evaluate_full_refresh(const Position& pos) const noexcept {
@@ -341,9 +372,9 @@ class ScalarNetwork {
     }
 
     [[nodiscard]] bool apply_global_delta(std::array<Accumulator, GlobalLanes>& accumulator,
-                                          Piece                                  piece,
-                                          Square                                 square,
-                                          int                                    sign) const noexcept {
+                                          Piece                                 piece,
+                                          Square                                square,
+                                          int sign) const noexcept {
         const IndexType index = fixed_role_piece_square_index(piece, square);
         if (index == InvalidFeatureIndex)
             return false;
@@ -355,10 +386,10 @@ class ScalarNetwork {
     }
 
     [[nodiscard]] bool apply_royal_delta(std::array<Accumulator, RoyalLanes>& accumulator,
-                                         Piece                                 piece,
-                                         Square                                square,
-                                         RoyalKey                              key,
-                                         int                                   sign) const noexcept {
+                                         Piece                                piece,
+                                         Square                               square,
+                                         RoyalKey                             key,
+                                         int                                  sign) const noexcept {
         const IndexType index = royal_piece_square_index(piece, square, key);
         if (index == InvalidRoyalFeatureIndex)
             return false;
@@ -369,7 +400,7 @@ class ScalarNetwork {
         return true;
     }
 
-    void refresh_royal(const FullRefreshFeatures&              features,
+    void refresh_royal(const FullRefreshFeatures&           features,
                        std::array<Accumulator, RoyalLanes>& accumulator) const noexcept {
         for (std::size_t active = 0; active < features.royalSize; ++active)
         {
@@ -390,26 +421,27 @@ class ScalarNetwork {
 
         for (IndexType output = 0; output < Hidden0Lanes; ++output)
         {
-            Accumulator sum = parameters_.hidden0Bias[output];
+            Accumulator       sum    = parameters_.hidden0Bias[output];
             const std::size_t offset = std::size_t(output) * TransformedLanes;
             for (IndexType input = 0; input < TransformedLanes; ++input)
                 sum += Accumulator(parameters_.hidden0Weights[offset + input])
                      * trace.transformed[input];
             trace.hidden0Affine[output] = sum;
-            trace.hidden0[output] = clipped_activation(sum, DenseActivationShift);
+            trace.hidden0[output]       = clipped_activation(sum, DenseActivationShift);
         }
 
         for (IndexType output = 0; output < Hidden1Lanes; ++output)
         {
-            Accumulator sum = parameters_.hidden1Bias[output];
+            Accumulator       sum    = parameters_.hidden1Bias[output];
             const std::size_t offset = std::size_t(output) * Hidden0Lanes;
             for (IndexType input = 0; input < Hidden0Lanes; ++input)
-                sum += Accumulator(parameters_.hidden1Weights[offset + input]) * trace.hidden0[input];
+                sum +=
+                  Accumulator(parameters_.hidden1Weights[offset + input]) * trace.hidden0[input];
             trace.hidden1Affine[output] = sum;
-            trace.hidden1[output] = clipped_activation(sum, DenseActivationShift);
+            trace.hidden1[output]       = clipped_activation(sum, DenseActivationShift);
         }
 
-        const IndexType  head   = IndexType(sideToMove);
+        const IndexType   head   = IndexType(sideToMove);
         const std::size_t offset = std::size_t(head) * Hidden1Lanes;
         trace.outputAffine       = parameters_.outputBias[head];
         for (IndexType input = 0; input < Hidden1Lanes; ++input)
@@ -419,7 +451,7 @@ class ScalarNetwork {
         // C++ signed division truncates toward zero. The trainer parity path
         // must reproduce this operation exactly for negative values.
         trace.preRule50Value = trace.outputAffine / ScalarOutputScale;
-        trace.value = apply_rule50_postprocessor(trace.preRule50Value, rule50Count);
+        trace.value          = apply_rule50_postprocessor(trace.preRule50Value, rule50Count);
         return trace;
     }
 
