@@ -160,8 +160,7 @@ now isolated above. It may be rebuilt as a merge-confirmation test only after
 both orthogonal components pass independently.
 
 Second wave consists of zero-game structural candidates with green artifact
-CI: `test/qsearch-terminal-recheck`, `test/horde-material-correction`, and
-`test/white-piece-count-see-guard`. The
+CI: `test/horde-material-correction` and `test/white-piece-count-see-guard`. The
 last branch now points to
 `dfa4746188baaaebad4fe675ed0f10f692293e74`; its previous CI failure was only a
 stale deterministic-bench receipt, and all four artifact jobs pass on the new
@@ -533,6 +532,27 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
   terminal change first passes STC.
 - Learning: removing the White legality scan helps some mixed positions but
   does not produce a stable whole-search gain from the standard Horde root.
+
+### 2026-08-08 - Remove redundant qsearch terminal recheck
+
+- Branch: `test/qsearch-terminal-recheck`, commit
+  `0259173d71b07c49326554ab98dd1423340d0e15`.
+- Hypothesis: remove the inherited mate/stalemate recheck at qsearch exit
+  because authoritative Horde `Outcome` already resolves the unchanged root
+  position before TT, stand-pat, or move search.
+- Scope: delete only the final qsearch move-count terminal block; entry
+  outcomes, move generation, pruning, evaluation, and score smoothing remained
+  unchanged.
+- Validation: a clean GCC 16 AVX2 build passed Horde rules, the Run 6B
+  contract, and three deterministic 315,576-node benches with the accepted
+  best-move digest.
+- Local speed screen: 48 start-position pairs measured `0.976385` geometric,
+  `0.975427` trimmed, and only 13/48 favorable. The ten-position bench measured
+  `1.025345` raw because of one host pause, but only `1.004699` trimmed and
+  8/32 favorable.
+- Decision: rejected locally; no OpenBench workload.
+- Learning: the block is semantically redundant under the Horde outcome
+  contract, but it is cold and deleting it worsens the hot code layout.
 
 ### 2026-08-08 - Fixed-role White legality gate
 
