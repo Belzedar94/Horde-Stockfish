@@ -573,6 +573,21 @@ raw NPS sample and bootstraps paired ratio intervals. These synthetic results
 select which widths are cheap enough to train; they are not playing-strength
 evidence.
 
+The first accepted AVX2 search receipt is frozen in
+`docs/horde/nnue-v2-width-receipt.json` at source commit `4c3a6fbc`. All four
+builds searched exactly 2,190,067 nodes and produced the same best-move digest.
+
+| Width | Median NPS | Ratio to fastest, paired 95% CI | Precision | Training-speed gate |
+| --- | ---: | ---: | --- | --- |
+| `64+192` | 1,186,386 | 1.0000 | pass | pass |
+| `128+128` | 1,168,347 | 0.9807--0.9868 | pass | pass |
+| `128+256` | 1,049,637 | 0.8801--0.8878 | pass | fail |
+| `256+256` | 943,588 | 0.7944--0.7973 | pass | fail |
+
+Only `64+192` and `128+128` advance to the first training comparison. This
+receipt does not choose a production width: the two survivors still require
+controlled training and fixed-node strength evidence.
+
 After training, fixed-node Elo and uninstrumented NPS remain separate axes.
 Practical equivalence margins are 2 Elo and 1% NPS. A larger/slower point must
 show a positive 95% lower confidence bound in fixed-node Elo against the

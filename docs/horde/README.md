@@ -21,6 +21,8 @@ Horde-Stockfish without losing rule, source or network provenance.
   counters for instrumented builds.
 - [NNUE V2 design](nnue-v2-design.md) — fixed-role, dual-domain architecture
   and the orthogonal feature-ablation ladder.
+- [NNUE V2 width receipt](nnue-v2-width-receipt.json) - value-identical AVX2
+  search NPS, confidence intervals and the first training-width gate.
 - [Fixtures](fixtures/README.md) — pinned Lichess perft and its exact HordeTest
   `P`-to-`H` translation.
 

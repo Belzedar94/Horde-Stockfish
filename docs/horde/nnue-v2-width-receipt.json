@@ -1,0 +1,108 @@
+{
+  "schema": "HORDE_V2_WIDTH_RECEIPT_V1",
+  "source_sha": "4c3a6fbc96b09e0b3af24127ef104d5c7a8a5fd1",
+  "actions_run": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31262354030",
+  "artifact_id": 9023186033,
+  "runner": {
+    "image": "ubuntu-24.04",
+    "architecture": "x86_64",
+    "logical_cpus": 4,
+    "cpu": "AMD EPYC 7763 64-Core Processor",
+    "hypervisor": "Microsoft",
+    "l3_cache_bytes": 33554432
+  },
+  "build": {
+    "arch": "x86-64-avx2",
+    "optimize": true,
+    "debug": false,
+    "fixture": "PERF_COMMON_V1",
+    "binaries_sha256": {
+      "256x256": "d23bf2fa56da65ba210061edfa7f7196a5ca341757b4889d9846a6ca9c5784c2",
+      "128x256": "08b2dca5944efbd4e8fffed76de49fe9f0bcd6947d5a2c00edc361d1a18c33ad",
+      "128x128": "3c6824f45265060b842bc8827dd768238fa9f28a4753971263e8808661be92ff",
+      "64x192": "cf1f21d6a8ab6f28705a23022a074a0f59c9435cd6f5b514cae97926ace0b5c6"
+    }
+  },
+  "search": {
+    "depth": 13,
+    "rounds": 12,
+    "warmups": 1,
+    "order_seed": 1213608535,
+    "bootstrap_seed": 1346455890,
+    "bootstrap_samples": 20000,
+    "nodes": 2190067,
+    "bestmoves_sha256": "c70b3de48455427520354d66fb5cc60aa888b113ddf05da53769ac2195832024",
+    "orders": [
+      ["256x256", "128x256", "64x192", "128x128"],
+      ["128x128", "64x192", "256x256", "128x256"],
+      ["128x128", "256x256", "128x256", "64x192"],
+      ["128x256", "256x256", "64x192", "128x128"],
+      ["128x256", "256x256", "128x128", "64x192"],
+      ["256x256", "128x256", "64x192", "128x128"],
+      ["64x192", "128x128", "128x256", "256x256"],
+      ["64x192", "128x128", "128x256", "256x256"],
+      ["128x128", "256x256", "64x192", "128x256"],
+      ["256x256", "64x192", "128x128", "128x256"],
+      ["128x128", "64x192", "256x256", "128x256"],
+      ["256x256", "128x256", "128x128", "64x192"]
+    ],
+    "raw_nps": {
+      "256x256": [942369, 945624, 938734, 943994, 940750, 938734, 943994, 944808, 946442, 941154, 943181, 948902],
+      "128x256": [1048380, 1050895, 1044879, 1049888, 1053423, 1047878, 1059026, 1041401, 1053423, 1050895, 1049385, 1031590],
+      "128x128": [1164929, 1155098, 1171785, 1163691, 1165549, 1168659, 1169282, 1155708, 1171785, 1168035, 1169282, 1169282],
+      "64x192": [1183180, 1187671, 1178088, 1190253, 1181265, 1179357, 1185101, 1177455, 1192846, 1188316, 1188961, 1192197]
+    }
+  },
+  "summary": {
+    "fastest_by_median": "64x192",
+    "precision_half_width_limit": 0.005,
+    "training_speed_lower_bound": 0.95,
+    "widths": {
+      "256x256": {
+        "median_nps": 943587.5,
+        "mad_nps": 2235.0,
+        "ratio_to_fastest": 0.7957108985640634,
+        "ratio_ci95_low": 0.7943822395860644,
+        "ratio_ci95_high": 0.7972629494332373,
+        "ratio_ci95_half_width": 0.0014403549235864621,
+        "precision_gate": true,
+        "training_speed_gate": false
+      },
+      "128x256": {
+        "median_nps": 1049636.5,
+        "mad_nps": 2772.5,
+        "ratio_to_fastest": 0.8844434772622107,
+        "ratio_ci95_low": 0.8801453385151319,
+        "ratio_ci95_high": 0.8877667733015745,
+        "ratio_ci95_half_width": 0.003810717393221308,
+        "precision_gate": true,
+        "training_speed_gate": false
+      },
+      "128x128": {
+        "median_nps": 1168347.0,
+        "mad_nps": 3108.0,
+        "ratio_to_fastest": 0.9837172965228028,
+        "ratio_ci95_low": 0.9806545284481227,
+        "ratio_ci95_high": 0.9868119156957371,
+        "ratio_ci95_half_width": 0.003078693623807194,
+        "precision_gate": true,
+        "training_speed_gate": true
+      },
+      "64x192": {
+        "median_nps": 1186386.0,
+        "mad_nps": 4494.0,
+        "ratio_to_fastest": 1.0,
+        "ratio_ci95_low": 1.0,
+        "ratio_ci95_high": 1.0,
+        "ratio_ci95_half_width": 0.0,
+        "precision_gate": true,
+        "training_speed_gate": true
+      }
+    }
+  },
+  "decision": {
+    "advance_to_training": ["64x192", "128x128"],
+    "reject_for_initial_training": ["128x256", "256x256"],
+    "strength_claim": false
+  }
+}
