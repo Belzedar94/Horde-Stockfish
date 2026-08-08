@@ -249,3 +249,109 @@ class HordeV2Model(nn.Module):
             ),
             "output": (self.output_weights, self.output_bias),
         }
+
+
+class C0SingleG0Model(nn.Module):
+    """Engineering control with one absolute G0 transformer of 256 lanes."""
+
+    lanes = 256
+
+    def __init__(self, seed: int) -> None:
+        super().__init__()
+        self.global_weights = _uniform_parameter(
+            (V2_GLOBAL_DIMENSIONS, self.lanes), seed, "v2.global_weights", 0.012
+        )
+        self.global_bias = nn.Parameter(torch.full((self.lanes,), 0.45))
+        self.hidden0_weights = _uniform_parameter(
+            (HIDDEN0_LANES, self.lanes), seed, "v2.hidden0_weights", 0.018
+        )
+        self.hidden0_bias = nn.Parameter(torch.full((HIDDEN0_LANES,), 0.20))
+        self.hidden1_weights = _uniform_parameter(
+            (HIDDEN1_LANES, HIDDEN0_LANES), seed, "v2.hidden1_weights", 0.025
+        )
+        self.hidden1_bias = nn.Parameter(torch.full((HIDDEN1_LANES,), 0.20))
+        self.output_weights = _uniform_parameter(
+            (2, HIDDEN1_LANES), seed, "v2.output_weights", 0.020
+        )
+        self.output_bias = nn.Parameter(torch.zeros(2))
+
+    def forward(self, batch: V2ModelBatch) -> Tensor:
+        transformed = torch.clamp(
+            _sparse_sum(
+                batch.v2_global,
+                batch.global_offsets,
+                self.global_weights,
+                self.global_bias,
+            ),
+            0.0,
+            1.0,
+        )
+        hidden0 = torch.clamp(
+            functional.linear(transformed, self.hidden0_weights, self.hidden0_bias),
+            0.0,
+            1.0,
+        )
+        hidden1 = torch.clamp(
+            functional.linear(hidden0, self.hidden1_weights, self.hidden1_bias),
+            0.0,
+            1.0,
+        )
+        all_heads = functional.linear(hidden1, self.output_weights, self.output_bias)
+        return all_heads.gather(1, batch.side_to_move.unsqueeze(1)).squeeze(1)
+
+
+class C0SplitG0Model(nn.Module):
+    """The same C0 G0 content split into two independently updated tensors."""
+
+    lanes = 256
+
+    def __init__(self, source: C0SingleG0Model, first_lanes: int) -> None:
+        super().__init__()
+        if first_lanes not in (64, 128):
+            raise ValueError(f"unsupported C0 first-domain width: {first_lanes}")
+        self.first_lanes = first_lanes
+        self.second_lanes = self.lanes - first_lanes
+        self.first_weights = nn.Parameter(
+            source.global_weights[:, :first_lanes].detach().clone()
+        )
+        self.first_bias = nn.Parameter(source.global_bias[:first_lanes].detach().clone())
+        self.second_weights = nn.Parameter(
+            source.global_weights[:, first_lanes:].detach().clone()
+        )
+        self.second_bias = nn.Parameter(source.global_bias[first_lanes:].detach().clone())
+        for name in (
+            "hidden0_weights",
+            "hidden0_bias",
+            "hidden1_weights",
+            "hidden1_bias",
+            "output_weights",
+            "output_bias",
+        ):
+            setattr(self, name, nn.Parameter(getattr(source, name).detach().clone()))
+
+    def forward(self, batch: V2ModelBatch) -> Tensor:
+        first = _sparse_sum(
+            batch.v2_global,
+            batch.global_offsets,
+            self.first_weights,
+            self.first_bias,
+        )
+        second = _sparse_sum(
+            batch.v2_global,
+            batch.global_offsets,
+            self.second_weights,
+            self.second_bias,
+        )
+        transformed = torch.clamp(torch.cat((first, second), dim=1), 0.0, 1.0)
+        hidden0 = torch.clamp(
+            functional.linear(transformed, self.hidden0_weights, self.hidden0_bias),
+            0.0,
+            1.0,
+        )
+        hidden1 = torch.clamp(
+            functional.linear(hidden0, self.hidden1_weights, self.hidden1_bias),
+            0.0,
+            1.0,
+        )
+        all_heads = functional.linear(hidden1, self.output_weights, self.output_bias)
+        return all_heads.gather(1, batch.side_to_move.unsqueeze(1)).squeeze(1)

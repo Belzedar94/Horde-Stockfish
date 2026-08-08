@@ -669,6 +669,19 @@ All three reduced the frozen lambda-0.6 objective in 24 steps. The receipt uses
 synthetic labels and therefore proves only deterministic data and gradient
 plumbing; its losses do not rank architectures and make no strength claim.
 
+The C0 split-equivalence gate is frozen in
+`docs/horde/nnue-v2-c0-receipt.json`. It initializes `G0_SINGLE_256`, clones
+exact row and lane slices into `G0_SPLIT_64_192` and
+`G0_SPLIT_128_128`, and exercises the same 32-position fixture through four
+RAdam steps. Both splits reproduce the single model's floating-point forward
+values, reassembled gradients, parameters, and optimizer state exactly. A
+canonical engineering quantizer also produces identical integer accumulator,
+hidden-layer, and output traces after reassembly. Its framed payload is marked
+`production_schema: false`: it is an equality oracle, not a V2 network
+container, trained candidate, or strength result. C0 therefore closes only the
+mechanical split control; C1 remains the first test of whether Royal-relative
+content is useful.
+
 After training, fixed-node Elo and uninstrumented NPS remain separate axes.
 Practical equivalence margins are 2 Elo and 1% NPS. A larger/slower point must
 show a positive 95% lower confidence bound in fixed-node Elo against the
