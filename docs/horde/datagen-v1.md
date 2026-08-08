@@ -105,3 +105,11 @@ This Python path is a correctness and convergence reference. A compiled loader
 must reproduce its batches, masks, loss, and state transitions before the
 50-million-position ladder; the canary throughput is not a production training
 claim.
+
+The clean CPU canary at source commit `ff30b366` is frozen in
+[`fresh-legacy-control-canary-receipt.json`](fresh-legacy-control-canary-receipt.json).
+Two independent three-epoch runs produced byte-identical checkpoints, metrics,
+and receipts. Their checkpoint SHA-256 is
+`D60C946E3943681EE7B0ADA6FE496E324D6F84C67AC0AF3D4D9626701D12A495`;
+the validation loss moved from `0.1912389414` to `0.1884044660`. This is an
+integration and determinism receipt only, not a comparison against Run 6B.
