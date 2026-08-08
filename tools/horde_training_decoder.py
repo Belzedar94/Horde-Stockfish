@@ -22,6 +22,8 @@ except ImportError:
 
 WHITE = 0
 BLACK = 1
+WHITE_PAWN = 1
+BLACK_ROOK = 9
 BLACK_KING = 11
 
 LEGACY_SCHEMA = "HORDETEST_HP_LEGACY_V1"
@@ -33,6 +35,7 @@ V2_ROYAL_DIMENSIONS = 20_480
 # HORDE_BIN_V1 physical piece codes are deliberately aligned with V2 fixed
 # roles after subtracting one. Legacy families preserve Run 6B's H/P split.
 LEGACY_FAMILY_BY_CODE = (-1, 5, 1, 2, 3, 4, 0, 1, 2, 3, 4, 6)
+FEN_PIECE_BY_CODE = ".PNBRQpnbrqk"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,11 +60,18 @@ class TrainingRecord:
     played_move: int
     result: int
     outcome_reason: int
+    board: tuple[int, ...] = ()
+    castling_rights: int = 0
+    ep_square: int = 64
+    source_payload_sha256: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class SparseBatch:
+    source_payload_sha256: str
     record_indices: tuple[int, ...]
+    physical_position_keys: tuple[bytes, ...]
+    legacy_model_input_keys: tuple[bytes, ...]
     piece_offsets: tuple[int, ...]
     royal_offsets: tuple[int, ...]
     legacy_white: tuple[int, ...]
@@ -71,6 +81,7 @@ class SparseBatch:
     royal_buckets: tuple[int, ...]
     royal_mirrors: tuple[bool, ...]
     side_to_move: tuple[int, ...]
+    white_piece_count: tuple[int, ...]
     rule50_count: tuple[int, ...]
     game_ply: tuple[int, ...]
     scores: tuple[int, ...]
@@ -171,11 +182,98 @@ def decode_training_record(raw: bytes, index: int) -> TrainingRecord:
         played_move=decoded["played_move"],
         result=decoded["result"],
         outcome_reason=decoded["reason"],
+        board=tuple(decoded["board"]),
+        castling_rights=decoded["castling"],
+        ep_square=decoded["ep_square"],
+    )
+
+
+def physical_position_key(record: TrainingRecord) -> bytes:
+    """Encode the first four FEN fields, independently of clock labels."""
+
+    _require(len(record.board) == 64, f"record {record.index} has no physical board")
+    _require(all(0 <= code <= BLACK_KING for code in record.board),
+             f"record {record.index} has an invalid physical board")
+    return bytes(record.board) + struct.pack(
+        "<BBB",
+        record.side_to_move,
+        record.castling_rights,
+        record.ep_square,
+    )
+
+
+def legacy_model_input_key(record: TrainingRecord) -> bytes:
+    """Encode the complete legacy evaluator input before learned parameters."""
+
+    features = record.features
+    piece_count = len(features.legacy_white)
+    _require(1 <= piece_count <= 52, f"record {record.index} has invalid legacy row count")
+    bucket = min((piece_count - 1) * 8 // 52, 7)
+    payload = bytearray(struct.pack("<BBH", record.side_to_move, bucket, record.rule50_count))
+    for indices in (features.legacy_white, features.legacy_black):
+        payload.extend(struct.pack("<H", len(indices)))
+        for feature in indices:
+            payload.extend(struct.pack("<H", feature))
+    return bytes(payload)
+
+
+def training_record_fen(record: TrainingRecord) -> str:
+    """Reconstruct the exact board-local Horde FEN stored by one record."""
+
+    _require(len(record.board) == 64, f"record {record.index} has no physical board")
+    ranks: list[str] = []
+    for rank in range(7, -1, -1):
+        encoded: list[str] = []
+        empty = 0
+        for file_index in range(8):
+            code = record.board[rank * 8 + file_index]
+            _require(0 <= code < len(FEN_PIECE_BY_CODE),
+                     f"record {record.index} has an invalid FEN piece code")
+            if code == 0:
+                empty += 1
+            else:
+                if empty:
+                    encoded.append(str(empty))
+                    empty = 0
+                encoded.append(FEN_PIECE_BY_CODE[code])
+        if empty:
+            encoded.append(str(empty))
+        ranks.append("".join(encoded))
+
+    side = "w" if record.side_to_move == WHITE else "b"
+    castling = ("k" if record.castling_rights & 1 else "") + (
+        "q" if record.castling_rights & 2 else ""
+    )
+    castling = castling or "-"
+    if record.ep_square == 64:
+        ep_square = "-"
+    else:
+        _require(0 <= record.ep_square < 64, f"record {record.index} has an invalid EP square")
+        ep_square = chr(ord("a") + (record.ep_square & 7)) + str((record.ep_square >> 3) + 1)
+    _require(
+        (record.game_ply & 1) == record.side_to_move,
+        f"record {record.index} game ply contradicts side to move",
+    )
+    fullmove = record.game_ply // 2 + 1
+    return " ".join(
+        (
+            "/".join(ranks),
+            side,
+            castling,
+            ep_square,
+            str(record.rule50_count),
+            str(fullmove),
+        )
     )
 
 
 def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
+    payload_identities = {record.source_payload_sha256 for record in records if record.source_payload_sha256}
+    _require(len(payload_identities) <= 1, "batch mixes multiple source payload identities")
+    source_payload_sha256 = next(iter(payload_identities), "")
     record_indices: list[int] = []
+    physical_position_keys: list[bytes] = []
+    legacy_model_input_keys: list[bytes] = []
     piece_offsets = [0]
     royal_offsets = [0]
     legacy_white: list[int] = []
@@ -185,6 +283,7 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
     royal_buckets: list[int] = []
     royal_mirrors: list[bool] = []
     side_to_move: list[int] = []
+    white_piece_count: list[int] = []
     rule50_count: list[int] = []
     game_ply: list[int] = []
     scores: list[int] = []
@@ -204,6 +303,11 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
             f"record {record.index} Royal domain did not exclude exactly the Black king",
         )
         record_indices.append(record.index)
+        if record.board:
+            physical_position_keys.append(physical_position_key(record))
+        else:
+            physical_position_keys.append(b"")
+        legacy_model_input_keys.append(legacy_model_input_key(record))
         legacy_white.extend(features.legacy_white)
         legacy_black.extend(features.legacy_black)
         v2_global.extend(features.v2_global)
@@ -213,6 +317,9 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
         royal_buckets.append(features.royal_bucket)
         royal_mirrors.append(features.royal_mirror)
         side_to_move.append(record.side_to_move)
+        white_piece_count.append(
+            sum(index // 64 <= 4 for index in features.v2_global)
+        )
         rule50_count.append(record.rule50_count)
         game_ply.append(record.game_ply)
         scores.append(record.score)
@@ -222,23 +329,27 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
         outcome_reasons.append(record.outcome_reason)
 
     return SparseBatch(
-        tuple(record_indices),
-        tuple(piece_offsets),
-        tuple(royal_offsets),
-        tuple(legacy_white),
-        tuple(legacy_black),
-        tuple(v2_global),
-        tuple(v2_royal),
-        tuple(royal_buckets),
-        tuple(royal_mirrors),
-        tuple(side_to_move),
-        tuple(rule50_count),
-        tuple(game_ply),
-        tuple(scores),
-        tuple(best_moves),
-        tuple(played_moves),
-        tuple(results),
-        tuple(outcome_reasons),
+        source_payload_sha256=source_payload_sha256,
+        record_indices=tuple(record_indices),
+        physical_position_keys=tuple(physical_position_keys),
+        legacy_model_input_keys=tuple(legacy_model_input_keys),
+        piece_offsets=tuple(piece_offsets),
+        royal_offsets=tuple(royal_offsets),
+        legacy_white=tuple(legacy_white),
+        legacy_black=tuple(legacy_black),
+        v2_global=tuple(v2_global),
+        v2_royal=tuple(v2_royal),
+        royal_buckets=tuple(royal_buckets),
+        royal_mirrors=tuple(royal_mirrors),
+        side_to_move=tuple(side_to_move),
+        white_piece_count=tuple(white_piece_count),
+        rule50_count=tuple(rule50_count),
+        game_ply=tuple(game_ply),
+        scores=tuple(scores),
+        best_moves=tuple(best_moves),
+        played_moves=tuple(played_moves),
+        results=tuple(results),
+        outcome_reasons=tuple(outcome_reasons),
     )
 
 
@@ -252,16 +363,24 @@ class HordeBinV1Dataset:
         try:
             header = self._file.read(wire.HEADER_SIZE)
             self.manifest = wire.parse_header(header)
+            manifest_length = struct.unpack_from("<I", header, 12)[0]
+            self.header_sha256 = hashlib.sha256(header).hexdigest().upper()
+            self.manifest_sha256 = hashlib.sha256(
+                header[16 : 16 + manifest_length]
+            ).hexdigest().upper()
             expected_size = wire.HEADER_SIZE + self.manifest["record_count"] * wire.RECORD_SIZE
             actual_size = os.fstat(self._file.fileno()).st_size
             _require(actual_size == expected_size,
                      f"file size {actual_size} does not match manifest framing {expected_size}")
 
             payload_sha256 = hashlib.sha256()
+            file_sha256 = hashlib.sha256(header)
             while chunk := self._file.read(8 * 1024 * 1024):
                 payload_sha256.update(chunk)
+                file_sha256.update(chunk)
             observed = payload_sha256.hexdigest().upper()
             _require(observed == self.manifest["payload_sha256"], "payload SHA-256 mismatch")
+            self.file_sha256 = file_sha256.hexdigest().upper()
             self._mapping = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
         except BaseException:
             self.close()
@@ -288,7 +407,23 @@ class HordeBinV1Dataset:
         _require(self._mapping is not None, "dataset is closed")
         offset = wire.HEADER_SIZE + index * wire.RECORD_SIZE
         raw = self._mapping[offset : offset + wire.RECORD_SIZE]
-        return decode_training_record(raw, index)
+        record = decode_training_record(raw, index)
+        return TrainingRecord(
+            index=record.index,
+            features=record.features,
+            side_to_move=record.side_to_move,
+            rule50_count=record.rule50_count,
+            game_ply=record.game_ply,
+            score=record.score,
+            best_move=record.best_move,
+            played_move=record.played_move,
+            result=record.result,
+            outcome_reason=record.outcome_reason,
+            board=record.board,
+            castling_rights=record.castling_rights,
+            ep_square=record.ep_square,
+            source_payload_sha256=self.manifest["payload_sha256"],
+        )
 
     def batches(self, batch_size: int) -> Iterator[SparseBatch]:
         _require(batch_size > 0, f"invalid batch size {batch_size}")
@@ -305,6 +440,9 @@ def _update_index_list(digest: Any, indices: Sequence[int]) -> None:
 
 def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
     digest = hashlib.sha256()
+    physical_digest = hashlib.sha256()
+    model_input_digest = hashlib.sha256()
+    eligibility_digest = hashlib.sha256()
     batches = 0
     piece_rows = 0
     royal_rows = 0
@@ -328,9 +466,12 @@ def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
                         batch.outcome_reasons[row],
                         batch.royal_buckets[row],
                         int(batch.royal_mirrors[row]),
-                        0,
+                        batch.white_piece_count[row],
                     )
                 )
+                physical_digest.update(batch.physical_position_keys[row])
+                model_input_digest.update(batch.legacy_model_input_keys[row])
+                eligibility_digest.update(bytes((abs(batch.scores[row]) < 31_507,)))
                 _update_index_list(digest, batch.legacy_white[piece_begin:piece_end])
                 _update_index_list(digest, batch.legacy_black[piece_begin:piece_end])
                 _update_index_list(digest, batch.v2_global[piece_begin:piece_end])
@@ -341,6 +482,17 @@ def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
         return {
             "schema": "HORDE_TRAINING_DECODER_V1",
             "source_schema": dataset.manifest["schema"],
+            "source": {
+                "file_sha256": dataset.file_sha256,
+                "header_sha256": dataset.header_sha256,
+                "manifest_sha256": dataset.manifest_sha256,
+                "payload_sha256": dataset.manifest["payload_sha256"],
+                "source_commit": dataset.manifest["source_commit"],
+                "producer_sha256": dataset.manifest["producer_sha256"],
+                "book_sha256": dataset.manifest["book_sha256"],
+                "network": dataset.manifest["network"],
+            },
+            "sample_identity": "(payload_sha256, local_record_index)",
             "record_count": len(dataset),
             "batch_size": batch_size,
             "batch_count": batches,
@@ -353,6 +505,9 @@ def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
             "piece_rows": piece_rows,
             "royal_rows": royal_rows,
             "sparse_sha256": digest.hexdigest().upper(),
+            "physical_position_sha256": physical_digest.hexdigest().upper(),
+            "legacy_model_input_sha256": model_input_digest.hexdigest().upper(),
+            "eval_eligibility_sha256": eligibility_digest.hexdigest().upper(),
         }
 
 

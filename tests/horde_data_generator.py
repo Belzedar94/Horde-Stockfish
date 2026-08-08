@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import importlib.util
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,7 @@ TEST_BOOK = """\
 kQ6/8/8/8/8/8/8/8 b - - 0 1
 6Qk/8/8/8/8/8/8/8 b - - 0 1
 """
+RAW_EVAL_RE = re.compile(r"horde-raw-eval (-?\d+) (-?\d+) (-?\d+)")
 
 
 def require_file(path: Path, label: str) -> Path:
@@ -131,6 +133,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise AssertionError(f"HORDE_BIN_V1 schema SHA-256 mismatch: {observed_schema_sha}")
     decoder = import_tool("horde_bin_v1")
     training_decoder = import_tool("horde_training_decoder")
+    run6b = import_tool("horde_run6b")
 
     isolation = run_engine(normal_engine, ("horde_data_schema", "quit"), expect_success=True)
     if CAPABILITY_JSON in isolation:
@@ -202,6 +205,49 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise AssertionError("V2 Global feature escaped its table")
                 if any(index >= training_decoder.V2_ROYAL_DIMENSIONS for index in batch.v2_royal):
                     raise AssertionError("V2 Royal feature escaped its table")
+
+            records = [dataset.record(index) for index in range(len(dataset))]
+            fens = [training_decoder.training_record_fen(record) for record in records]
+            engine_output = run_engine(
+                normal_engine,
+                (
+                    "uci",
+                    f"setoption name EvalFile value {network_path}",
+                    "setoption name Threads value 1",
+                    "isready",
+                    *(
+                        command
+                        for fen in fens
+                        for command in (f"position fen {fen}", "horde-raw-eval")
+                    ),
+                    "quit",
+                ),
+                expect_success=True,
+            )
+            engine_raw = [
+                tuple(map(int, match.groups()))
+                for line in engine_output.splitlines()
+                if (match := RAW_EVAL_RE.fullmatch(line.strip()))
+            ]
+            if len(engine_raw) != len(records):
+                raise AssertionError(f"wire replay returned the wrong number of evals:\n{engine_output}")
+            replay = run6b.Run6BNetwork.load(network_path)
+            replay_digest = hashlib.sha256()
+            for record, expected in zip(records, engine_raw, strict=True):
+                actual = replay.evaluate(record.features, record.side_to_move)
+                observed = (actual.psqt, actual.positional, actual.total)
+                if observed != expected:
+                    raise AssertionError(
+                        f"HORDE_BIN Run 6B replay mismatch at record {record.index}: "
+                        f"trainer={observed}, engine={expected}, "
+                        f"fen={training_decoder.training_record_fen(record)}"
+                    )
+                replay_digest.update(bytes.fromhex(record.source_payload_sha256))
+                replay_digest.update(record.index.to_bytes(8, "little"))
+                for value in observed:
+                    replay_digest.update(value.to_bytes(4, "little", signed=True))
+            if replay_digest.digest() == bytes(32):
+                raise AssertionError("HORDE_BIN Run 6B replay digest is empty")
 
         sparse_receipt = training_decoder.dataset_receipt(first, batch_size=3)
         single_row_receipt = training_decoder.dataset_receipt(first, batch_size=1)
