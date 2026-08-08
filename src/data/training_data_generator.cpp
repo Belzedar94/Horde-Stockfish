@@ -427,7 +427,7 @@ HordeOutcomeReason convert_reason(OutcomeReason reason) {
     return HordeOutcomeReason::STALEMATE;
 }
 
-GameResolution current_resolution(const Position& position) {
+GameResolution current_resolution(Position& position) {
     const auto outcome = position.outcome(0);
     if (!outcome)
         return {};
