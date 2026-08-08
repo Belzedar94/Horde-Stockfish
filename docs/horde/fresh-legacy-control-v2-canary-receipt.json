@@ -1,0 +1,178 @@
+{
+  "artifacts": {
+    "network": {
+      "bytes": 1088416,
+      "name": "hordetest_run6b_e37_l06.nnue",
+      "schema": "HORDETEST_HP_LEGACY_V1",
+      "sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+    },
+    "play_engine": {
+      "bytes": 5501728,
+      "name": "horde-stockfish.exe",
+      "sha256": "2541FBC91D4FC4DAFE5124701AFA490EA25D396028B9E713E008826D842348FA"
+    },
+    "producer": {
+      "bytes": 5616166,
+      "name": "horde-stockfish.exe",
+      "sha256": "65515CD593D84AFC6ED13B8F23E5201401A9F7490D9B9F8ABD85D8A08874AD22"
+    }
+  },
+  "ci": {
+    "correctness": {
+      "conclusion": "success",
+      "head_sha": "6f594e6181410b6ae7a4ce0e88d14b72a04d0d96",
+      "run_id": 31269521907,
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31269521907"
+    },
+    "openbench_artifacts": {
+      "conclusion": "success",
+      "head_sha": "6f594e6181410b6ae7a4ce0e88d14b72a04d0d96",
+      "run_id": 31269522831,
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31269522831"
+    },
+    "trainer_reference_matrix": {
+      "numpy": "2.2.6",
+      "operating_systems": [
+        "ubuntu-24.04",
+        "windows-2025"
+      ],
+      "python": "3.12",
+      "torch": "2.7.1+cpu"
+    }
+  },
+  "claims": {
+    "architecture_comparison_allowed": false,
+    "integration_only": true,
+    "production_network": false,
+    "strength_eligible": false,
+    "strength_evidence": false
+  },
+  "data": {
+    "book_split": {
+      "receipt_sha256": "0301BAC3374D8DD4194E03686B27EEB1DBA2EAF0D8B09BD273EF04D33B715DD2",
+      "schema": "HORDE_TRAINING_BOOK_SPLIT_V2",
+      "source": {
+        "name": "HORDE_openings_v3.epd",
+        "records": 1500,
+        "sha256": "E09630E8A0A7D28028E2B02131E82A176DD2D8B18634D671F93E230F9D14F304"
+      },
+      "train": {
+        "records": 1203,
+        "sha256": "1DC2DD829962CD29FA98CAFC1B0613AC2FCAAFF088B65977E10AAEAF76E96A55"
+      },
+      "validation": {
+        "records": 297,
+        "sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A"
+      }
+    },
+    "overlap_audit": {
+      "legacy_model_input_cross_role_overlap_samples": 0,
+      "physical_cross_role_overlap_samples": 0,
+      "schema": "HORDE_TRAINING_ROLE_OVERLAP_AUDIT_V1",
+      "sha256": "021DCC36C365534D71A6FDFE54C7B707C280F1347EF18E0E7925D40B3EEBFC69",
+      "validation_duplicate_legacy_model_inputs": 0,
+      "validation_duplicate_physical_positions": 0,
+      "zero_cross_role_overlap": true
+    },
+    "train": {
+      "book_sha256": "1DC2DD829962CD29FA98CAFC1B0613AC2FCAAFF088B65977E10AAEAF76E96A55",
+      "bytes": 198656,
+      "class_support_by_side_to_move": {
+        "black": {
+          "draw": 65,
+          "loss": 875,
+          "win": 1108
+        },
+        "white": {
+          "draw": 65,
+          "loss": 1099,
+          "win": 884
+        }
+      },
+      "payload_sha256": "6DD56C8334E535B9997BCA1B8FE7B725D2A17019646499DB24ED000682C99DD6",
+      "records": 4096,
+      "seed": "2026080801",
+      "sha256": "1C9D3E9BD8BE12F6C34751AD2D08E5599FAF64A8D0C5CE8CD8C87A61BEF4AE06"
+    },
+    "validation": {
+      "book_sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A",
+      "bytes": 51200,
+      "class_support_by_side_to_move": {
+        "black": {
+          "draw": 175,
+          "loss": 94,
+          "win": 244
+        },
+        "white": {
+          "draw": 173,
+          "loss": 242,
+          "win": 96
+        }
+      },
+      "payload_sha256": "653F4FD7F733E3761DDCD621B032710F9699F2930ABA1FC7916E5CCBA9438D45",
+      "records": 1024,
+      "seed": "2026080802",
+      "sha256": "54B810937522B482B340AA7B0CADAA88260AE6D30978E9B37BB3D698254ACF16"
+    }
+  },
+  "gates": {
+    "architecture_or_strength": {
+      "passed": false,
+      "reason": "The scalar result MSE is provisional. A frozen side-specific three-class WDL calibration and result objective are required first."
+    },
+    "cross_platform_reference_tests": {
+      "passed": true
+    },
+    "real_data_integration": {
+      "passed": true
+    },
+    "repeatability": {
+      "passed": true
+    },
+    "role_isolation": {
+      "passed": true
+    }
+  },
+  "run": {
+    "architecture": {
+      "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
+      "parameter_count": 602248,
+      "schema": "HORDETEST_HP_FRESH_CONTROL_V1",
+      "serialized_topology": "896 -> 512 shared FT + PSQT; 8 x (1024 -> 16 -> 32 -> 1)"
+    },
+    "configuration": {
+      "batch_size": 512,
+      "block_size": 2048,
+      "device": "cpu",
+      "epochs": 3,
+      "lambda": 0.6,
+      "learning_rate": 0.0015,
+      "learning_rate_gamma": 0.987,
+      "seed": 2026080803
+    },
+    "final": {
+      "checkpoint_sha256": "D4B5C86DB3DB3AA3E092816B6D56635C168C406E47E0F519D1A67B94D2BE2AE9",
+      "metrics_sha256": "6A817DACD15C9F14F1E12C55E79702C2E64AA4E90D86AD8C2A99ED40F50162AC",
+      "receipt_sha256": "DB61ED5BC51F56AA72D1F65FE5716356A7E4239B61848B52505550FB571AE789",
+      "semantic_state_sha256": "81FD0F51C37E4F533D49C6953109F9868AAA77A916BE9E78A27B0C710A595878",
+      "validation": {
+        "composite_loss": 0.15667887694013372,
+        "eval_mse_eligible": 0.1516742605004386,
+        "result_mse": 0.168851550649184,
+        "samples": 1024
+      }
+    },
+    "objective": "provisional scalar MSE integration control",
+    "repeat": {
+      "checkpoint_byte_identical": true,
+      "metrics_byte_identical": true,
+      "receipt_byte_identical": true,
+      "semantic_state_identical": true
+    }
+  },
+  "schema": "HORDE_FRESH_LEGACY_CONTROL_V2_CANARY_RECEIPT_V1",
+  "source": {
+    "commit": "6f594e6181410b6ae7a4ce0e88d14b72a04d0d96",
+    "dirty": false
+  }
+}
