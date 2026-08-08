@@ -543,6 +543,35 @@ The container records at least:
 - whole-file SHA-256 registered by the engine;
 - training and data manifest identities.
 
+The first executable contract is `HORDE_V2_INTEGER_NETWORK_V1`. It uses the
+distinct eight-byte magic `HSV2INT\0`, a fixed 2,048-byte little-endian header,
+and ten authenticated parameter sections. Schema `0x00010001` registers
+`V2_BASE_P0_64X192`; schema `0x00010002` registers
+`V2_C1_ABS_NONKING_64X192`. The header carries both the container structural
+hash and the training architecture structural hash, plus the exact checkpoint,
+training receipt, train split, validation split, WDL calibration, and clean
+source-commit identities. A schema is never inferred from the file size or a
+shared hash.
+
+The frozen integer conversion uses round-to-nearest with ties to even,
+feature-transform scale 8,128, dense-weight scale 64, signed `int16` feature
+weights, signed `int8` dense weights, and signed `int32` biases and
+accumulators. Both activation stages compute
+`clip(max(affine, 0) >> 6, 0, 127)`. The selected side-to-move output is divided
+by 16 with truncation toward zero before the versioned rule-50 postprocessor.
+Every bias is bounded to magnitude `2^30`; the registered dimensions keep all
+legal full-refresh and dense sums inside signed 32-bit range.
+
+`tools/horde_v2_export.py` accepts only a clean, receipt-matched training
+checkpoint and writes the container exclusively. `tools/horde_v2_container.py`
+owns the canonical descriptor and an independent fail-closed reader.
+`src/nnue/horde_v2_container.cpp` owns the C++ reader and full-refresh path.
+`tests/horde_v2_container_parity.py` independently reconstructs sparse rows and
+every integer layer, compares Python with scalar and AVX2 C++, and verifies
+adversarial header, provenance, directory, payload, truncation, and parameter
+range failures on Linux and Windows. This path has no UCI dispatch and cannot
+replace Run 6B; it is an engineering gate for trained V2 checkpoints only.
+
 The engine dispatch order is explicit:
 
 1. a complete SHA-256 match selects registered Run 6B and
