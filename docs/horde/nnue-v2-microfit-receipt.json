@@ -1,0 +1,160 @@
+{
+  "corpus": {
+    "piece_rows": 836,
+    "result_targets": {
+      "-1": 6,
+      "0": 20,
+      "1": 6
+    },
+    "royal_rows": 804,
+    "sample_count": 32,
+    "samples_per_legacy_bucket": {
+      "0": 4,
+      "1": 4,
+      "2": 4,
+      "3": 4,
+      "4": 4,
+      "5": 4,
+      "6": 4,
+      "7": 4
+    },
+    "schema": "HORDE_NNUE_MICROFIT_CORPUS_V1",
+    "score_maximum": 301,
+    "score_minimum": -347,
+    "sha256": "0B2844F0FCA016BFA2E0549B38B36C21167944CC68FCAB4EE2D92F2320A552C4",
+    "side_to_move": {
+      "black": 16,
+      "white": 16
+    }
+  },
+  "execution": {
+    "cuda_available_but_unused": true,
+    "cuda_device": "NVIDIA GeForce RTX 3080",
+    "deterministic_algorithms": true,
+    "device": "cpu",
+    "float32_matmul_precision": "highest",
+    "interop_threads": 1,
+    "mkldnn": false,
+    "platform": "Windows-10-10.0.19045-SP0",
+    "python": "3.12.0",
+    "threads": 1,
+    "torch": "2.7.1+cu118"
+  },
+  "implementation": {
+    "decoder_sha256": "5F13228F0643BEF2758B4503719A255995EA9103F2E7872347A8BB48B86FF687",
+    "microfit_sha256": "B92A42CFC3A7BF1141C4D8F8FD90593C89DCA5E7B5F1D29B94F35F5C237A365D"
+  },
+  "models": [
+    {
+      "final_loss": 0.01798291690647602,
+      "final_state_sha256": "ABA63A781551ED1635460A721620A2514D41A4BF50810910DAA59AB564744742",
+      "first_step_gradient_l2": {
+        "dense_trunk": 0.001345849396273581,
+        "feature_transformer": 0.00022091853629677057,
+        "output": 0.01933285160356607,
+        "psqt": 0.19157264896741766
+      },
+      "initial_loss": 0.04438801109790802,
+      "initial_state_sha256": "3E5A92577EED0D88A13F051EB8991FEA55B25C5633A11315AA85D7761E9CC242",
+      "loss_reduction": 0.026405094191432,
+      "loss_sha256": "02D7487A5B27E3A217C79682266F1AACAF939F57A523F9013F6B4B57B32CDCC4",
+      "name": "fresh-legacy-hp",
+      "parameter_count": 602248,
+      "repeat_count": 2,
+      "repeat_exact": true,
+      "topology": {
+        "accumulator_lanes": 512,
+        "dense": [
+          1024,
+          16,
+          32,
+          1
+        ],
+        "feature_dimensions": 896,
+        "layer_stacks": 8,
+        "perspectives": 2,
+        "psqt_buckets": 8,
+        "schema": "HORDETEST_HP_FRESH_CONTROL_V1"
+      }
+    },
+    {
+      "final_loss": 0.038750387728214264,
+      "final_state_sha256": "81CAC39F7E65A9ADEFC1B96D18A86A103CC526B1ECFA93B8796F6A13F47CB7FD",
+      "first_step_gradient_l2": {
+        "dense_trunk": 0.004290357705561851,
+        "global_transformer": 0.00019869684423132414,
+        "output": 0.0673432537078825,
+        "royal_transformer": 0.00006724032056165941
+      },
+      "initial_loss": 0.044092923402786255,
+      "initial_state_sha256": "78D7791AF633DE119535C2182896566BBE96C8E5EAE617A804A2707D561DF62D",
+      "loss_reduction": 0.005342535674571991,
+      "loss_sha256": "0DD93DAB05A9277E6A85033DA1C726F560D3D469FB686566C44A182DD8D1045F",
+      "name": "v2-64+192",
+      "parameter_count": 1455490,
+      "repeat_count": 2,
+      "repeat_exact": true,
+      "topology": {
+        "dense": [
+          256,
+          32,
+          32,
+          1
+        ],
+        "global_dimensions": 704,
+        "global_lanes": 192,
+        "royal_dimensions": 20480,
+        "royal_lanes": 64,
+        "schema": "V2_BASE_P0_64X192",
+        "side_to_move_heads": 2
+      }
+    },
+    {
+      "final_loss": 0.03873957321047783,
+      "final_state_sha256": "10C061E9DB623E3AF733D5E99B7632C4FC4FF6C4763598846ECC75724C5C1618",
+      "first_step_gradient_l2": {
+        "dense_trunk": 0.004888483497188916,
+        "global_transformer": 0.00018304457505791848,
+        "output": 0.06770003996858846,
+        "royal_transformer": 0.00010776420176263719
+      },
+      "initial_loss": 0.04432569444179535,
+      "initial_state_sha256": "FDC1FBC377479C931D00D1B129E632C4A196CC2601452A74867E95C56FD4AEB5",
+      "loss_reduction": 0.00558612123131752,
+      "loss_sha256": "F8CAF3CE2F7857B064FC365A61F2230571F02EEEBD6C4141AB50D067595160FF",
+      "name": "v2-128+128",
+      "parameter_count": 2721154,
+      "repeat_count": 2,
+      "repeat_exact": true,
+      "topology": {
+        "dense": [
+          256,
+          32,
+          32,
+          1
+        ],
+        "global_dimensions": 704,
+        "global_lanes": 128,
+        "royal_dimensions": 20480,
+        "royal_lanes": 128,
+        "schema": "V2_BASE_P0_128X128",
+        "side_to_move_heads": 2
+      }
+    }
+  ],
+  "purpose": "deterministic gradient-plumbing receipt; no strength claim",
+  "schema": "HORDE_NNUE_MICROFIT_V1",
+  "training": {
+    "eval_sigmoid_scale": 410.0,
+    "labels": "frozen synthetic engineering fixture in side-to-move frame",
+    "lambda": 0.6,
+    "learning_rate": 0.04,
+    "model_seed": 6211131621643604559,
+    "momentum": 0.9,
+    "nnue_to_score": 600.0,
+    "optimizer": "SGD",
+    "output_sigmoid_scale": 361.0,
+    "rule50": "not presented to the model; output represents pre-postprocessor value",
+    "steps": 24
+  }
+}

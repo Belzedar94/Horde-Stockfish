@@ -102,6 +102,7 @@ jobs:
           tools/horde_bin_v1.py
           tools/horde_run6b.py
           tools/horde_training_decoder.py
+          tools/horde_training_microfit.py
 
   sanitizers:
     name: Linux ASan and UBSan

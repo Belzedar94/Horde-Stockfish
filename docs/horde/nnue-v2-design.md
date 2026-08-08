@@ -590,6 +590,17 @@ Only `64+192` and `128+128` advance to the first training comparison. This
 receipt does not choose a production width: the two survivors still require
 controlled training and fixed-node strength evidence.
 
+The first gradient-plumbing gate is frozen in
+`docs/horde/nnue-v2-microfit-receipt.json`. A 32-position engineering fixture
+covers both sides to move and all eight legacy material buckets. On one CPU
+thread, two independent runs of each model produced identical loss and final
+state hashes. The fresh legacy H/P topology exercised its transformer, PSQT,
+all layer stacks, and dense path; both surviving V2 widths exercised the Royal
+transformer, Global transformer, shared trunk, and both side-to-move heads.
+All three reduced the frozen lambda-0.6 objective in 24 steps. The receipt uses
+synthetic labels and therefore proves only deterministic data and gradient
+plumbing; its losses do not rank architectures and make no strength claim.
+
 After training, fixed-node Elo and uninstrumented NPS remain separate axes.
 Practical equivalence margins are 2 Elo and 1% NPS. A larger/slower point must
 show a positive 95% lower confidence bound in fixed-node Elo against the
