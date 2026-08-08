@@ -595,3 +595,68 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
 - Decision: rejected locally; no commit, push, or OpenBench workload.
 - Learning: the additional color branch harmed the SEE loop more than the
   eliminated zero-valued pinner/blocker lookups saved.
+
+### 2026-08-08 - Key White correction history by Horde material
+
+- Branch: `test/horde-material-correction`, commit
+  `10409b93f430c183e1729afbebcac43f315204b1`.
+- Hypothesis: key the White non-pawn correction field by complete piece-count
+  material, so changes in the Horde pawn mass can distinguish states that the
+  orthodox White non-pawn key collapses.
+- Scope: one default-off UCI switch and only the lookup/update key for the
+  existing `nonPawnWhite` correction field; no rules, NNUE, pruning threshold,
+  move ordering, or other correction weight changed.
+- Validation: all four artifact CI jobs pass. A clean GCC 16 AVX2 build passed
+  Horde rules and the Run 6B contract. With the switch disabled, three benches
+  remained exactly 315,576 nodes with the accepted digest. With it enabled,
+  three benches were deterministically 398,170 nodes with digest
+  `8c236f6f19cc248bbb40c584ddb1bc97958b9e8d27faac5b5fcd2334f7206082`.
+- Local search proxy: across two disjoint midgame corpora totaling 640
+  positions at depth 7 against a depth-10 baseline reference, the changed
+  moves matched the reference 29 times and the baseline moves 34 times. Node
+  ratios were 0.974 and 1.074 on the two shards.
+- Decision: retain only in the second OpenBench wave. The local proxy is
+  neutral to slightly negative, so it does not displace candidates with a more
+  concentrated signal and should be stopped promptly if STC stays neutral.
+- Learning: the material key is technically sound and isolated in its own
+  correction bundle field, but a count-only key is coarse and its search-tree
+  effect is much larger than its shallow-reference signal.
+
+### 2026-08-08 - Exact White piece-count SEE guard
+
+- Branch: `test/white-piece-count-see-guard`, commit
+  `dfa4746188baaaebad4fe675ed0f10f692293e74`.
+- Hypothesis: replace the inherited White non-pawn-material approximation with
+  an exact Horde unit count in the shallow capture-SEE stalemate guard.
+- Scope: only that White guard; the Black condition and all SEE calculations,
+  margins, ordering, and other pruning remained unchanged.
+- Validation: all four artifact CI jobs pass, and the committed deterministic
+  receipt is 372,356 nodes with digest
+  `50e1f561153b9d016a65c4ccbf6c9a4049e7f2454a1fca96a9012f01b422b129`.
+- Decision: rejected before OpenBench. The change increases the frozen bench
+  tree by 18.0% and preserves an orthodox premise that does not transfer:
+  sacrificing White's final Horde unit loses by extinction rather than
+  creating a stalemate resource.
+- Learning: exact Horde counting does not rescue a heuristic whose underlying
+  terminal objective belongs to orthodox chess.
+
+### 2026-08-08 - Remove White stalemate exception from capture SEE
+
+- Hypothesis: keep the inherited last-piece stalemate exception for Black but
+  always permit ordinary capture-SEE pruning for White, whose final-unit
+  sacrifice is an extinction loss.
+- Scope: one side condition in the shallow capture/check SEE guard; the
+  extinction-capture override remained untouched.
+- Validation: a clean GCC 16 AVX2 build passed Horde rules, the Run 6B
+  contract, and three deterministic candidate benches at 335,277 nodes with
+  digest
+  `39dbe20b08451ec781b8ec4288487f8e380c4fb031e52a2132588fec6a71cd00`.
+  In a 512-position depth-7 screen it changed only one best move; that move
+  agreed less well with the depth-10 baseline reference. Total nodes were
+  1.0047 times baseline.
+- Decision: rejected locally as too rare and without a positive quality or
+  speed signal; no commit, push, or OpenBench workload. The source and bench
+  receipt were reverted to the accepted baseline.
+- Learning: although the rule argument is cleaner, this inherited exception
+  fires too rarely in representative Horde searches to qualify as low-hanging
+  fruit on its own.
