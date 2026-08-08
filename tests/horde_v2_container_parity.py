@@ -418,10 +418,17 @@ def expected_trace(path: Path) -> dict[str, object]:
 def run_trace(oracle: Path, network: Path) -> dict[str, object]:
     completed = subprocess.run(
         [str(oracle.resolve()), "--trace", str(network.resolve())],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"container oracle {oracle} failed for {network} with exit code "
+            f"{completed.returncode}\n"
+            f"stdout:\n{completed.stdout[-8000:]}\n"
+            f"stderr:\n{completed.stderr[-8000:]}"
+        )
     result = json.loads(completed.stdout)
     backend = result.pop("backend", None)
     if backend not in {"scalar", "avx2"}:
@@ -548,10 +555,16 @@ def verify_position_oracles(oracles: Iterable[Path], networks: Iterable[Path]) -
     for oracle in oracles:
         completed = subprocess.run(
             [str(oracle), *network_args],
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
         )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"position oracle {oracle} failed with exit code {completed.returncode}\n"
+                f"stdout:\n{completed.stdout[-8000:]}\n"
+                f"stderr:\n{completed.stderr[-8000:]}"
+            )
         expected = f"containers={len(network_args)}"
         if expected not in completed.stdout:
             raise AssertionError(
@@ -625,6 +638,12 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (ContainerError, FileNotFoundError, OSError, subprocess.SubprocessError) as error:
+    except (
+        ContainerError,
+        FileNotFoundError,
+        OSError,
+        RuntimeError,
+        subprocess.SubprocessError,
+    ) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         raise SystemExit(1) from error
