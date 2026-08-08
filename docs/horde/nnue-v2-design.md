@@ -83,12 +83,15 @@ The 32 Royal buckets are an engineering stress prototype, not a frozen
 production choice. They make refresh cost measurable before expensive training
 decides whether the king map has enough value.
 
-The first implementation checkpoint now provides the G0/R0 index contract and
-a fail-closed full-refresh enumerator. It walks physical squares from A1 to H8,
-emits at most 52 Global and 51 Royal rows, rejects a White king, requires exactly
-one Black king, and enforces the 36/16 side capacities. This checkpoint contains
-no network weights, dense inference, or incremental accumulator and therefore
-cannot replace the production evaluator.
+The current implementation checkpoint provides the G0/R0 index contract, a
+fail-closed full-refresh enumerator, and an engineering-only scalar P0 forward.
+The enumerator walks physical squares from A1 to H8, emits at most 52 Global
+and 51 Royal rows, rejects a White king, requires exactly one Black king, and
+enforces the 36/16 side capacities. The scalar path exercises non-zero bounded
+deterministic weights, both sparse transforms, the shared dense trunk, the two
+STM output rows, and the external rule-50 postprocessor. It has no production
+dispatch, file parser, incremental accumulator, SIMD backend, or trained
+weights and therefore cannot replace the production evaluator.
 
 ## Dual refresh domains
 
@@ -292,7 +295,30 @@ Royal FT 256 --+
 Global FT 256 -+
 ```
 
-Before a schema is frozen, it must specify every discrete inference detail:
+The engineering scalar reference currently fixes the following P0 receipt:
+
+- Royal and Global FT weights are signed 16-bit values;
+- FT biases and accumulators are signed 32-bit values;
+- both FT activations compute `clip(value >> 6, 0, 127)` into unsigned bytes;
+- dense weights are signed 8-bit values and dense biases/sums are signed
+  32-bit values;
+- both hidden layers use the same `clip(value >> 6, 0, 127)` activation;
+- the selected STM affine output is divided by 16 using truncation toward zero;
+- the legacy external rule-50 damping is then applied exactly once, followed
+  by the tablebase-safe clamp.
+
+The P0 payload contains 10,865,992 parameter bytes before container metadata.
+Of those, 10,485,760 bytes belong to the 32-bucket Royal transformer. This is
+an intentionally expensive stress point whose NPS cost must be measured before
+the bucket map is retained for training.
+
+The reference admits only biases whose magnitude is at most `2^30`. Combined
+with the fixed active-row capacities and weight types, this analytically keeps
+every signed 32-bit affine sum in range. It does not use saturation or depend
+on feature update order.
+
+Before a serialized schema is frozen, it must additionally specify every
+remaining discrete inference detail:
 
 - signed integer type for every weight, bias, accumulator, product, and sum;
 - clip bounds, activation formula, shifts, rounding, and clamp order;
@@ -302,11 +328,11 @@ Before a schema is frozen, it must specify every discrete inference detail:
 - side-to-move row and phase lookup;
 - rule-50 postprocessor version.
 
-The scalar reference uses signed 32-bit accumulation unless an analytic bound
-proves signed 16-bit accumulation cannot overflow for each domain. Saturating
-arithmetic is forbidden. The trainer must execute the exact integer forward
-path, ideally through the same C++ reference; fake quantization alone is not a
-parity proof.
+Saturating accumulation is forbidden. The trainer must execute the exact
+integer forward path, ideally through the same C++ reference; fake
+quantization alone is not a parity proof. A later optimized accumulator type
+must independently prove its bounds and remain bit-identical to the signed
+32-bit scalar reference.
 
 Changing width, activation, output scale, accumulator type, or split is a
 separate experiment.

@@ -78,6 +78,12 @@ jobs:
         run: >-
           make -j2 ARCH=x86-64 sanitize="address undefined" debug=yes optimize=no
           EXTRACXXFLAGS="-O1 -fno-inline" build
+      - name: Verify experimental V2 scalar reference with sanitizers
+        run: |
+          c++ -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            tests/horde_v2_features.cpp -o /tmp/horde-v2-features-sanitize
+          /tmp/horde-v2-features-sanitize
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
       - name: Verify material corpus
@@ -172,6 +178,9 @@ jobs:
         shell: msys2 {0}
         run: |
           make -j2 -C src ARCH=x86-64 build
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_features.cpp -o horde-v2-features.exe
+          ./horde-v2-features.exe
           python scripts/horde/verify_baseline.py
           python tests/horde_rules.py src/stockfish.exe
           python tests/horde_material_corpus.py src/stockfish.exe

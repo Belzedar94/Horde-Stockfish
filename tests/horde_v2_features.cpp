@@ -11,6 +11,7 @@
 
 #include "../src/nnue/horde_v2_features.h"
 #include "../src/nnue/horde_v2_full_refresh.h"
+#include "../src/nnue/horde_v2_scalar.h"
 
 using namespace Stockfish;
 using namespace Stockfish::Eval::NNUE::HordeV2;
@@ -253,8 +254,103 @@ int main() {
         assert(sorted_prefix(randomReflected.royal, randomReflected.royalSize) == sortedRoyal);
     }
 
+    // Exercise the exact V2_BASE_P0 integer path with a non-zero deterministic
+    // payload. Both STM heads share every preceding layer.
+    ScalarNetwork deterministicNetwork(make_deterministic_parameters(0x4856325F42415345ULL));
+    const auto    whiteTrace = deterministicNetwork.evaluate_full_refresh(startBoard, WHITE, 0);
+    const auto    blackTrace = deterministicNetwork.evaluate_full_refresh(startBoard, BLACK, 0);
+    assert(whiteTrace.valid());
+    assert(blackTrace.valid());
+    assert(whiteTrace.royalAccumulator == blackTrace.royalAccumulator);
+    assert(whiteTrace.globalAccumulator == blackTrace.globalAccumulator);
+    assert(whiteTrace.transformed == blackTrace.transformed);
+    assert(whiteTrace.hidden0Affine == blackTrace.hidden0Affine);
+    assert(whiteTrace.hidden0 == blackTrace.hidden0);
+    assert(whiteTrace.hidden1Affine == blackTrace.hidden1Affine);
+    assert(whiteTrace.hidden1 == blackTrace.hidden1);
+    assert(whiteTrace.outputAffine != blackTrace.outputAffine);
+    assert(whiteTrace.preRule50Value == 183);
+    assert(blackTrace.preRule50Value == 130);
+
+    // Recompute selected FT lanes independently from the exposed parameter
+    // rows. This is the layer-by-layer trainer ABI receipt.
+    const auto& deterministicParameters = deterministicNetwork.parameters();
+    for (const Eval::NNUE::IndexType lane :
+         {Eval::NNUE::IndexType(0), Eval::NNUE::IndexType(17), RoyalLanes - 1})
+    {
+        Accumulator expected = deterministicParameters.royalBias[lane];
+        for (std::size_t active = 0; active < startFeatures.royalSize; ++active)
+            expected += deterministicParameters.royalWeights[
+              std::size_t(startFeatures.royal[active]) * RoyalLanes + lane];
+        assert(whiteTrace.royalAccumulator[lane] == expected);
+    }
+    for (const Eval::NNUE::IndexType lane :
+         {Eval::NNUE::IndexType(0), Eval::NNUE::IndexType(19), GlobalLanes - 1})
+    {
+        Accumulator expected = deterministicParameters.globalBias[lane];
+        for (std::size_t active = 0; active < startFeatures.globalSize; ++active)
+            expected += deterministicParameters.globalWeights[
+              std::size_t(startFeatures.global[active]) * GlobalLanes + lane];
+        assert(whiteTrace.globalAccumulator[lane] == expected);
+    }
+
+    // Royal canonicalization is invariant under complete horizontal
+    // reflection. Global is deliberately absolute and therefore is not.
+    const auto reflectedTrace =
+      deterministicNetwork.evaluate_full_refresh(horizontal_reflection(startBoard), WHITE, 0);
+    assert(reflectedTrace.valid());
+    assert(reflectedTrace.royalAccumulator == whiteTrace.royalAccumulator);
+    assert(reflectedTrace.globalAccumulator != whiteTrace.globalAccumulator);
+
+    const auto rule50Half = deterministicNetwork.evaluate_full_refresh(startBoard, WHITE, 50);
+    const auto rule50Full = deterministicNetwork.evaluate_full_refresh(startBoard, WHITE, 100);
+    assert(rule50Half.valid());
+    assert(rule50Full.valid());
+    assert(rule50Half.value == apply_rule50_postprocessor(whiteTrace.preRule50Value, 50));
+    assert(rule50Full.value == VALUE_ZERO);
+
+    // Exact clipping and negative truncation checks use an otherwise zero
+    // payload, keeping every expected intermediate value transparent.
+    ScalarParameters clippingParameters;
+    clippingParameters.royalBias[0]  = -1;
+    clippingParameters.royalBias[1]  = 64;
+    clippingParameters.royalBias[2]  = 64 * 127;
+    clippingParameters.royalBias[3]  = 64 * 128;
+    clippingParameters.outputBias[WHITE] = -511;
+    clippingParameters.outputBias[BLACK] = 511;
+    ScalarNetwork clippingNetwork(std::move(clippingParameters));
+    const auto    clippingWhite = clippingNetwork.evaluate_full_refresh(startBoard, WHITE, 50);
+    const auto    clippingBlack = clippingNetwork.evaluate_full_refresh(startBoard, BLACK, 50);
+    assert(clippingWhite.valid());
+    assert(clippingBlack.valid());
+    assert(clippingWhite.transformed[0] == 0);
+    assert(clippingWhite.transformed[1] == 1);
+    assert(clippingWhite.transformed[2] == 127);
+    assert(clippingWhite.transformed[3] == 127);
+    assert(clippingWhite.preRule50Value == -31);
+    assert(clippingWhite.value == Value(-15));
+    assert(clippingBlack.preRule50Value == 31);
+    assert(clippingBlack.value == Value(15));
+
+    ScalarParameters invalidParameters;
+    invalidParameters.royalWeights.pop_back();
+    ScalarNetwork invalidNetwork(std::move(invalidParameters));
+    assert(invalidNetwork.evaluate_full_refresh(startBoard, WHITE, 0).error
+           == ScalarEvalError::INVALID_PARAMETERS);
+
+    auto scalarInvalidBoard   = startBoard;
+    scalarInvalidBoard[SQ_E8] = NO_PIECE;
+    const auto invalidPositionTrace =
+      deterministicNetwork.evaluate_full_refresh(scalarInvalidBoard, WHITE, 0);
+    assert(invalidPositionTrace.error == ScalarEvalError::INVALID_POSITION);
+    assert(invalidPositionTrace.featureError == FullRefreshError::BLACK_KING_COUNT);
+    assert(deterministicNetwork.evaluate_full_refresh(startBoard, Color(COLOR_NB), 0).error
+           == ScalarEvalError::INVALID_SIDE_TO_MOVE);
+
     std::cout << "Horde V2 feature contracts passed: "
               << FixedRolePieceSquareDimensions << " global and "
               << RoyalPieceSquareDimensions << " Royal indices; full-refresh "
-              << startFeatures.globalSize << "+" << startFeatures.royalSize << " active rows\n";
+              << startFeatures.globalSize << "+" << startFeatures.royalSize
+              << " active rows; scalar P0=" << whiteTrace.preRule50Value << "/"
+              << blackTrace.preRule50Value << "\n";
 }
