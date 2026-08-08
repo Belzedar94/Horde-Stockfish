@@ -56,6 +56,43 @@ Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
   `Threads=1 Hash=32 "Move Overhead=50"`. Any time loss, crash, illegal move,
   or abort invalidates the new sample immediately.
 
+## Opening-book sensitivity follow-up
+
+### 2026-08-08 - Deep-evaluation V3 discovery gate
+
+- Collaborator feedback correctly identified that V2 still contains many
+  Black-Black pairs. The optimization target remains paired-test information,
+  not an artificial 50/50 color split.
+- The first V3 selector used the 1,000-node generation score in a fixed White-
+  relative `+80..+200` centipawn band. Although this band looked favorable in
+  the 200-pair discovery receipt, its first disjoint 40-pair sample produced
+  only 15% assignment-decisive pairs and was rejected rather than retuned on
+  the same outcomes.
+- The orthogonal follow-up rescored all 5,608 V2 positions at 20,000 nodes with
+  MultiPV 2, then applied the same predeclared White-relative `+80..+200` band.
+  Every position received a finite cp score; the rescore manifest SHA-256 is
+  `9e582051644036b3691c83777f818e6e5bc6706957f639f5fb868332fdfd9677`.
+- The held-out pools conservatively excluded every opening whose outcome had
+  already been observed, including complete pairs from host-truncated probes.
+  Three valid foreground shards supplied 80 games, 40 complete pairs, 40
+  unique openings, no incomplete games, no abnormal termination, and maximum
+  opening reuse one.
+- Combined result: pentanomial `[5, 0, 27, 3, 5]`, 32.5% assignment-decisive
+  pairs, `U = 0.26875`, 67.5% Black-Black pairs, 82.5% Black wins, 13.75%
+  White wins, and 3.75% draws. The analysis SHA-256 is
+  `1a64754225088dca547958003c008534854141bbb9c23fc3e1b3c8c580307d47`.
+- Decision: the deeper score is a promising V3 generation constraint, but it
+  does not replace V2 yet. The latest held-out pool has only 1,522 positions,
+  below the 5,000-pair no-wrap capacity gate, and the independent sample is
+  still only 40 pairs.
+- Next gate: scale fresh deterministic generation until at least 5,000
+  balanced, prefix-capped positions survive the unchanged deep band, then run
+  a fresh 200-pair audit. Local referee invocations must be at most ten pairs
+  because longer balanced openings repeatedly hit the host runtime boundary.
+- Deployment state at this receipt: OpenBench PR 39 remains open and clean at
+  `fc9eb10e6983e2ecbe5dd7a216af522590c4ae22`; production still exposes only
+  `HORDE_openings.epd`, so no V2 strength workload can be registered yet.
+
 ## Prepared V2 restart queue
 
 The V1 results below are used only to prioritize fresh V2 workloads. They do
