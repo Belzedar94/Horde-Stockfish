@@ -1,0 +1,264 @@
+{
+  "artifacts": {
+    "network": {
+      "bytes": 1088416,
+      "name": "hordetest_run6b_e37_l06.nnue",
+      "schema": "HORDETEST_HP_LEGACY_V1",
+      "sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+    },
+    "play_engine": {
+      "bytes": 5501728,
+      "name": "horde-stockfish.exe",
+      "sha256": "B35725BD5A2799B161DF2547666A1C2468B4C9AE02CEB457013E209DBAFBA18D"
+    },
+    "producer": {
+      "bytes": 5616678,
+      "name": "horde-stockfish.exe",
+      "sha256": "50B798908F24951B8BA6E1155FEF70C41AA4E860D319C0C65BC1E714FA9D2568"
+    },
+    "wdl_calibration": {
+      "bytes": 5204,
+      "link_schema": "DAVIDSON_STM_SOFTMAX_V1",
+      "name": "wdl-calibration-v1.json",
+      "schema": "HORDE_WDL_CALIBRATION_V1",
+      "sha256": "AAD0DE1A06C1BC9B6C0AC11F60B2581D5802519017DC4AF34F02B06560FC2B14"
+    }
+  },
+  "calibration": {
+    "fit": {
+      "algorithm": "full-batch binary64 damped Newton with deterministic Armijo backtracking",
+      "class_weighting": "none",
+      "minimum_class_support": 32,
+      "resampling": "none",
+      "side_pooling": "none"
+    },
+    "selection": {
+      "eligible_records": 3952,
+      "eligible_records_sha256": "FA619F0C598D487D0178799EA2F48874A86CF6FAFF64955AA61AEE4A1DB21002",
+      "mate_records_excluded": 144,
+      "selection_sha256": "89CF8ADD5B2E144525D0B1310F07D9079736A830AADD1F0627B9E42846A097FD",
+      "total_records": 4096
+    },
+    "sides": {
+      "black_to_move": {
+        "gradient_inf_norm": 2.2921941420560072e-17,
+        "hessian_condition": 36.115353376751784,
+        "loss_draw_win": [
+          847,
+          65,
+          1066
+        ],
+        "mean_half_brier": 0.15480904970251871,
+        "parameters": {
+          "A": "0.4762189965647039",
+          "B": "0.28136976399353647",
+          "D": "-2.2649709687360526"
+        },
+        "positive_slope": true
+      },
+      "white_to_move": {
+        "gradient_inf_norm": 1.1939330166003637e-16,
+        "hessian_condition": 37.073117401099424,
+        "loss_draw_win": [
+          1062,
+          65,
+          847
+        ],
+        "mean_half_brier": 0.1546005489720931,
+        "parameters": {
+          "A": "0.47758176099818456",
+          "B": "-0.32363828083768836",
+          "D": "-2.260902350631119"
+        },
+        "positive_slope": true
+      }
+    }
+  },
+  "ci": {
+    "correctness": {
+      "conclusion": "success",
+      "head_sha": "491e522718c2a0748d52d825f5c1fb0ce7d6c162",
+      "run_id": 31272622082,
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31272622082"
+    },
+    "openbench_artifacts": {
+      "conclusion": "success",
+      "head_sha": "491e522718c2a0748d52d825f5c1fb0ce7d6c162",
+      "run_id": 31272617937,
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31272617937"
+    },
+    "trainer_reference_matrix": {
+      "numpy": "2.2.6",
+      "operating_systems": [
+        "ubuntu-24.04",
+        "windows-2025"
+      ],
+      "python": "3.12",
+      "torch": "2.7.1+cpu"
+    }
+  },
+  "claims": {
+    "architecture_comparison_allowed": false,
+    "integration_only": true,
+    "loss_contract_ready": true,
+    "production_network": false,
+    "strength_eligible": false,
+    "strength_evidence": false
+  },
+  "data": {
+    "book_split": {
+      "receipt_sha256": "0301BAC3374D8DD4194E03686B27EEB1DBA2EAF0D8B09BD273EF04D33B715DD2",
+      "schema": "HORDE_TRAINING_BOOK_SPLIT_V2",
+      "source": {
+        "name": "HORDE_openings_v3.epd",
+        "records": 1500,
+        "sha256": "E09630E8A0A7D28028E2B02131E82A176DD2D8B18634D671F93E230F9D14F304"
+      },
+      "train": {
+        "records": 1203,
+        "sha256": "1DC2DD829962CD29FA98CAFC1B0613AC2FCAAFF088B65977E10AAEAF76E96A55"
+      },
+      "validation": {
+        "records": 297,
+        "sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A"
+      }
+    },
+    "label_contract": {
+      "schema": "HORDE_LABEL_CONTRACT_V1",
+      "schema_sha256": "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"
+    },
+    "overlap_audit": {
+      "legacy_model_input_cross_role_overlap_samples": 0,
+      "physical_cross_role_overlap_samples": 0,
+      "schema": "HORDE_TRAINING_ROLE_OVERLAP_AUDIT_V1",
+      "sha256": "7978C830B1C08E82594099237C1A6D15969D04F2772491957ABCFFDB10874ADD",
+      "validation_duplicate_legacy_model_inputs": 0,
+      "validation_duplicate_physical_positions": 0,
+      "zero_cross_role_overlap": true
+    },
+    "train": {
+      "book_sha256": "1DC2DD829962CD29FA98CAFC1B0613AC2FCAAFF088B65977E10AAEAF76E96A55",
+      "bytes": 198656,
+      "class_support_by_side_to_move": {
+        "black": {
+          "draw": 65,
+          "loss": 875,
+          "win": 1108
+        },
+        "white": {
+          "draw": 65,
+          "loss": 1099,
+          "win": 884
+        }
+      },
+      "manifest_sha256": "526794004DB934260E1CB251590117DFC2148BA5DFAA59C79D9161CEBC05AAC2",
+      "mate_scores_by_side_to_move": {
+        "black": 70,
+        "white": 74
+      },
+      "payload_sha256": "6DD56C8334E535B9997BCA1B8FE7B725D2A17019646499DB24ED000682C99DD6",
+      "records": 4096,
+      "seed": "2026080801",
+      "sha256": "28E9E96B9813E629352966E383BD87438C5295CE11DB8E62B5A164F220B0CBD1"
+    },
+    "validation": {
+      "book_sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A",
+      "bytes": 51200,
+      "class_support_by_side_to_move": {
+        "black": {
+          "draw": 175,
+          "loss": 94,
+          "win": 244
+        },
+        "white": {
+          "draw": 173,
+          "loss": 242,
+          "win": 96
+        }
+      },
+      "manifest_sha256": "318FAA48C5BD221343635E93171CE736A5C6ED8E067B5C6719DE24534A1C2171",
+      "mate_scores_by_side_to_move": {
+        "black": 11,
+        "white": 10
+      },
+      "payload_sha256": "653F4FD7F733E3761DDCD621B032710F9699F2930ABA1FC7916E5CCBA9438D45",
+      "records": 1024,
+      "seed": "2026080802",
+      "sha256": "2B2E724B9CF42E60DF8EECF67DBBA5609240023DAA102B3743A654843EE9ADE4"
+    }
+  },
+  "gates": {
+    "architecture_or_strength": {
+      "passed": false,
+      "reason": "This 4,096-position integration canary is too small for architecture or strength selection."
+    },
+    "cross_platform_reference_tests": {
+      "passed": true
+    },
+    "exact_dataset_calibration_binding": {
+      "passed": true
+    },
+    "half_brier_objective": {
+      "passed": true
+    },
+    "real_data_integration": {
+      "passed": true
+    },
+    "repeatability": {
+      "passed": true
+    },
+    "role_isolation": {
+      "passed": true
+    }
+  },
+  "run": {
+    "architecture": {
+      "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
+      "parameter_count": 602248,
+      "schema": "HORDETEST_HP_FRESH_CONTROL_V1",
+      "serialized_topology": "896 -> 512 shared FT + PSQT; 8 x (1024 -> 16 -> 32 -> 1)"
+    },
+    "configuration": {
+      "batch_size": 512,
+      "block_size": 2048,
+      "device": "cpu",
+      "epochs": 3,
+      "lambda": 0.6,
+      "learning_rate": 0.0015,
+      "learning_rate_gamma": 0.987,
+      "seed": 2026080803
+    },
+    "final": {
+      "checkpoint_semantic_sha256": "1A3A6D0A3DC8106D5560AC1B2068AF2E0E2FA274EBAA583CA86E6FAB858A177E",
+      "checkpoint_sha256": "1E999F51291B0A7BC381145DF615BC4ADFF41D77D6716C5F1C9AD4D71B1A1690",
+      "metrics_sha256": "F15D323DF06AA7153894D3039BF384E1EE8BEBCFC01E2CA8FA4BB431EF52496C",
+      "receipt_sha256": "4C51E6144522869EF3277DD9FEC7CC85D080898D03BB763E011FB3C49082FA0A",
+      "semantic_state_sha256": "5DA08125219AE7DC35FA91A5319DA402AB7CBED3737B1A29799A9CAFDA9517F5",
+      "validation": {
+        "composite_loss": 0.2147514165371831,
+        "prediction_mean_wdl": [
+          0.4846668489917647,
+          0.04752586672475445,
+          0.4678072803944815
+        ],
+        "result_half_brier": 0.3771646105815307,
+        "samples": 1024,
+        "score_half_brier_eligible": 0.10870525058223812
+      }
+    },
+    "initial_validation_composite_loss": 0.21586495048177312,
+    "objective": "HORDE_WDL_HALF_BRIER_V1",
+    "repeat": {
+      "checkpoint_byte_identical": true,
+      "metrics_byte_identical": true,
+      "receipt_byte_identical": true,
+      "semantic_checkpoint_identical": true,
+      "semantic_state_identical": true
+    }
+  },
+  "schema": "HORDE_FRESH_LEGACY_CONTROL_V3_CANARY_RECEIPT_V1",
+  "source": {
+    "commit": "491e522718c2a0748d52d825f5c1fb0ce7d6c162",
+    "dirty": false
+  }
+}

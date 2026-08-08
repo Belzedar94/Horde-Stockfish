@@ -151,3 +151,14 @@ integration and determinism receipt only, not a comparison against Run 6B. It
 predates split V2, cross-role generated-record auditing, exact rule-50 loss,
 and resumable checkpoints, so it remains historical evidence rather than the
 authorization for a 50-million-position campaign.
+
+The current authenticated integration canary at source commit `491e5227` is
+frozen in
+[`fresh-legacy-control-v3-canary-receipt.json`](fresh-legacy-control-v3-canary-receipt.json).
+Its regenerated files bind `HORDE_LABEL_CONTRACT_V1`, the clean CI producer,
+Run 6B, and the V2 book split. A training-only side-specific Davidson artifact
+binds the exact 4,096-record training file. Two three-epoch CPU runs produced
+byte-identical checkpoints, metrics, and receipts under
+`HORDE_WDL_HALF_BRIER_V1`. This closes the label, loss, calibration, resume,
+and repeatability plumbing gates. The sample remains an integration canary and
+is too small for architecture selection or strength claims.

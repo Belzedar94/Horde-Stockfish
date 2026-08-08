@@ -25,8 +25,12 @@ Horde-Stockfish without losing rule, source or network provenance.
   search NPS, confidence intervals and the first training-width gate.
 - [Training-data contract V1](datagen-v1.md) — the isolated generator,
   physical-position wire format and G0 audit boundary.
+- [Horde WDL calibration V1](wdl-calibration-v1.md) defines the frozen
+  side-specific Davidson link and half-Brier training objective.
+- [Fresh legacy-control V3 canary receipt](fresh-legacy-control-v3-canary-receipt.json)
+  freezes authenticated labels, WDL calibration and byte-identical training.
 - [Fresh legacy-control canary receipt](fresh-legacy-control-canary-receipt.json)
-  freezes deterministic train/validation plumbing and checkpoint identities.
+  preserves the original scalar-loss plumbing as historical evidence.
 - [Fixtures](fixtures/README.md) — pinned Lichess perft and its exact HordeTest
   `P`-to-`H` translation.
 
