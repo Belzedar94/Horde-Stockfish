@@ -83,6 +83,13 @@ The 32 Royal buckets are an engineering stress prototype, not a frozen
 production choice. They make refresh cost measurable before expensive training
 decides whether the king map has enough value.
 
+The first implementation checkpoint now provides the G0/R0 index contract and
+a fail-closed full-refresh enumerator. It walks physical squares from A1 to H8,
+emits at most 52 Global and 51 Royal rows, rejects a White king, requires exactly
+one Black king, and enforces the 36/16 side capacities. This checkpoint contains
+no network weights, dense inference, or incremental accumulator and therefore
+cannot replace the production evaluator.
+
 ## Dual refresh domains
 
 V2 has two independent sparse affine transformers. Their activated outputs are
