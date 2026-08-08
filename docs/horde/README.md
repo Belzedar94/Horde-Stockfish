@@ -19,6 +19,8 @@ Horde-Stockfish without losing rule, source or network provenance.
   Run 6B parity, incremental, determinism and benchmark evidence.
 - [Search telemetry](search-telemetry.md) — opt-in Horde pruning and branching
   counters for instrumented builds.
+- [NNUE V2 design](nnue-v2-design.md) — fixed-role, dual-domain architecture
+  and the orthogonal feature-ablation ladder.
 - [Fixtures](fixtures/README.md) — pinned Lichess perft and its exact HordeTest
   `P`-to-`H` translation.
 

@@ -39,6 +39,11 @@ jobs:
         run: make -j2 ARCH=x86-64 ${{ matrix.make_args }} build
       - name: Verify frozen artifacts
         run: python3 scripts/horde/verify_baseline.py
+      - name: Verify experimental V2 fixed-role indices
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_features.cpp -o /tmp/horde-v2-features
+          /tmp/horde-v2-features
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
       - name: Verify material corpus
