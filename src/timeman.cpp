@@ -58,7 +58,8 @@ void TimeManagement::init(Search::LimitsType& limits,
     if (limits.time[us] == 0)
         return;
 
-    TimePoint moveOverhead = TimePoint(options["Move Overhead"]);
+    TimePoint  moveOverhead           = TimePoint(options["Move Overhead"]);
+    const bool hordeFsfTimeManagement = bool(options["HordeFsfTimeManagement"]);
 
     // optScale is a percentage of available time to use for the current move.
     // maxScale is a multiplier applied to optimumTime.
@@ -89,7 +90,7 @@ void TimeManagement::init(Search::LimitsType& limits,
     int mtg = limits.movestogo ? std::min(limits.movestogo, 50) : 50;
 
     // If less than one second, gradually reduce mtg
-    if (scaledTime < 1000)
+    if (!hordeFsfTimeManagement && scaledTime < 1000)
         mtg = int(scaledTime * 0.05);
 
     // Make sure timeLeft is > 0 since we may use it as a divisor
@@ -99,7 +100,18 @@ void TimeManagement::init(Search::LimitsType& limits,
     // x basetime (+ z increment)
     // If there is a healthy increment, timeLeft can exceed the actual available
     // game time for the current move, so also cap to a percentage of available game time.
-    if (limits.movestogo == 0)
+    if (hordeFsfTimeManagement && limits.movestogo == 0)
+    {
+        optScale = std::min(0.0084 + std::pow(ply + 3.0, 0.5) * 0.0042,
+                            0.2 * limits.time[us] / double(timeLeft));
+        maxScale = std::min(7.0, 4.0 + ply / 12.0);
+    }
+    else if (hordeFsfTimeManagement)
+    {
+        optScale = std::min((0.8 + ply / 128.0) / mtg, 0.8 * limits.time[us] / double(timeLeft));
+        maxScale = std::min(6.3, 1.5 + 0.11 * mtg);
+    }
+    else if (limits.movestogo == 0)
     {
         // Extra time according to timeLeft
         if (originalTimeAdjust < 0)
@@ -125,10 +137,19 @@ void TimeManagement::init(Search::LimitsType& limits,
     }
 
     // Limit the maximum possible time for this move
-    optimumTime = TimePoint(std::max(1.0, optScale * timeLeft));
-    maximumTime =
-      TimePoint(std::max(double(optimumTime), std::min(0.8097 * limits.time[us] - moveOverhead,
-                                                       maxScale * optimumTime)));
+    if (hordeFsfTimeManagement)
+    {
+        optimumTime = TimePoint(optScale * timeLeft);
+        maximumTime =
+          TimePoint(std::min(0.8 * limits.time[us] - moveOverhead, maxScale * optimumTime));
+    }
+    else
+    {
+        optimumTime = TimePoint(std::max(1.0, optScale * timeLeft));
+        maximumTime =
+          TimePoint(std::max(double(optimumTime), std::min(0.8097 * limits.time[us] - moveOverhead,
+                                                           maxScale * optimumTime)));
+    }
 
     if (options["Ponder"])
         optimumTime += optimumTime / 4;
