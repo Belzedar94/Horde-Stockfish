@@ -37,6 +37,9 @@
 #endif
 #include "misc.h"
 #include "nnue/nnue_accumulator.h"
+#if defined(HORDE_V2_PERF)
+#include "nnue/horde_v2_performance.h"
+#endif
 #include "numa.h"
 #include "position.h"
 #include "score.h"
@@ -415,6 +418,9 @@ class Worker {
     // Used by NNUE
     Eval::NNUE::AccumulatorStack  accumulatorStack;
     Eval::NNUE::AccumulatorCaches refreshTable;
+#if defined(HORDE_V2_PERF)
+    Eval::NNUE::HordeV2::PerformanceStack hordeV2PerformanceStack;
+#endif
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;

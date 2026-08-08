@@ -8,6 +8,22 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      v2_width_benchmark:
+        description: Run the paired Horde V2 width benchmark
+        required: false
+        default: false
+        type: boolean
+      v2_width_rounds:
+        description: Paired rounds per V2 width
+        required: false
+        default: "12"
+        type: string
+      v2_width_depth:
+        description: Horde benchmark depth
+        required: false
+        default: "13"
+        type: string
 
 permissions:
   contents: read
@@ -78,6 +94,7 @@ jobs:
           tests/horde_bench.py
           tests/horde_genfens.py
           tests/horde_v2_trainer_parity.py
+          tests/horde_v2_engine_widths.py
           tests/horde_nnue_parity.py
           tests/horde_nnue_determinism.py
 
@@ -226,3 +243,52 @@ jobs:
           python tests/horde_network_contract.py src/stockfish.exe
           python tests/horde_bench.py src/stockfish.exe
           python tests/horde_genfens.py src/stockfish.exe
+
+  v2-width-benchmark:
+    name: Paired AVX2 Horde V2 width benchmark
+    if: github.event_name == 'workflow_dispatch' && inputs.v2_width_benchmark
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Build value-identical width binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p v2-bin receipts
+
+          build_width() {
+            local name="$1"
+            local royal="$2"
+            local global="$3"
+            EXTRACXXFLAGS="-DHORDE_V2_PERF -DHORDE_V2_PERF_ROYAL_WIDTH=${royal} -DHORDE_V2_PERF_GLOBAL_WIDTH=${global}" \
+              make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no build
+            mv src/stockfish "v2-bin/${name}"
+            make -C src objclean
+          }
+
+          build_width 256x256 256 256
+          build_width 128x256 128 256
+          build_width 128x128 128 128
+          build_width 64x192 64 192
+          sha256sum v2-bin/* | tee receipts/binaries.sha256
+          lscpu > receipts/lscpu.txt
+      - name: Run paired search benchmark
+        run: |
+          python3 tests/horde_v2_engine_widths.py \
+            --engine 256x256=v2-bin/256x256 \
+            --engine 128x256=v2-bin/128x256 \
+            --engine 128x128=v2-bin/128x128 \
+            --engine 64x192=v2-bin/64x192 \
+            --rounds "${{ inputs.v2_width_rounds }}" \
+            --depth "${{ inputs.v2_width_depth }}" \
+            --output receipts/width-benchmark.json
+      - name: Upload raw benchmark receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: horde-v2-width-benchmark-${{ github.sha }}
+          path: receipts/
+          if-no-files-found: error
+          retention-days: 30

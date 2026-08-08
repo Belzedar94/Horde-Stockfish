@@ -563,6 +563,16 @@ confidence intervals are retained. The headline NPS-ratio interval must have a
 half-width no larger than 0.5%, and a width advances to training only if its
 NPS lower bound is at least 95% of the fastest surviving width.
 
+The compile-time-only `HORDE_V2_PERF` path connects one registered width and
+its lazy stack to the real search worker. It is absent from normal builds and
+uses no UCI switch that could leak into a release. The dispatch-only V2 width
+option in the `Horde correctness` workflow builds all four AVX2 binaries
+sequentially on one runner. `tests/horde_v2_engine_widths.py` randomizes their
+paired order, rejects any node-count or best-move-digest mismatch, retains every
+raw NPS sample and bootstraps paired ratio intervals. These synthetic results
+select which widths are cheap enough to train; they are not playing-strength
+evidence.
+
 After training, fixed-node Elo and uninstrumented NPS remain separate axes.
 Practical equivalence margins are 2 Elo and 1% NPS. A larger/slower point must
 show a positive 95% lower confidence bound in fixed-node Elo against the

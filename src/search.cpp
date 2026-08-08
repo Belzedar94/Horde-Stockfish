@@ -186,7 +186,11 @@ Search::Worker::Worker(SharedState&                    sharedState,
     threads(sharedState.threads),
     tt(sharedState.tt),
     network(sharedState.network),
-    refreshTable(network[token]) {
+    refreshTable(network[token])
+#if defined(HORDE_V2_PERF)
+    , hordeV2PerformanceStack(Eval::NNUE::HordeV2::performance_network())
+#endif
+{
     clear();
 }
 
@@ -199,6 +203,10 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+#if defined(HORDE_V2_PERF)
+    if (hordeV2PerformanceStack.reset(rootPos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#endif
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -681,6 +689,10 @@ void Search::Worker::do_move(
 
     Dirties& dirties = accumulatorStack.push();
     pos.do_move(move, st, givesCheck, dirties, &tt, &sharedHistory);
+#if defined(HORDE_V2_PERF)
+    if (hordeV2PerformanceStack.push(dirties, pos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#endif
 
     if (ss != nullptr)
     {
@@ -703,6 +715,10 @@ void Search::Worker::do_null_move(Position& pos, StateInfo& st, Stack* const ss)
 void Search::Worker::undo_move(Position& pos, const Move move) {
     pos.undo_move(move);
     accumulatorStack.pop();
+#if defined(HORDE_V2_PERF)
+    if (!hordeV2PerformanceStack.pop())
+        std::abort();
+#endif
 }
 
 void Search::Worker::undo_null_move(Position& pos) { pos.undo_null_move(); }
@@ -2197,8 +2213,15 @@ TimePoint Search::Worker::elapsed() const {
 }
 
 Value Search::Worker::evaluate(const Position& pos) {
+#if defined(HORDE_V2_PERF)
+    const auto result = hordeV2PerformanceStack.evaluate(pos);
+    if (!result.valid())
+        std::abort();
+    return result.result.value;
+#else
     return Eval::evaluate(network[numaAccessToken], pos, accumulatorStack, refreshTable,
                           optimism[pos.side_to_move()]);
+#endif
 }
 
 namespace {
