@@ -1,0 +1,161 @@
+{
+  "architectures": {
+    "v2-128x128": {
+      "artifacts": {
+        "checkpoint": {
+          "bytes": 32683624,
+          "semantic_sha256": "1FA711A6090A890A1337AA3885513A644A6E6BD35AB8C421084545DC335025F4",
+          "sha256": "A1F5ECC4A406D5F72D226422F5DC22EB07C6127871AD1D2A001D31B46EDCEE12"
+        },
+        "metrics_sha256": "20B54C5B27C93872D53161DA754729C25F5EC9446E7F685440D74EF93C029EED",
+        "receipt_sha256": "15730286849E3A3BAEC43D9F971163B64D37D57EF960FA63E4F9944CF9DD0F68"
+      },
+      "final_state_sha256": "8843AA55FFC5020CEE7C647AF04FA84483F2758BD6F9462A1D150BF111577957",
+      "first_step_gradient_norms": {
+        "dense_trunk": 0.0038805199264374457,
+        "global_transformer": 0.00008409344592249879,
+        "output": 0.05836278781783816,
+        "royal_transformer": 0.00006135655763049115
+      },
+      "initial_validation_composite_loss": 0.21575400408983114,
+      "parameter_count": 2721154,
+      "repeat": {
+        "checkpoint_byte_identical": true,
+        "metrics_byte_identical": true,
+        "receipt_byte_identical": true,
+        "runs": 2,
+        "semantic_checkpoint_identical": true
+      },
+      "schema": "V2_BASE_P0_128X128",
+      "serialized_parameter_bytes": 5433672,
+      "stop_validation": {
+        "composite_loss": 0.21565906744945096,
+        "result_half_brier": 0.3766983746900223,
+        "samples": 1024,
+        "score_half_brier_eligible": 0.11056700651548877
+      },
+      "structural_sha256": "7038F3465D862B8D3E911E9C7C94FB871BE7CEF38D266A5FBB735B59339C6AEE"
+    },
+    "v2-64x192": {
+      "artifacts": {
+        "checkpoint": {
+          "bytes": 17495656,
+          "semantic_sha256": "0D234C71372AB40F005A9D4893D66E55C3B318E9D1B24AD305B955A6E26C7C05",
+          "sha256": "AA3FC2C336BE2784913B6C8908264BA1764CAABD0883048683ECD75F40142251"
+        },
+        "metrics_sha256": "003E61DDB22AB5C499EEEE54C010D4267FA8B822A5ABD4B2E2114A9466F6C10B",
+        "receipt_sha256": "55316639F07F08C3FE87CBAD8FCA1EA524638009450EA7EE35FC878CBB595B90"
+      },
+      "final_state_sha256": "CA90D71BB8F3A43D46075424AF34236993708BCA5B2CF8AAAC92111BDAF34C6D",
+      "first_step_gradient_norms": {
+        "dense_trunk": 0.0038824573467407513,
+        "global_transformer": 0.00010305714520061493,
+        "output": 0.0583529031953511,
+        "royal_transformer": 0.00004442118124963786
+      },
+      "initial_validation_composite_loss": 0.2157193173552514,
+      "parameter_count": 1455490,
+      "repeat": {
+        "checkpoint_byte_identical": true,
+        "metrics_byte_identical": true,
+        "receipt_byte_identical": true,
+        "runs": 2,
+        "semantic_checkpoint_identical": true
+      },
+      "schema": "V2_BASE_P0_64X192",
+      "serialized_parameter_bytes": 2902344,
+      "stop_validation": {
+        "composite_loss": 0.21565030103738536,
+        "result_half_brier": 0.37669342232402414,
+        "samples": 1024,
+        "score_half_brier_eligible": 0.11055546079636537
+      },
+      "structural_sha256": "5360985A5B08E43A6F7C23E8601DF159BAEE38E9306C3652867AA93EEAD39862"
+    }
+  },
+  "ci": {
+    "correctness": {
+      "conclusion": "success",
+      "head_sha": "7897a5cefda318e0b612eb73d443074921849c31",
+      "run_id": 31274857830,
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31274857830"
+    },
+    "openbench_artifacts": {
+      "conclusion": "success",
+      "head_sha": "7897a5cefda318e0b612eb73d443074921849c31",
+      "run_id": 31274781723,
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31274781723"
+    }
+  },
+  "claims": {
+    "architecture_comparison_allowed": false,
+    "integration_only": true,
+    "production_network": false,
+    "strength_eligible": false,
+    "strength_evidence": false
+  },
+  "configuration": {
+    "batch_size": 512,
+    "block_size": 2048,
+    "cpu_threads": 1,
+    "device": "cpu",
+    "epochs": 3,
+    "lambda": 0.6,
+    "learning_rate": 0.0015,
+    "learning_rate_gamma": 0.987,
+    "objective": "HORDE_WDL_HALF_BRIER_V1",
+    "optimizer": "torch.optim.RAdam",
+    "optimizer_steps": 24,
+    "samples_consumed": 12288,
+    "seed": 2026080803
+  },
+  "data": {
+    "book_split": {
+      "receipt_sha256": "0301BAC3374D8DD4194E03686B27EEB1DBA2EAF0D8B09BD273EF04D33B715DD2",
+      "schema": "HORDE_TRAINING_BOOK_SPLIT_V2"
+    },
+    "network": {
+      "schema": "HORDETEST_HP_LEGACY_V1",
+      "sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+    },
+    "train": {
+      "decoder_schema": "HORDE_TRAINING_DECODER_V2",
+      "global_contextual_rows": 0,
+      "global_g0_rows": 100230,
+      "payload_sha256": "6DD56C8334E535B9997BCA1B8FE7B725D2A17019646499DB24ED000682C99DD6",
+      "records": 4096,
+      "royal_rows": 96134,
+      "sha256": "28E9E96B9813E629352966E383BD87438C5295CE11DB8E62B5A164F220B0CBD1",
+      "sparse_sha256": "1046E4C5695AE34706D8EABF196B5EFA25583F00ECF266B9DE0012CD15A98231"
+    },
+    "validation": {
+      "decoder_schema": "HORDE_TRAINING_DECODER_V2",
+      "global_contextual_rows": 0,
+      "global_g0_rows": 25297,
+      "payload_sha256": "653F4FD7F733E3761DDCD621B032710F9699F2930ABA1FC7916E5CCBA9438D45",
+      "records": 1024,
+      "royal_rows": 24273,
+      "sha256": "2B2E724B9CF42E60DF8EECF67DBBA5609240023DAA102B3743A654843EE9ADE4",
+      "sparse_sha256": "CC1659E5A3CEBAE07BF6EC99EAFD3EF79287EDD7B817554FC0BFDC9A80F3ACFB"
+    },
+    "wdl_calibration": {
+      "schema": "HORDE_WDL_CALIBRATION_V1",
+      "sha256": "AAD0DE1A06C1BC9B6C0AC11F60B2581D5802519017DC4AF34F02B06560FC2B14"
+    },
+    "zero_cross_role_overlap": true
+  },
+  "gates": {
+    "all_model_domains_receive_gradient": true,
+    "clean_source": true,
+    "cross_width_resume_rejected": true,
+    "real_data_integration": true,
+    "repeatability": true,
+    "strength_or_architecture_selection": false
+  },
+  "purpose": "real-data gradient, receipt, and repeatability canary; no architecture or strength claim",
+  "schema": "HORDE_V2_BASE_REAL_DATA_CANARY_RECEIPT_V1",
+  "source": {
+    "commit": "7897a5cefda318e0b612eb73d443074921849c31",
+    "dirty": false
+  }
+}

@@ -184,3 +184,13 @@ byte-identical checkpoints, metrics, and receipts under
 `HORDE_WDL_HALF_BRIER_V1`. This closes the label, loss, calibration, resume,
 and repeatability plumbing gates. The sample remains an integration canary and
 is too small for architecture selection or strength claims.
+
+The first no-context V2 real-data canary at source commit `7897a5ce` is frozen
+in
+[`nnue-v2-base-real-canary-receipt.json`](nnue-v2-base-real-canary-receipt.json).
+Both `v2-64x192` and `v2-128x128` completed two independent three-epoch CPU
+runs over the same authenticated 4,096/1,024 train/validation files. For each
+width, checkpoints, metrics, and receipts were byte-identical across repeats;
+all Royal, Global, dense, and output gradient groups were non-zero. The canary
+proves real-data and restart plumbing only. Its validation losses must not be
+used to rank the widths, skip C0/C1/C2, or justify a strength test.
