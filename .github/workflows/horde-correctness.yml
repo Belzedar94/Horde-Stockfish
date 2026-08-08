@@ -102,14 +102,17 @@ jobs:
           tests/horde_training_book_split.py
           tests/horde_training_control.py
           tests/horde_training_resume.py
+          tests/horde_wdl_calibration.py
           tools/horde_bin_v1.py
           tools/horde_compare_training_checkpoints.py
+          tools/horde_fit_wdl.py
           tools/horde_run6b.py
           tools/horde_split_training_book.py
           tools/horde_training_control.py
           tools/horde_training_decoder.py
           tools/horde_training_split_audit.py
           tools/horde_training_microfit.py
+          tools/horde_wdl.py
       - name: Verify deterministic training-book split
         run: python3 tests/horde_training_book_split.py
 
@@ -139,6 +142,8 @@ jobs:
           torch==2.7.1
           --index-url https://download.pytorch.org/whl/cpu
           --extra-index-url https://pypi.org/simple
+      - name: Verify Horde WDL calibration
+        run: python tests/horde_wdl_calibration.py
       - name: Verify fresh legacy-control trainer
         run: python tests/horde_training_control.py
       - name: Verify interrupted trainer resume parity

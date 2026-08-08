@@ -425,6 +425,16 @@ class HordeBinV1Dataset:
             source_payload_sha256=self.manifest["payload_sha256"],
         )
 
+    def label(self, index: int) -> tuple[int, int, int, int]:
+        """Fully validate one record and return its calibration label fields."""
+
+        _require(0 <= index < len(self), f"record index {index} is out of range")
+        _require(self._mapping is not None, "dataset is closed")
+        offset = wire.HEADER_SIZE + index * wire.RECORD_SIZE
+        raw = self._mapping[offset : offset + wire.RECORD_SIZE]
+        decoded = wire.validate_record(raw, index)
+        return decoded["side"], decoded["score"], decoded["result"], decoded["reason"]
+
     def batches(self, batch_size: int) -> Iterator[SparseBatch]:
         _require(batch_size > 0, f"invalid batch size {batch_size}")
         for begin in range(0, len(self), batch_size):
