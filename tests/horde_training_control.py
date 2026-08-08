@@ -66,7 +66,7 @@ def test_mate_mask() -> None:
     batch = control.LegacyBatch(
         legacy_white=torch.empty(0, dtype=torch.long),
         legacy_black=torch.empty(0, dtype=torch.long),
-        piece_offsets=torch.zeros(4, dtype=torch.long),
+        legacy_piece_offsets=torch.zeros(4, dtype=torch.long),
         side_to_move=torch.tensor([0, 1, 0]),
         piece_buckets=torch.zeros(3, dtype=torch.long),
         rule50_count=torch.zeros(3, dtype=torch.long),
@@ -97,7 +97,7 @@ def test_gradient_path() -> None:
     batch = control.LegacyBatch(
         legacy_white=fixture.legacy_white,
         legacy_black=fixture.legacy_black,
-        piece_offsets=fixture.piece_offsets,
+        legacy_piece_offsets=fixture.legacy_piece_offsets,
         side_to_move=fixture.side_to_move,
         piece_buckets=fixture.piece_buckets,
         rule50_count=torch.zeros_like(fixture.side_to_move),
@@ -126,7 +126,7 @@ def test_gradient_path() -> None:
         cuda_batch = control.LegacyBatch(
             legacy_white=batch.legacy_white.to("cuda"),
             legacy_black=batch.legacy_black.to("cuda"),
-            piece_offsets=batch.piece_offsets.to("cuda"),
+            legacy_piece_offsets=batch.legacy_piece_offsets.to("cuda"),
             side_to_move=batch.side_to_move.to("cuda"),
             piece_buckets=batch.piece_buckets.to("cuda"),
             rule50_count=batch.rule50_count.to("cuda"),
@@ -140,11 +140,87 @@ def test_gradient_path() -> None:
             raise AssertionError("legacy control forward is not CUDA-safe")
 
 
+def test_v2_gradient_path() -> None:
+    fixture, _ = microfit.make_fixture_batch()
+    batch = control.V2Batch(
+        v2_global=fixture.v2_global,
+        v2_royal=fixture.v2_royal,
+        global_offsets=fixture.global_offsets,
+        royal_offsets=fixture.royal_offsets,
+        side_to_move=fixture.side_to_move,
+        rule50_count=torch.zeros_like(fixture.side_to_move),
+        scores=fixture.scores,
+        results=torch.round(2.0 * fixture.result_targets - 1.0).to(dtype=torch.long),
+        score_eligible=torch.ones_like(fixture.scores, dtype=torch.bool),
+    )
+    expected_groups = {
+        "royal_transformer",
+        "global_transformer",
+        "dense_trunk",
+        "output",
+    }
+    expected_widths = {
+        "v2-64x192": (64, 192, 2_902_344),
+        "v2-128x128": (128, 128, 5_433_672),
+    }
+    common_initial_states: dict[str, torch.Tensor] = {}
+
+    for architecture, (royal_lanes, global_lanes, serialized_bytes) in expected_widths.items():
+        structure = control._v2_structure(architecture)
+        if structure["structural_sha256"] != control._sha256_bytes(
+            control._compact_json(
+                {
+                    key: value
+                    for key, value in structure.items()
+                    if key != "structural_sha256"
+                }
+            )
+        ):
+            raise AssertionError(f"{architecture} structural hash is not self-consistent")
+        domains = structure["domains"]
+        if (
+            domains[0]["lanes"] != royal_lanes
+            or domains[1]["lanes"] != global_lanes
+            or structure["serialized_parameter_bytes"] != serialized_bytes
+        ):
+            raise AssertionError(f"{architecture} width receipt changed: {structure}")
+
+        model = control._make_model(architecture, 0xC0FFEE)
+        before = control._state_sha256(model)
+        for name in (
+            "hidden0_weights",
+            "hidden0_bias",
+            "hidden1_weights",
+            "hidden1_bias",
+            "output_weights",
+            "output_bias",
+        ):
+            value = getattr(model, name).detach().clone()
+            if name in common_initial_states and not torch.equal(
+                common_initial_states[name], value
+            ):
+                raise AssertionError(f"shared V2 initialization changed for {name}")
+            common_initial_states.setdefault(name, value)
+
+        optimizer = control._make_optimizer(model, control.DEFAULT_LEARNING_RATE)
+        composite, *_ = control.loss_terms(model(batch), batch, 0.6, calibration())
+        composite.mean().backward()
+        norms = control._gradient_norms(model)
+        if set(norms) != expected_groups:
+            raise AssertionError(f"{architecture} gradient domains changed: {norms}")
+        optimizer.step()
+        control._clip_serialized_dense_weights(model)
+        if control._state_sha256(model) == before:
+            raise AssertionError(f"{architecture} optimizer step did not change the model")
+        if not control._all_finite(model):
+            raise AssertionError(f"{architecture} produced non-finite parameters")
+
+
 def test_wdl_label_path() -> None:
     batch = control.LegacyBatch(
         legacy_white=torch.empty(0, dtype=torch.long),
         legacy_black=torch.empty(0, dtype=torch.long),
-        piece_offsets=torch.zeros(3, dtype=torch.long),
+        legacy_piece_offsets=torch.zeros(3, dtype=torch.long),
         side_to_move=torch.tensor([0, 0]),
         piece_buckets=torch.zeros(2, dtype=torch.long),
         rule50_count=torch.tensor([0, 100]),
@@ -266,6 +342,27 @@ def test_position_and_model_keys() -> None:
     if decoder.legacy_model_input_key(kingside) == decoder.legacy_model_input_key(changed_rule50):
         raise AssertionError("legacy evaluator-input key discarded rule50")
 
+    contextual_features = decoder.SparseFeatures(
+        legacy_white=features.legacy_white,
+        legacy_black=features.legacy_black,
+        v2_global=features.v2_global + (decoder.V2_GLOBAL_DIMENSIONS,),
+        v2_royal=features.v2_royal,
+        royal_bucket=features.royal_bucket,
+        royal_mirror=features.royal_mirror,
+    )
+    contextual_record = decoder.TrainingRecord(
+        **{**common, "features": contextual_features},
+        castling_rights=1,
+    )
+    sparse = decoder.make_sparse_batch((contextual_record,))
+    physical_count = sum(code != 0 for code in physical_board)
+    if sparse.legacy_piece_offsets != (0, physical_count):
+        raise AssertionError("legacy offsets were coupled to contextual Global rows")
+    if sparse.global_offsets != (0, physical_count + 1):
+        raise AssertionError("Global offsets did not include the contextual row")
+    if sparse.physical_piece_count != (physical_count,) or sparse.white_piece_count != (1,):
+        raise AssertionError("physical counts were derived from the complete Global stream")
+
 
 def main() -> int:
     torch.set_num_threads(1)
@@ -274,6 +371,7 @@ def main() -> int:
     test_schedule()
     test_mate_mask()
     test_gradient_path()
+    test_v2_gradient_path()
     test_wdl_label_path()
     test_wdl_tensor_link()
     test_named_initialization()

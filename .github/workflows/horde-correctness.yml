@@ -110,6 +110,7 @@ jobs:
           tools/horde_split_training_book.py
           tools/horde_training_control.py
           tools/horde_training_decoder.py
+          tools/horde_training_models.py
           tools/horde_training_split_audit.py
           tools/horde_training_microfit.py
           tools/horde_wdl.py
@@ -144,7 +145,7 @@ jobs:
           --extra-index-url https://pypi.org/simple
       - name: Verify Horde WDL calibration
         run: python tests/horde_wdl_calibration.py
-      - name: Verify fresh legacy-control trainer
+      - name: Verify Horde legacy and V2 trainers
         run: python tests/horde_training_control.py
       - name: Verify interrupted trainer resume parity
         run: python tests/horde_training_resume.py

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Train the fresh legacy H/P control from disjoint HORDE_BIN_V1 files.
+"""Train Horde NNUE controls from disjoint HORDE_BIN_V1 files.
 
 This is the deterministic reference trainer for the first Horde NNUE training
 control.  It deliberately trains the exact serialized Run 6B topology without
 the historical training-only layer factorizer.  The same optimizer, schedule,
-label policy, and batching contract can therefore be reused by later
-architecture ablations without giving one topology hidden parameters.
+label policy, and batching contract are also used by the no-context V2 width
+survivors so architecture comparisons do not receive hidden training changes.
 """
 
 from __future__ import annotations
@@ -39,10 +39,16 @@ try:
         BLACK,
         HordeBinV1Dataset,
         SparseBatch,
+        V2_GLOBAL_DIMENSIONS,
+        V2_ROYAL_DIMENSIONS,
         WHITE,
+        dataset_receipt,
         make_sparse_batch,
     )
-    from .horde_training_microfit import (
+    from .horde_training_models import (
+        HIDDEN0_LANES,
+        HIDDEN1_LANES,
+        HordeV2Model,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
@@ -59,10 +65,16 @@ except ImportError:
         BLACK,
         HordeBinV1Dataset,
         SparseBatch,
+        V2_GLOBAL_DIMENSIONS,
+        V2_ROYAL_DIMENSIONS,
         WHITE,
+        dataset_receipt,
         make_sparse_batch,
     )
-    from horde_training_microfit import (
+    from horde_training_models import (
+        HIDDEN0_LANES,
+        HIDDEN1_LANES,
+        HordeV2Model,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
@@ -79,6 +91,25 @@ except ImportError:
 SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_TRAINING_V3"
 CHECKPOINT_SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_CHECKPOINT_V3"
 ARCHITECTURE_SCHEMA = "HORDETEST_HP_FRESH_CONTROL_V1"
+LEGACY_ARCHITECTURE = "fresh-legacy-hp"
+V2_TRAINING_SCHEMA = "HORDE_V2_BASE_TRAINING_V1"
+V2_CHECKPOINT_SCHEMA = "HORDE_V2_BASE_CHECKPOINT_V1"
+V2_FEATURE_SCHEMA = "V2_BASE_P0"
+V2_ARCHITECTURES = {
+    "v2-64x192": {
+        "schema": "V2_BASE_P0_64X192",
+        "royal_lanes": 64,
+        "global_lanes": 192,
+        "serialized_parameter_bytes": 2_902_344,
+    },
+    "v2-128x128": {
+        "schema": "V2_BASE_P0_128X128",
+        "royal_lanes": 128,
+        "global_lanes": 128,
+        "serialized_parameter_bytes": 5_433_672,
+    },
+}
+ARCHITECTURE_CHOICES = (LEGACY_ARCHITECTURE, *V2_ARCHITECTURES)
 BOOK_SPLIT_SCHEMAS = {
     "HORDE_TRAINING_BOOK_SPLIT_V1",
     "HORDE_TRAINING_BOOK_SPLIT_V2",
@@ -99,9 +130,22 @@ class TrainingError(ValueError):
 class LegacyBatch:
     legacy_white: Tensor
     legacy_black: Tensor
-    piece_offsets: Tensor
+    legacy_piece_offsets: Tensor
     side_to_move: Tensor
     piece_buckets: Tensor
+    rule50_count: Tensor
+    scores: Tensor
+    results: Tensor
+    score_eligible: Tensor
+
+
+@dataclass(frozen=True, slots=True)
+class V2Batch:
+    v2_global: Tensor
+    v2_royal: Tensor
+    global_offsets: Tensor
+    royal_offsets: Tensor
+    side_to_move: Tensor
     rule50_count: Tensor
     scores: Tensor
     results: Tensor
@@ -237,6 +281,78 @@ def _compact_json(payload: object) -> bytes:
     ).encode("utf-8")
 
 
+def _architecture_name(args: argparse.Namespace) -> str:
+    name = getattr(args, "architecture", LEGACY_ARCHITECTURE)
+    _require(name in ARCHITECTURE_CHOICES, f"unknown training architecture: {name}")
+    return str(name)
+
+
+def _architecture_schema(name: str) -> str:
+    return ARCHITECTURE_SCHEMA if name == LEGACY_ARCHITECTURE else str(
+        V2_ARCHITECTURES[name]["schema"]
+    )
+
+
+def _training_schema(name: str) -> str:
+    return SCHEMA if name == LEGACY_ARCHITECTURE else V2_TRAINING_SCHEMA
+
+
+def _checkpoint_schema(name: str) -> str:
+    return CHECKPOINT_SCHEMA if name == LEGACY_ARCHITECTURE else V2_CHECKPOINT_SCHEMA
+
+
+def _v2_structure(name: str) -> dict[str, object]:
+    config = V2_ARCHITECTURES[name]
+    royal_lanes = int(config["royal_lanes"])
+    global_lanes = int(config["global_lanes"])
+    transformed = royal_lanes + global_lanes
+    structure: dict[str, object] = {
+        "schema": config["schema"],
+        "feature_schema": V2_FEATURE_SCHEMA,
+        "feature_order": "physical squares A1 through H8",
+        "domains": [
+            {
+                "name": "royal",
+                "dimensions": V2_ROYAL_DIMENSIONS,
+                "lanes": royal_lanes,
+                "black_king_buckets": 32,
+                "horizontal_mirror": "black king canonicalized to files E-H",
+                "includes_black_king": False,
+            },
+            {
+                "name": "global",
+                "dimensions": V2_GLOBAL_DIMENSIONS,
+                "lanes": global_lanes,
+                "fixed_roles": 11,
+                "includes_black_king": True,
+            },
+        ],
+        "transformed_lanes": transformed,
+        "dense_lanes": [transformed, HIDDEN0_LANES, HIDDEN1_LANES, 2],
+        "side_to_move_heads": {"white": WHITE, "black": BLACK},
+        "contextual_features": [],
+        "phase_buckets": 1,
+        "training_activation": "clamp(x, 0, 1)",
+        "network_to_score": NNUE_TO_SCORE,
+        "serialized_parameter_bytes": int(config["serialized_parameter_bytes"]),
+    }
+    return {
+        **structure,
+        "structural_sha256": _sha256_bytes(_compact_json(structure)),
+    }
+
+
+def _make_model(name: str, seed: int) -> nn.Module:
+    if name == LEGACY_ARCHITECTURE:
+        return LegacyHPModel(seed)
+    config = V2_ARCHITECTURES[name]
+    return HordeV2Model(
+        int(config["royal_lanes"]),
+        int(config["global_lanes"]),
+        seed,
+    )
+
+
 def _splitmix64(state: int) -> tuple[int, int]:
     state = (state + 0x9E3779B97F4A7C15) & U64_MASK
     value = state
@@ -314,10 +430,7 @@ def _schedule_sha256(batches: Sequence[Sequence[int]]) -> str:
 
 
 def _torch_batch(sparse: SparseBatch, device: torch.device) -> LegacyBatch:
-    piece_counts = [
-        sparse.piece_offsets[index + 1] - sparse.piece_offsets[index]
-        for index in range(len(sparse))
-    ]
+    piece_counts = list(sparse.physical_piece_count)
     _require(all(1 <= count <= 52 for count in piece_counts), "invalid legacy piece count")
     piece_buckets = [
         min((count - 1) * LEGACY_BUCKETS // 52, LEGACY_BUCKETS - 1)
@@ -327,13 +440,65 @@ def _torch_batch(sparse: SparseBatch, device: torch.device) -> LegacyBatch:
     return LegacyBatch(
         legacy_white=torch.tensor(sparse.legacy_white, dtype=torch.long, device=device),
         legacy_black=torch.tensor(sparse.legacy_black, dtype=torch.long, device=device),
-        piece_offsets=torch.tensor(sparse.piece_offsets, dtype=torch.long, device=device),
+        legacy_piece_offsets=torch.tensor(
+            sparse.legacy_piece_offsets,
+            dtype=torch.long,
+            device=device,
+        ),
         side_to_move=torch.tensor(sparse.side_to_move, dtype=torch.long, device=device),
         piece_buckets=torch.tensor(piece_buckets, dtype=torch.long, device=device),
         rule50_count=torch.tensor(sparse.rule50_count, dtype=torch.long, device=device),
         scores=scores,
         results=torch.tensor(sparse.results, dtype=torch.long, device=device),
         score_eligible=torch.abs(scores) < MATE_SCORE_THRESHOLD,
+    )
+
+
+def _torch_v2_batch(sparse: SparseBatch, device: torch.device) -> V2Batch:
+    piece_counts = list(sparse.physical_piece_count)
+    global_counts = [
+        sparse.global_offsets[index + 1] - sparse.global_offsets[index]
+        for index in range(len(sparse))
+    ]
+    royal_counts = [
+        sparse.royal_offsets[index + 1] - sparse.royal_offsets[index]
+        for index in range(len(sparse))
+    ]
+    _require(all(1 <= count <= 52 for count in piece_counts), "invalid V2 piece count")
+    _require(
+        all(
+            global_count >= pieces
+            for global_count, pieces in zip(global_counts, piece_counts, strict=True)
+        ),
+        "V2 Global rows omit a physical G0 row",
+    )
+    _require(
+        all(royal == pieces - 1 for royal, pieces in zip(royal_counts, piece_counts, strict=True)),
+        "V2 Royal rows do not exclude exactly the Black king",
+    )
+    scores = torch.tensor(sparse.scores, dtype=torch.float32, device=device)
+    return V2Batch(
+        v2_global=torch.tensor(sparse.v2_global, dtype=torch.long, device=device),
+        v2_royal=torch.tensor(sparse.v2_royal, dtype=torch.long, device=device),
+        global_offsets=torch.tensor(sparse.global_offsets, dtype=torch.long, device=device),
+        royal_offsets=torch.tensor(sparse.royal_offsets, dtype=torch.long, device=device),
+        side_to_move=torch.tensor(sparse.side_to_move, dtype=torch.long, device=device),
+        rule50_count=torch.tensor(sparse.rule50_count, dtype=torch.long, device=device),
+        scores=scores,
+        results=torch.tensor(sparse.results, dtype=torch.long, device=device),
+        score_eligible=torch.abs(scores) < MATE_SCORE_THRESHOLD,
+    )
+
+
+def _model_batch(
+    architecture: str,
+    sparse: SparseBatch,
+    device: torch.device,
+) -> LegacyBatch | V2Batch:
+    return (
+        _torch_batch(sparse, device)
+        if architecture == LEGACY_ARCHITECTURE
+        else _torch_v2_batch(sparse, device)
     )
 
 
@@ -380,7 +545,7 @@ def _wdl_probabilities(
 
 def loss_terms(
     output: Tensor,
-    batch: LegacyBatch,
+    batch: LegacyBatch | V2Batch,
     lambda_value: float,
     calibration: DavidsonCalibration,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
@@ -422,9 +587,11 @@ def _state_sha256(model: nn.Module) -> str:
     return digest.hexdigest().upper()
 
 
-def _gradient_norms(model: LegacyHPModel) -> dict[str, float]:
+def _gradient_norms(model: nn.Module) -> dict[str, float]:
     norms: dict[str, float] = {}
-    for name, parameters in model.gradient_groups().items():
+    gradient_groups = getattr(model, "gradient_groups", None)
+    _require(callable(gradient_groups), "training model does not expose gradient groups")
+    for name, parameters in gradient_groups().items():
         squared = 0.0
         for parameter in parameters:
             _require(parameter.grad is not None, f"{name} parameter has no gradient")
@@ -436,13 +603,13 @@ def _gradient_norms(model: LegacyHPModel) -> dict[str, float]:
     return norms
 
 
-def _clip_serialized_dense_weights(model: LegacyHPModel) -> None:
+def _clip_serialized_dense_weights(model: nn.Module) -> None:
     with torch.no_grad():
         dense_limit = 127.0 / 64.0
         output_limit = (127.0 * 127.0) / 9600.0
-        model.hidden0_weights.clamp_(-dense_limit, dense_limit)
-        model.hidden1_weights.clamp_(-dense_limit, dense_limit)
-        model.output_weights.clamp_(-output_limit, output_limit)
+        getattr(model, "hidden0_weights").clamp_(-dense_limit, dense_limit)
+        getattr(model, "hidden1_weights").clamp_(-dense_limit, dense_limit)
+        getattr(model, "output_weights").clamp_(-output_limit, output_limit)
 
 
 def _all_finite(model: nn.Module) -> bool:
@@ -629,15 +796,17 @@ def _configure_runtime(seed: int, device_name: str, cpu_threads: int) -> torch.d
 
 
 def _make_optimizer(
-    model: LegacyHPModel,
+    model: nn.Module,
     learning_rate: float,
 ) -> torch.optim.Optimizer:
-    output_ids = {id(model.output_weights), id(model.output_bias)}
+    output_weights = getattr(model, "output_weights")
+    output_bias = getattr(model, "output_bias")
+    output_ids = {id(output_weights), id(output_bias)}
     body = [parameter for parameter in model.parameters() if id(parameter) not in output_ids]
     return torch.optim.RAdam(
         [
             {"params": body, "lr": learning_rate},
-            {"params": [model.output_weights, model.output_bias], "lr": learning_rate / 10.0},
+            {"params": [output_weights, output_bias], "lr": learning_rate / 10.0},
         ],
         betas=(0.9, 0.999),
         eps=1.0e-7,
@@ -651,19 +820,24 @@ def _load_sparse_batch(dataset: HordeBinV1Dataset, indices: Sequence[int]) -> Sp
 
 
 def _evaluate(
-    model: LegacyHPModel,
+    model: nn.Module,
     dataset: HordeBinV1Dataset,
     batch_size: int,
     device: torch.device,
     lambda_value: float,
     calibration: DavidsonCalibration,
+    architecture: str = LEGACY_ARCHITECTURE,
 ) -> dict[str, object]:
     metrics = MetricAccumulator()
     model.eval()
     with torch.no_grad():
         for begin in range(0, len(dataset), batch_size):
             indices = tuple(range(begin, min(begin + batch_size, len(dataset))))
-            batch = _torch_batch(_load_sparse_batch(dataset, indices), device)
+            batch = _model_batch(
+                architecture,
+                _load_sparse_batch(dataset, indices),
+                device,
+            )
             composite, score_error, result_error, prediction = loss_terms(
                 model(batch), batch, lambda_value, calibration
             )
@@ -762,8 +936,9 @@ def _training_settings(
     args: argparse.Namespace,
     device: torch.device,
     wdl_calibration_sha256: str,
+    architecture: str = LEGACY_ARCHITECTURE,
 ) -> dict[str, object]:
-    return {
+    settings: dict[str, object] = {
         "seed": args.seed,
         "epochs": args.epochs,
         "lambda": args.lambda_value,
@@ -776,9 +951,20 @@ def _training_settings(
         "wdl_calibration_sha256": wdl_calibration_sha256,
         "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
     }
+    if architecture != LEGACY_ARCHITECTURE:
+        structure = _v2_structure(architecture)
+        settings["architecture"] = {
+            "name": architecture,
+            "schema": structure["schema"],
+            "structural_sha256": structure["structural_sha256"],
+        }
+    return settings
 
 
-def _load_checkpoint(path: Path) -> tuple[dict[str, object], str]:
+def _load_checkpoint(
+    path: Path,
+    architecture: str = LEGACY_ARCHITECTURE,
+) -> tuple[dict[str, object], str]:
     resolved = path.expanduser().resolve()
     _require(resolved.is_file(), f"resume checkpoint does not exist: {resolved}")
     sha256 = _sha256_file(resolved)
@@ -787,15 +973,19 @@ def _load_checkpoint(path: Path) -> tuple[dict[str, object], str]:
     except (EOFError, pickle.UnpicklingError, RuntimeError, ValueError) as error:
         raise TrainingError(f"cannot load resume checkpoint: {error}") from error
     _require(isinstance(checkpoint, dict), "resume checkpoint root is not an object")
-    _require(checkpoint.get("schema") == CHECKPOINT_SCHEMA, "resume checkpoint schema mismatch")
     _require(
-        checkpoint.get("architecture") == ARCHITECTURE_SCHEMA,
+        checkpoint.get("schema") == _checkpoint_schema(architecture),
+        "resume checkpoint schema mismatch",
+    )
+    _require(
+        checkpoint.get("architecture") == _architecture_schema(architecture),
         "resume checkpoint architecture mismatch",
     )
     return checkpoint, sha256
 
 
 def train(args: argparse.Namespace) -> dict[str, object]:
+    architecture = _architecture_name(args)
     _require(0 < args.seed <= U64_MASK, "training seed must be an unsigned 64-bit value")
     _require(args.epochs > 0, "epoch count must be positive")
     _require(args.batch_size > 0, "batch size must be positive")
@@ -821,7 +1011,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
         raise TrainingError(f"WDL calibration is invalid: {error}") from error
     device = _configure_runtime(args.seed, args.device, args.cpu_threads)
     calibration = _torch_calibration(wdl_parameters, device)
-    settings = _training_settings(args, device, wdl_sha256)
+    settings = _training_settings(args, device, wdl_sha256, architecture)
     environment = {
         "python": platform.python_version(),
         "pytorch": str(torch.__version__),
@@ -837,7 +1027,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
     resume_checkpoint: dict[str, object] | None = None
     resume_sha256: str | None = None
     if args.resume is not None:
-        resume_checkpoint, resume_sha256 = _load_checkpoint(args.resume)
+        resume_checkpoint, resume_sha256 = _load_checkpoint(args.resume, architecture)
 
     train_path = args.train.expanduser().resolve()
     validation_path = args.validation.expanduser().resolve()
@@ -851,6 +1041,10 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             validation_dataset.manifest,
             args.book_split_receipt,
         )
+        data_receipt["decoder"] = {
+            "train": dataset_receipt(train_path, args.batch_size),
+            "validation": dataset_receipt(validation_path, args.batch_size),
+        }
         data_receipt["overlap_audit"] = audit_pair(
             train_path,
             validation_path,
@@ -892,7 +1086,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
         stop_at_step = args.stop_after_steps or target_steps
         _require(stop_at_step <= target_steps, "stop-after-steps exceeds the target run")
 
-        model = LegacyHPModel(args.seed).to(device)
+        model = _make_model(architecture, args.seed).to(device)
         optimizer = _make_optimizer(model, args.learning_rate)
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=1, gamma=args.scheduler_gamma
@@ -907,6 +1101,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 device,
                 args.lambda_value,
                 calibration,
+                architecture,
             )
             gradient_norms: dict[str, float] | None = None
             epoch_receipts: list[dict[str, object]] = []
@@ -1034,7 +1229,11 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 if batch_index < start_batch:
                     continue
 
-                batch = _torch_batch(_load_sparse_batch(train_dataset, indices), device)
+                batch = _model_batch(
+                    architecture,
+                    _load_sparse_batch(train_dataset, indices),
+                    device,
+                )
                 optimizer.zero_grad(set_to_none=True)
                 composite, score_error, result_error, prediction = loss_terms(
                     model(batch), batch, args.lambda_value, calibration
@@ -1092,6 +1291,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 device,
                 args.lambda_value,
                 calibration,
+                architecture,
             )
             epoch_receipt = {
                 "epoch": epoch + 1,
@@ -1123,6 +1323,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             device,
             args.lambda_value,
             calibration,
+            architecture,
         )
 
         metrics_lines = [
@@ -1146,8 +1347,8 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             "epoch_receipts": epoch_receipts,
         }
         checkpoint = {
-            "schema": CHECKPOINT_SCHEMA,
-            "architecture": ARCHITECTURE_SCHEMA,
+            "schema": _checkpoint_schema(architecture),
+            "architecture": _architecture_schema(architecture),
             "source": source,
             "environment": environment,
             "model_state": _cpu_tree(model.state_dict()),
@@ -1161,16 +1362,30 @@ def train(args: argparse.Namespace) -> dict[str, object]:
         checkpoint_path = output / "checkpoint.pt"
         _save_checkpoint_exclusive(checkpoint_path, checkpoint)
 
-        receipt = {
-            "schema": SCHEMA,
-            "architecture": {
+        if architecture == LEGACY_ARCHITECTURE:
+            architecture_receipt: dict[str, object] = {
                 "schema": ARCHITECTURE_SCHEMA,
                 "legacy_feature_schema": "HORDETEST_HP_LEGACY_V1",
-                "serialized_topology": "896 -> 512 shared FT + PSQT; 8 x (1024 -> 16 -> 32 -> 1)",
+                "serialized_topology": (
+                    "896 -> 512 shared FT + PSQT; 8 x (1024 -> 16 -> 32 -> 1)"
+                ),
                 "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
                 "training_only_factorizer": False,
                 "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
-            },
+            }
+        else:
+            architecture_receipt = {
+                **_v2_structure(architecture),
+                "name": architecture,
+                "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+                "training_only_factorizer": False,
+                "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
+                "physical_piece_contract": "all pawns remain PAWN; roles are feature identities",
+            }
+
+        receipt = {
+            "schema": _training_schema(architecture),
+            "architecture": architecture_receipt,
             "source": source,
             "environment": environment,
             "data": data_receipt,
@@ -1288,6 +1503,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("train", type=Path)
     parser.add_argument("validation", type=Path)
+    parser.add_argument(
+        "--architecture",
+        choices=ARCHITECTURE_CHOICES,
+        default=LEGACY_ARCHITECTURE,
+        help="serialized topology to train; the legacy control remains the default",
+    )
     parser.add_argument("--book-split-receipt", type=Path, required=True)
     parser.add_argument("--wdl-calibration", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

@@ -34,8 +34,11 @@ Before a canary may be expanded, the decoder must validate the header, schema ha
 the fail-closed reference boundary between physical `HORDE_BIN_V1` records and
 evaluator-specific sparse rows. It verifies the manifest, exact file framing
 and payload SHA-256 before exposing a read-only memory map. Variable-length
-batches use CSR-style offsets and retain the search labels without copying the
-whole dataset into memory.
+batches use separate CSR-style `legacy_piece_offsets`, `global_offsets`, and
+`royal_offsets`, and retain the complete physical board plus search labels
+without copying the whole dataset into memory. Global offsets are deliberately
+independent from physical-piece offsets: contextual rows may later be appended
+without changing legacy buckets or physical piece counts.
 
 Every decoded record exposes four independent sparse views:
 
@@ -52,6 +55,12 @@ Black `P` plane. The V2 oracle covers canonical Horde start, horizontal
 reflection, every promoted White role, both king-mirror halves and low
 material. The normal generator integration also decodes a deterministic real
 file into uneven batches and checks every sparse table bound.
+
+`HORDE_TRAINING_DECODER_V2` derives White and total piece counts only from the
+retained physical board. Its receipt independently counts and hashes physical
+G0, contextual Global, complete Global, Royal, and legacy streams, including a
+derived horizontal-reflection stream. The base schema requires zero contextual
+rows.
 
 Generate a deterministic decoder receipt with:
 
@@ -95,13 +104,26 @@ Every sample is globally identified by `(payload_sha256, local_record_index)`;
 the full file, header, manifest, payload, producer, book, and network identities
 are retained in decoder and trainer receipts.
 
-[`tools/horde_training_control.py`](../../tools/horde_training_control.py)
+[`tools/horde_training_models.py`](../../tools/horde_training_models.py) is the
+single model implementation used by both the engineering micro-fit and the
+full reference trainer. [`tools/horde_training_control.py`](../../tools/horde_training_control.py)
 trains the exact serialized legacy topology: one shared 896-by-512 H/P feature
 transformer with PSQT outputs and eight `1024 -> 16 -> 32 -> 1` layer stacks.
 It intentionally omits the historical training-only first-layer factorizer.
 That hidden parameterization is not part of the serialized network and has no
 matching meaning in the V2 candidates; it may be tested later as a separate
 training-method ablation, but it is not mixed into the architecture control.
+
+The same entry point also exposes the no-context `v2-64x192` and
+`v2-128x128` topologies selected by the engine-width gate. Both consume the
+Royal and Global sparse rows already authenticated by the decoder, share the
+legacy control's labels, optimizer, schedule, WDL link, rule-50 path, resume
+contract, and semantic initialization, and emit the separate
+`HORDE_V2_BASE_TRAINING_V1` receipt. Their checkpoint binds the exact width and
+a canonical structural SHA-256, so a checkpoint from one width cannot resume
+the other. This is real-data training plumbing only: enabling both widths does
+not skip the C0 split-equivalence, C1 absolute-content, and C2 width controls
+or make a 4,096-record canary a strength comparison.
 
 The reference recipe uses lambda 0.6, RAdam, a lower output-head learning rate,
 the legacy dense quantization bounds, and a deterministic bounded-memory

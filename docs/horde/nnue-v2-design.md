@@ -259,6 +259,25 @@ Two measured constraints shape the first pawn experiments:
 The cheap initial path is boundary-oriented: at most one front and one rear
 pawn per file, followed by compact per-file summaries.
 
+The first five contextual candidates are ordered by information added per
+sparse row. Every candidate is additive alongside the immutable G0 stream and
+is trained and timed alone before any combination:
+
+| Order | Candidate | Rows | Maximum active rows | FT payload at G192 | FT payload at G128 |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1 | frontier White-pawn square | 56 | 8 | 21,504 bytes | 14,336 bytes |
+| 2 | rearmost White-pawn square | 56 | 8 | 21,504 bytes | 14,336 bytes |
+| 3 | frontmost pawn blocked by any occupancy, per file | 8 | 8 | 3,072 bytes | 2,048 bytes |
+| 4 | frontier pawn diagonally supported, per file | 8 | 8 | 3,072 bytes | 2,048 bytes |
+| 5 | White-pawn count by file | 56 | 8 | 21,504 bytes | 14,336 bytes |
+
+The 56-row square planes exclude rank 8, where a White pawn must promote, and
+retain the exact physical square rather than adding a
+redundant rank-only identity. The count block uses seven non-empty count states
+per file (`1..7`); an empty file activates no row. Payload figures count signed
+16-bit transformer weights only and are therefore direct additions to the
+chosen Global width.
+
 ### S1: objective-state factorizations
 
 Candidate one-hot counts are:
@@ -418,9 +437,10 @@ Horde positions.
 The Horde-native sparse batch ABI is:
 
 ```text
+legacy_piece_offsets, legacy_white_indices, legacy_black_indices,
 royal_offsets, royal_indices,
 global_offsets, global_indices,
-side_to_move, white_piece_count, rule50_count,
+physical_piece_count, white_piece_count, side_to_move, rule50_count,
 score_stm, result_stm
 ```
 
@@ -431,6 +451,13 @@ network. `white_piece_count` is an explicit decoded value. Receipts bind the
 whole input file, fixed header, manifest, record payload, book, producer,
 teacher network, sparse rows, physical states, evaluator inputs, and mate-mask
 eligibility. A sample identity is `(payload_sha256, local_record_index)`.
+
+Legacy, Global and Royal offsets are independent even while base G0 emits one
+Global row per physical piece. `physical_piece_count` and
+`white_piece_count` are derived from the retained board, never from the
+complete Global stream. Decoder receipts separately count and hash physical
+G0, every contextual block, complete Global, Royal and legacy streams for both
+the source position and its horizontal reflection.
 
 Opening roots are assigned by a horizontal-reflection canonical key before
 generation. After generation, both physical-state keys and complete
@@ -622,6 +649,15 @@ Only `64+192` and `128+128` advance to the first training comparison. This
 receipt does not choose a production width: the two survivors still require
 controlled training and fixed-node strength evidence.
 
+The deterministic reference trainer accepts both survivors directly from
+`HORDE_BIN_V1`. It uses the same authenticated split, side-specific WDL link,
+half-Brier objective, optimizer, schedule, rule-50 graph and semantic
+initialization as the fresh legacy control. Width-specific checkpoints carry a
+canonical structural hash and reject cross-width resume. This closes the
+real-data gradient and restart path; it does not authorize a width strength
+test before the C0 split-equivalence and C1 absolute-content controls establish
+that the Royal domain itself is useful.
+
 The first gradient-plumbing gate is frozen in
 `docs/horde/nnue-v2-microfit-receipt.json`. A 32-position engineering fixture
 covers both sides to move and all eight legacy material buckets. On one CPU
@@ -661,12 +697,22 @@ advances because of validation loss alone.
 
 ### Architecture ablations
 
-6. A0: G0-only 512, one bucket, same dense trunk.
-7. A1: G0 256 + G0 256 implementation control, identical feature content and
-   total parameter budget.
-8. A2: replace the first G0 half with R0 256.
-9. If R0 is promising, test one Royal bucket map at a time, then the fixed
-   `256+256`, `128+256`, `128+128`, and `64+192` width points one at a time.
+6. C0 is an engineering-equality receipt, not an Elo test: compare one
+   `G0_SINGLE_256` table with `G0_SPLIT_64_192` and optionally
+   `G0_SPLIT_128_128`. Initialize split tensors from exact row/lane slices of
+   the single table and require identical forward values, gradients, optimizer
+   state and exported integer evaluations after reassembly.
+7. C1 isolates Royal content at the fastest surviving split: compare
+   `ABS_NONKING_64 + G0_192` with `R0_64 + G0_192`. The absolute first domain
+   uses the same ten non-king roles and at most 51 active rows, but has no king
+   bucket or orientation. This is a content control, not a parameter-matched
+   claim; R0 intentionally owns many more rows.
+8. C2 runs only if R0 passes C1: compare `R0_128 + G0_128` with the accepted
+   `R0_64 + G0_192`. These are the two width points that survived the real AVX2
+   gate and have equal dense work, accumulator bytes and quiet-move lane work.
+9. Freeze one no-context width before testing side-to-move, phase, count or
+   contextual features. Prefer `64+192` unless `128+128` establishes a
+   positive fixed-node lower bound and then wins equal-time.
 10. Compare two final STM rows with one dense STM scalar or tiny embedding.
 11. Compare no count, one count feature, and White-count phase buckets as
     alternatives.
@@ -682,7 +728,7 @@ tested only after both individual receipts exist.
 
 ## Open questions before a frozen V2 schema
 
-- Does R0 beat the equal-parameter A1 control after its refresh cost?
+- Does R0 beat the absolute non-king content control after its refresh cost?
 - Is the 32-bucket Royal map worth 10 MiB, or should it be coarser?
 - Can a Royal refresh cache amortize the measured search-node king-move rate?
 - Do two final STM rows beat a post-transform STM scalar at equal NPS?
