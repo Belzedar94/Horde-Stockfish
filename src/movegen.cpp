@@ -256,6 +256,48 @@ template Move* generate<QUIETS>(const Position&, Move*);
 template Move* generate<EVASIONS>(const Position&, Move*);
 template Move* generate<NON_EVASIONS>(const Position&, Move*);
 
+bool has_horde_white_legal_move(const Position& pos) {
+
+    assert(pos.side_to_move() == WHITE);
+
+    const Bitboard white    = pos.pieces(WHITE);
+    const Bitboard occupied = pos.pieces();
+    const Bitboard empty    = ~occupied;
+    const Bitboard targets  = ~white;
+    const Bitboard pawns    = pos.pieces(WHITE, PAWN);
+
+    // White has no royal king in Horde, so every pseudo-legal move is legal.
+    // A double pawn push can only exist when its single push also exists, and
+    // therefore does not need a separate test here.
+    if ((shift<NORTH>(pawns) & empty) || (pawn_attacks_bb<WHITE>(pawns) & pos.pieces(BLACK)))
+        return true;
+
+    if (pos.ep_square() != SQ_NONE && (Attacks::attacks_bb<PAWN>(pos.ep_square(), BLACK) & pawns))
+        return true;
+
+    Bitboard pieces = pos.pieces(WHITE, KNIGHT);
+    while (pieces)
+        if (Attacks::attacks_bb<KNIGHT>(pop_lsb(pieces)) & targets)
+            return true;
+
+    pieces = pos.pieces(WHITE, BISHOP);
+    while (pieces)
+        if (Attacks::attacks_bb<BISHOP>(pop_lsb(pieces), occupied) & targets)
+            return true;
+
+    pieces = pos.pieces(WHITE, ROOK);
+    while (pieces)
+        if (Attacks::attacks_bb<ROOK>(pop_lsb(pieces), occupied) & targets)
+            return true;
+
+    pieces = pos.pieces(WHITE, QUEEN);
+    while (pieces)
+        if (Attacks::attacks_bb<QUEEN>(pop_lsb(pieces), occupied) & targets)
+            return true;
+
+    return false;
+}
+
 // generate<LEGAL> generates all the legal moves in the given position
 
 template<>

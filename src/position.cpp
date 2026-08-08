@@ -1714,7 +1714,7 @@ std::optional<Outcome> Position::outcome(int ply) {
             {
                 StateInfo moveState;
                 do_move(move, moveState);
-                const bool whiteCanMove = MoveList<LEGAL>(*this).size() != 0;
+                const bool whiteCanMove = has_horde_white_legal_move(*this);
                 undo_move(move);
 
                 if (whiteCanMove)
