@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeProbCutDecisiveTTGuard = bool(options["HordeProbCutDecisiveTTGuard"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -1156,6 +1157,8 @@ Value Search::Worker::search(
 
             assert(pos.capture_stage(move));
 
+            const bool exactExtinction = pos.is_horde_extinction_capture(move);
+
 #if defined(HORDE_SEARCH_TELEMETRY)
             if (hordeMetrics)
                 ++hordeMetrics->probCutMoves;
@@ -1176,8 +1179,9 @@ Value Search::Worker::search(
             if (value >= probCutBeta)
             {
                 // Save ProbCut data into transposition table
-                ttWriter.write(posKey, value_to_tt(value, ss->ply), ss->ttPv, BOUND_LOWER,
-                               probCutDepth + 1, move, unadjustedStaticEval, tt.generation());
+                if (!hordeProbCutDecisiveTTGuard || !is_decisive(value) || exactExtinction)
+                    ttWriter.write(posKey, value_to_tt(value, ss->ply), ss->ttPv, BOUND_LOWER,
+                                   probCutDepth + 1, move, unadjustedStaticEval, tt.generation());
 
                 if (!is_decisive(value))
                 {
