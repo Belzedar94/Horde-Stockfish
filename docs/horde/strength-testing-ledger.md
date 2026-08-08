@@ -160,8 +160,8 @@ now isolated above. It may be rebuilt as a merge-confirmation test only after
 both orthogonal components pass independently.
 
 Second wave consists of zero-game structural candidates with green artifact
-CI: `test/white-legal-generation-fastpath`, `test/qsearch-terminal-recheck`,
-`test/horde-material-correction`, and `test/white-piece-count-see-guard`. The
+CI: `test/qsearch-terminal-recheck`, `test/horde-material-correction`, and
+`test/white-piece-count-see-guard`. The
 last branch now points to
 `dfa4746188baaaebad4fe675ed0f10f692293e74`; its previous CI failure was only a
 stale deterministic-bench receipt, and all four artifact jobs pass on the new
@@ -509,6 +509,30 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
 - Learning: specializing this single bookkeeping expression does not remove a
   measurable hot-path cost and its layout perturbation is at least as large as
   the saved generic tests.
+
+### 2026-08-08 - White legal-generation early return
+
+- Branch: `test/white-legal-generation-fastpath`, commit
+  `916fca9952262d44f3a2fc9ff2ec3129e2c5300f`.
+- Hypothesis: after pseudo-legal generation, return the White move list
+  immediately because Horde's non-royal side cannot require king-safety
+  filtering.
+- Scope: only `generate<LEGAL>()`; Black pin, king-move, en-passant, and all
+  rule/search behavior remained unchanged.
+- Validation: a clean GCC 16 AVX2 build passed Horde rules, the Run 6B
+  contract, and three deterministic 315,576-node benches with the accepted
+  best-move digest.
+- Local speed screen: the ten-position bench measured `1.035073` geometric,
+  `1.033011` trimmed, and 28/32 favorable. Two independent start-position
+  samples disagreed at `0.987434` over 48 pairs and `1.020050` over 32 pairs;
+  the latter contained extreme host pauses. Their pooled raw geometric ratio
+  is only `1.000353`, with 50/80 favorable.
+- Decision: rejected as a standalone OpenBench workload because its principal
+  suite is neutral and it overlaps the stronger direct White-terminal
+  fastpath. Retain it only as an interaction candidate if that orthogonal
+  terminal change first passes STC.
+- Learning: removing the White legality scan helps some mixed positions but
+  does not produce a stable whole-search gain from the standard Horde root.
 
 ### 2026-08-08 - Fixed-role White legality gate
 
