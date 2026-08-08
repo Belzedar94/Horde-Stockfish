@@ -63,3 +63,13 @@ This pure-Python implementation is the conformance reference and deterministic
 micro-fit input path, not a throughput claim for a full 50-million-position
 training run. Any future compiled loader must reproduce its sparse receipt
 exactly before replacing it in large-scale training.
+
+[`tools/horde_run6b.py`](../../tools/horde_run6b.py) then reads only the
+registered Run 6B artifact and replays its integer network directly from those
+legacy sparse rows. Its independent implementation covers feature-transformer
+wrapping, both perspectives, piece-count buckets, PSQT, all eight layer stacks,
+activation shifts and the serialized dense-weight order. CI compares its raw
+PSQT, positional and total outputs against the production engine on 512
+reachable positions containing captures, promotion, en passant and castling.
+This pins the complete legacy trainer input path before any fresh network is
+optimized or exported.

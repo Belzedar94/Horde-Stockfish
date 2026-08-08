@@ -97,8 +97,10 @@ jobs:
           tests/horde_v2_engine_widths.py
           tests/horde_nnue_parity.py
           tests/horde_nnue_determinism.py
+          tests/horde_legacy_trainer_replay.py
           tests/horde_data_generator.py
           tools/horde_bin_v1.py
+          tools/horde_run6b.py
           tools/horde_training_decoder.py
 
   sanitizers:
@@ -192,6 +194,11 @@ jobs:
           make -C src clean
           make -j2 -C src ARCH=x86-64-bmi2 build
           cp src/stockfish horde-stockfish-bmi2
+      - name: Verify trainer-side Run 6B replay
+        run: >-
+          python3 tests/horde_legacy_trainer_replay.py
+          --engine horde-stockfish-bmi2
+          --positions 512
       - name: Verify 100,000-position raw and final parity
         run: >-
           python3 tests/horde_nnue_parity.py
