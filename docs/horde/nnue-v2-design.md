@@ -622,8 +622,10 @@ advances because of validation loss alone.
 
 ### Training control
 
-5. Fresh legacy H/P, exact legacy architecture, three seeds, separate
-   experimental schema identity.
+5. Fresh legacy H/P, exact serialized legacy architecture, three seeds,
+   separate experimental schema identity. The common reference recipe excludes
+   the historical training-only first-layer factorizer; adding that factorizer
+   is a separate training-method experiment, not part of an architecture rung.
 
 ### Architecture ablations
 

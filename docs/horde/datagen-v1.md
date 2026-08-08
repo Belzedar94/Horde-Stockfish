@@ -73,3 +73,35 @@ PSQT, positional and total outputs against the production engine on 512
 reachable positions containing captures, promotion, en passant and castling.
 This pins the complete legacy trainer input path before any fresh network is
 optimized or exported.
+
+## Fresh legacy control
+
+[`tools/horde_split_training_book.py`](../../tools/horde_split_training_book.py)
+partitions one source EPD by the SHA-256 of its first four normalized FEN
+fields. It rejects duplicate physical states and writes exclusive train,
+validation, and receipt artifacts. The fresh-control trainer requires that
+receipt and independently checks that the two `HORDE_BIN_V1` files identify
+different book hashes, identical teacher settings, and the same producer and
+Run 6B identities.
+
+[`tools/horde_training_control.py`](../../tools/horde_training_control.py)
+trains the exact serialized legacy topology: one shared 896-by-512 H/P feature
+transformer with PSQT outputs and eight `1024 -> 16 -> 32 -> 1` layer stacks.
+It intentionally omits the historical training-only first-layer factorizer.
+That hidden parameterization is not part of the serialized network and has no
+matching meaning in the V2 candidates; it may be tested later as a separate
+training-method ablation, but it is not mixed into the architecture control.
+
+The reference recipe uses lambda 0.6, RAdam, a lower output-head learning rate,
+the legacy dense quantization bounds, and a deterministic bounded-memory
+SplitMix64 block shuffle. Scores with absolute value at least 31,507 are
+excluded from the evaluation term and retained in the game-result term, so
+mate-distance values are never regressed as ordinary centipawns. CPU and CUDA
+runs record complete environment, data, schedule, state, checkpoint, and
+metric hashes. CPU is the exact cross-run receipt path; CUDA determinism is
+verified independently on the target trainer host.
+
+This Python path is a correctness and convergence reference. A compiled loader
+must reproduce its batches, masks, loss, and state transitions before the
+50-million-position ladder; the canary throughput is not a production training
+claim.

@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Focused tests for the fresh Horde legacy-control reference trainer."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+import torch
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+import horde_training_control as control  # noqa: E402
+import horde_training_microfit as microfit  # noqa: E402
+
+
+def test_schedule() -> None:
+    first = list(control.epoch_batches(103, 13, 31, 0x12345678, 0))
+    repeat = list(control.epoch_batches(103, 13, 31, 0x12345678, 0))
+    second_epoch = list(control.epoch_batches(103, 13, 31, 0x12345678, 1))
+    if first != repeat:
+        raise AssertionError("fixed-seed block shuffle is not deterministic")
+    if first == second_epoch:
+        raise AssertionError("block shuffle did not change between epochs")
+    flattened = [index for batch in first for index in batch]
+    if sorted(flattened) != list(range(103)):
+        raise AssertionError("block shuffle is not a complete permutation")
+    if any(not 1 <= len(batch) <= 13 for batch in first):
+        raise AssertionError("block shuffle emitted an invalid batch size")
+    if control._schedule_sha256(first) != control._schedule_sha256(repeat):
+        raise AssertionError("schedule hash changed for identical batches")
+
+    for record_count in range(1, 97):
+        for batch_size, block_size in ((1, 1), (7, 9), (13, 31), (32, 32)):
+            batches = list(
+                control.epoch_batches(
+                    record_count,
+                    batch_size,
+                    max(batch_size, block_size),
+                    0xA5A5A5A5,
+                    record_count % 5,
+                )
+            )
+            observed = [index for batch in batches for index in batch]
+            if sorted(observed) != list(range(record_count)):
+                raise AssertionError(
+                    f"block shuffle lost a record at n={record_count}, "
+                    f"batch={batch_size}, block={block_size}"
+                )
+
+
+def test_mate_mask() -> None:
+    batch = control.LegacyBatch(
+        legacy_white=torch.empty(0, dtype=torch.long),
+        legacy_black=torch.empty(0, dtype=torch.long),
+        piece_offsets=torch.zeros(4, dtype=torch.long),
+        side_to_move=torch.tensor([0, 1, 0]),
+        piece_buckets=torch.zeros(3, dtype=torch.long),
+        scores=torch.tensor([0.0, 31507.0, -31999.0]),
+        result_targets=torch.tensor([0.5, 1.0, 0.0]),
+        eval_eligible=torch.tensor([True, False, False]),
+    )
+    output = torch.zeros(3)
+    composite, eval_error, result_error, prediction = control.loss_terms(output, batch, 0.6)
+    expected = torch.tensor([0.0, 0.1, 0.1])
+    if not torch.equal(batch.eval_eligible, torch.tensor([True, False, False])):
+        raise AssertionError("mate eligibility threshold changed")
+    if not torch.allclose(composite, expected, atol=1.0e-7, rtol=0.0):
+        raise AssertionError(f"mate eval term was not masked: {composite}")
+    if not bool(torch.all(eval_error[1:] > 0.2)):
+        raise AssertionError("mate fixture does not exercise a non-zero masked eval error")
+    if not torch.allclose(result_error[1:], torch.tensor([0.25, 0.25])):
+        raise AssertionError("mate result term changed")
+    if not torch.equal(prediction, torch.full((3,), 0.5)):
+        raise AssertionError("zero-output prediction changed")
+
+
+def test_gradient_path() -> None:
+    fixture, _ = microfit.make_fixture_batch()
+    batch = control.LegacyBatch(
+        legacy_white=fixture.legacy_white,
+        legacy_black=fixture.legacy_black,
+        piece_offsets=fixture.piece_offsets,
+        side_to_move=fixture.side_to_move,
+        piece_buckets=fixture.piece_buckets,
+        scores=fixture.scores,
+        result_targets=fixture.result_targets,
+        eval_eligible=torch.ones_like(fixture.scores, dtype=torch.bool),
+    )
+    model = control.LegacyHPModel(0xC0FFEE)
+    before = control._state_sha256(model)
+    optimizer = control._make_optimizer(model, control.DEFAULT_LEARNING_RATE)
+    composite, *_ = control.loss_terms(model(batch), batch, 0.6)
+    composite.mean().backward()
+    norms = control._gradient_norms(model)
+    if set(norms) != {"feature_transformer", "psqt", "dense_trunk", "output"}:
+        raise AssertionError(f"gradient domains changed: {norms}")
+    optimizer.step()
+    control._clip_serialized_dense_weights(model)
+    after = control._state_sha256(model)
+    if before == after:
+        raise AssertionError("optimizer step did not change the model")
+    if not control._all_finite(model):
+        raise AssertionError("optimizer step produced non-finite parameters")
+
+    if torch.cuda.is_available():
+        cuda_model = control.LegacyHPModel(0xC0FFEE).to("cuda")
+        cuda_batch = control.LegacyBatch(
+            legacy_white=batch.legacy_white.to("cuda"),
+            legacy_black=batch.legacy_black.to("cuda"),
+            piece_offsets=batch.piece_offsets.to("cuda"),
+            side_to_move=batch.side_to_move.to("cuda"),
+            piece_buckets=batch.piece_buckets.to("cuda"),
+            scores=batch.scores.to("cuda"),
+            result_targets=batch.result_targets.to("cuda"),
+            eval_eligible=batch.eval_eligible.to("cuda"),
+        )
+        with torch.no_grad():
+            output = cuda_model(cuda_batch)
+        if output.device.type != "cuda" or not bool(torch.isfinite(output).all().cpu()):
+            raise AssertionError("legacy control forward is not CUDA-safe")
+
+
+def main() -> int:
+    torch.set_num_threads(1)
+    torch.backends.mkldnn.enabled = False
+    torch.use_deterministic_algorithms(True)
+    test_schedule()
+    test_mate_mask()
+    test_gradient_path()
+    print("Horde fresh legacy-control trainer tests passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

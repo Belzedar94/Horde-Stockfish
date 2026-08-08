@@ -349,13 +349,13 @@ class LegacyHPModel(nn.Module):
             batch.legacy_white,
             batch.piece_offsets,
             self.psqt_weights,
-            torch.zeros(LEGACY_BUCKETS),
+            self.psqt_weights.new_zeros(LEGACY_BUCKETS),
         )
         black_psqt = _sparse_sum(
             batch.legacy_black,
             batch.piece_offsets,
             self.psqt_weights,
-            torch.zeros(LEGACY_BUCKETS),
+            self.psqt_weights.new_zeros(LEGACY_BUCKETS),
         )
         bucket = batch.piece_buckets.unsqueeze(1)
         white_psqt = white_psqt.gather(1, bucket).squeeze(1)

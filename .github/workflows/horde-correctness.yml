@@ -100,9 +100,11 @@ jobs:
           tests/horde_legacy_trainer_replay.py
           tests/horde_data_generator.py
           tests/horde_training_book_split.py
+          tests/horde_training_control.py
           tools/horde_bin_v1.py
           tools/horde_run6b.py
           tools/horde_split_training_book.py
+          tools/horde_training_control.py
           tools/horde_training_decoder.py
           tools/horde_training_microfit.py
       - name: Verify deterministic training-book split
