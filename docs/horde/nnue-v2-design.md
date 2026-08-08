@@ -572,6 +572,13 @@ adversarial header, provenance, directory, payload, truncation, and parameter
 range failures on Linux and Windows. This path has no UCI dispatch and cannot
 replace Run 6B; it is an engineering gate for trained V2 checkpoints only.
 
+The accepted implementation and the two exported canary checkpoints are frozen
+in `docs/horde/nnue-v2-integer-container-receipt.json` at source commit
+`f38a1a7c`. The receipt records byte identities, exact training provenance,
+layer traces, scalar/AVX2/Python parity, malformed-container cases, and the green
+Linux/Windows CI runs. It carries no playing-strength or production-dispatch
+claim.
+
 The engine dispatch order is explicit:
 
 1. a complete SHA-256 match selects registered Run 6B and

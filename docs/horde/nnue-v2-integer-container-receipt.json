@@ -1,0 +1,146 @@
+{
+  "schema": "HORDE_V2_INTEGER_CONTAINER_RECEIPT_V1",
+  "source": {
+    "branch": "feature/horde-v2-integer-container",
+    "commit": "f38a1a7c6b92be08afa6847c79191f7fbe68d0ad",
+    "dirty": false
+  },
+  "contract": {
+    "container_schema": "HORDE_V2_INTEGER_NETWORK_V1",
+    "magic_ascii": "HSV2INT\\u0000",
+    "format_version": 1,
+    "header_bytes": 2048,
+    "byte_order": "little-endian",
+    "authenticated_parameter_sections": 10,
+    "quantization": {
+      "feature_transform_scale": 8128,
+      "feature_weights": "int16",
+      "dense_weight_scale": 64,
+      "dense_weights": "int8",
+      "biases_and_accumulators": "int32",
+      "rounding": "nearest, ties to even",
+      "activation": "clip(max(affine, 0) >> 6, 0, 127)",
+      "output_divisor": 16,
+      "output_rounding": "truncation toward zero",
+      "rule50_postprocessor": "HORDE_V2_RULE50_POSTPROCESSOR_V1",
+      "maximum_absolute_bias": 1073741824
+    }
+  },
+  "registered_networks": {
+    "V2_BASE_P0_64X192": {
+      "network_schema_id": 65537,
+      "container_structural_sha256": "7456B4C43FCF9CCCCB57C465D92708975BC131058619EB58D7EB239BCA42F9D1",
+      "training_architecture_structural_sha256": "5360985A5B08E43A6F7C23E8601DF159BAEE38E9306C3652867AA93EEAD39862",
+      "container": {
+        "name": "royal64x192.hsv2",
+        "bytes": 2907554,
+        "sha256": "EDBC42501433C768BF064901EE91EC7408942D389F4EF42C19DEAEC2D9D864F3",
+        "parameter_bytes": 2902344,
+        "parameter_sha256": "4A5EF7A73258F67F3E939D09A19EF7B295DA85C44D29A4F9816A7BB142D25E7E",
+        "integer_trace_sha256": "9A505B7381CDA8D5B9BECF999920CEB1BFAB3404C4E2432F6509FAFEA4A2EAFA"
+      },
+      "export_receipt": {
+        "name": "royal64x192.export.json",
+        "bytes": 7286,
+        "sha256": "B2EA006101466EC60E3CCBB2BDA08A55AEBE5F2E24CC9BBEC717285F049C7390"
+      },
+      "provenance": {
+        "checkpoint_sha256": "7FE5D51C0027FFD55D07C35129AF68C697DD431EAD93BA5DD1C0C8AABE3AFF29",
+        "training_receipt_sha256": "6E41F4968C310572B2F6DB069022D624E962DBEF9E8AC901B85FA20946D83A5A"
+      }
+    },
+    "V2_C1_ABS_NONKING_64X192": {
+      "network_schema_id": 65538,
+      "container_structural_sha256": "4FC702F66B3B1BB12105B67C05FFFC73B9B17E9B33EF09EBF9BEE04570AFE21A",
+      "training_architecture_structural_sha256": "66538DB76A0248662A824545A2ECCD2AE84CD4805DDFCA206B5239FA3BDE45B6",
+      "container": {
+        "name": "abs64x192.hsv2",
+        "bytes": 367988,
+        "sha256": "E0541B852E3BE01B1B60C81D71C3D499013A0089EBA4E97FA43C650455ABED38",
+        "parameter_bytes": 362824,
+        "parameter_sha256": "DE874DBCDDA4380CE00FFC2680B21567613182C788C36EE4D727B5E9AB1EFFAD",
+        "integer_trace_sha256": "FED5F3B2B63D17B7E3F306483B31DAC448D0BFE9DEEDD57DBD564653295704C8"
+      },
+      "export_receipt": {
+        "name": "abs64x192.export.json",
+        "bytes": 7322,
+        "sha256": "6EC3012932604D51277B4772760D0054A07DCC02D5E0A4AEB6C358ADFBE961E5"
+      },
+      "provenance": {
+        "checkpoint_sha256": "9802851CEC667C42D82D12ABFF0B93F8198A1D15D2C3D8AB97791A35EF0AAFCB",
+        "training_receipt_sha256": "7C09748E40CF8DD110077ABC3D19D458EF1841B3A641DB54A5CDC0BE7914FB47"
+      }
+    }
+  },
+  "shared_provenance": {
+    "training_source_commit": "50c5eeaef53ef47db59c7cb92e6baa340152c793",
+    "training_source_dirty": false,
+    "train_file_sha256": "28E9E96B9813E629352966E383BD87438C5295CE11DB8E62B5A164F220B0CBD1",
+    "validation_file_sha256": "2B2E724B9CF42E60DF8EECF67DBBA5609240023DAA102B3743A654843EE9ADE4",
+    "wdl_calibration_sha256": "AAD0DE1A06C1BC9B6C0AC11F60B2581D5802519017DC4AF34F02B06560FC2B14"
+  },
+  "implementation": {
+    "cpp_reader_and_full_refresh_sha256": "9D0CA3E184DC192877196D5BB1A25717558CC5295FFB78B3A51FFE005253F689",
+    "cpp_header_sha256": "68FF8617C22D7FFB0D7F76FA0B374AD1253800D00F76AF9FFA32B76018E0EE12",
+    "cpp_oracle_sha256": "C46B5B7820448B88B89D8EE4AA51B0F7C5342206462502E4A67D7C7743D6DEC6",
+    "python_parity_sha256": "3261D7CDA0EDE7EBB07C4A0DA5D30B7CF9B8E03F1A0A31AB9F41CDCA7F906C20",
+    "python_codec_sha256": "F7B7A8FE63EFF24320FC70C57B20C70DCAA300D0BDFD012E0B89C696A36D71AF",
+    "python_exporter_sha256": "A8EC5B0B4F4AE1D64BA8CDDDB3E9A4DCA332C75783CD58E0D7ED24E07F82D588"
+  },
+  "verification": {
+    "actual_checkpoint_oracles": 2,
+    "actual_checkpoint_positions": 6,
+    "cpp_backends": [
+      "scalar",
+      "avx2"
+    ],
+    "python_layer_oracle": true,
+    "properties": [
+      "horizontal reflection",
+      "side-to-move output selection",
+      "rule-50 postprocessing"
+    ],
+    "malformed_container_cases": [
+      "truncated file",
+      "wrong magic",
+      "wrong file length",
+      "offset overflow",
+      "unknown schema id",
+      "wrong structural identity",
+      "wrong provenance identity",
+      "dirty training source",
+      "nonzero reserved header bytes",
+      "invalid section directory",
+      "payload digest mismatch",
+      "unsafe bias range"
+    ],
+    "local_windows_oracle_binaries": {
+      "scalar_sha256": "2B6210094EE080883E35EB94264C11153EEC1E619E0DC4206C31EECB1D22657C",
+      "avx2_sha256": "CF83715716F3D6263ABA294111F41F8935CAB24B53310B6D8293712BBE90C8AA"
+    }
+  },
+  "ci": {
+    "correctness": {
+      "run_id": 31279105600,
+      "head_sha": "f38a1a7c6b92be08afa6847c79191f7fbe68d0ad",
+      "conclusion": "success",
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31279105600"
+    },
+    "openbench_artifacts": {
+      "run_id": 31279101864,
+      "head_sha": "f38a1a7c6b92be08afa6847c79191f7fbe68d0ad",
+      "conclusion": "success",
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31279101864"
+    }
+  },
+  "claims": {
+    "authenticated_integer_container": true,
+    "cpp_full_refresh": true,
+    "scalar_avx2_python_parity": true,
+    "fail_closed_validation": true,
+    "incremental_eligible": false,
+    "production_dispatch": false,
+    "run6b_production_path_changed": false,
+    "strength_evidence": false
+  }
+}
