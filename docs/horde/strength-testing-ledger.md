@@ -100,12 +100,16 @@ First wave, all at priority 1000:
    moves. All four artifact jobs pass.
 4. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
    Its defect-free V1 sample had LLR `+0.97` after 4,096 games.
-5. `test/outcome-fastpath` at `bffa9a10ff4c3ce7ea61361f98d2814ffa1c6256`.
-   Its early V1 signal was LLR `+0.73`, but four time losses invalidate the
-   1,600-game sample.
-6. `test/movepicker-legacy-pawn` at
+5. `test/movepicker-legacy-pawn` at
    `a7161dc472672ac09d9e9616766e9bb1b01c37a1`. Its early V1 signal was LLR
    `+0.51`, but one time loss invalidates the 1,536-game sample.
+
+Do not register the older combined `test/outcome-fastpath` commit
+`bffa9a10ff4c3ce7ea61361f98d2814ffa1c6256` in the first wave. Its early V1
+signal was LLR `+0.73`, but four time losses invalidate the 1,600-game sample,
+and it combines the two independently measurable White-mobility call sites
+now isolated above. It may be rebuilt as a merge-confirmation test only after
+both orthogonal components pass independently.
 
 Second wave consists of zero-game structural candidates with green artifact
 CI: `test/white-legal-generation-fastpath`, `test/fixed-role-gives-check`,
