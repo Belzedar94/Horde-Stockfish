@@ -72,12 +72,25 @@ First wave, all at priority 1000:
    measured a `1.012807` speed ratio, while sixteen alternating depth-16
    ten-position bench pairs measured `1.038213`; fixed work and best moves were
    identical. All four artifact jobs pass.
-2. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
+2. `test/white-outcome-has-move-fastpath` at
+   `4be2e1656d61a48273e360264057feaff800c41a`. It replaces the complete White
+   legal-list construction used only to answer whether a terminal move exists
+   with an exact fixed-role bitboard predicate. The predicate matched full
+   legal generation on 100,000 deterministic reachable White-to-move
+   positions plus ten edge fixtures covering stalemate, promotion, en passant,
+   and every physical piece type. Horde rules, the Run 6B contract, and three
+   deterministic 315,576-node benches passed with the accepted best-move
+   digest. Forty-eight alternating start-position depth-18 pairs measured a
+   `1.031855` speed ratio; thirty-two alternating depth-16 ten-position bench
+   pairs measured `1.035770`, with 28/32 favorable and a `1.035564` ratio after
+   trimming one extreme from each tail. Fixed work and best moves were
+   identical. All four artifact jobs pass.
+3. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
    Its defect-free V1 sample had LLR `+0.97` after 4,096 games.
-3. `test/outcome-fastpath` at `bffa9a10ff4c3ce7ea61361f98d2814ffa1c6256`.
+4. `test/outcome-fastpath` at `bffa9a10ff4c3ce7ea61361f98d2814ffa1c6256`.
    Its early V1 signal was LLR `+0.73`, but four time losses invalidate the
    1,600-game sample.
-4. `test/movepicker-legacy-pawn` at
+5. `test/movepicker-legacy-pawn` at
    `a7161dc472672ac09d9e9616766e9bb1b01c37a1`. Its early V1 signal was LLR
    `+0.51`, but one time loss invalidates the 1,536-game sample.
 
