@@ -18,6 +18,7 @@
 #include <type_traits>
 
 #include "../types.h"
+#include "horde_legacy_features.h"
 #include "layers/affine_transform.h"
 
 namespace Stockfish {
@@ -39,7 +40,7 @@ class HordeLegacyNetwork {
       "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7";
 
     static constexpr usize FileSize              = 1088416;
-    static constexpr usize FeatureDimensions     = 896;
+    static constexpr usize FeatureDimensions     = HordeLegacy::PieceSquareDimensions;
     static constexpr usize AccumulatorDimensions = 512;
     static constexpr usize NetworkInputs         = 1024;
     static constexpr usize PsqtBuckets           = 8;

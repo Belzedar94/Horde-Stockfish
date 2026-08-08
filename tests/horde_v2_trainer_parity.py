@@ -6,9 +6,15 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Iterable
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+import horde_training_decoder as training_decoder  # noqa: E402
 
 
 MASK64 = (1 << 64) - 1
@@ -188,6 +194,45 @@ def first_difference(expected: object, actual: object) -> str:
     return f"{expected!r} != {actual!r}"
 
 
+def verify_sparse_indices(oracle: Path) -> int:
+    completed = subprocess.run(
+        [str(oracle.resolve()), "--sparse-index-receipt"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    receipt = json.loads(completed.stdout)
+    if receipt.get("schema") != "HORDE_SPARSE_INDEX_RECEIPT_V1":
+        raise AssertionError(f"unexpected sparse receipt schema: {receipt.get('schema')!r}")
+    positions = receipt.get("positions")
+    if not isinstance(positions, list) or not positions:
+        raise AssertionError("sparse receipt does not contain positions")
+
+    for position_index, actual in enumerate(positions):
+        features = training_decoder.extract_sparse_features(actual["board"])
+        expected = {
+            "board": actual["board"],
+            "legacy_white": list(features.legacy_white),
+            "legacy_black": list(features.legacy_black),
+            "v2_global": list(features.v2_global),
+            "v2_royal": list(features.v2_royal),
+            "royal_bucket": features.royal_bucket,
+            "royal_mirror": features.royal_mirror,
+        }
+        if actual.keys() != expected.keys():
+            raise AssertionError(
+                f"sparse position {position_index} keys differ: "
+                f"actual={sorted(actual)}, expected={sorted(expected)}"
+            )
+        for key, expected_value in expected.items():
+            if actual[key] != expected_value:
+                raise AssertionError(
+                    f"trainer/C++ sparse mismatch in position {position_index} {key}: "
+                    f"{first_difference(expected_value, actual[key])}"
+                )
+    return len(positions)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("oracle", type=Path, help="compiled C++ V2 contract test")
@@ -216,11 +261,13 @@ def main() -> int:
                 f"{first_difference(expected_value, actual_value)}"
             )
 
+    sparse_positions = verify_sparse_indices(args.oracle)
+
     elapsed = time.perf_counter() - started
     print(
         "Horde V2 trainer/C++ integer parity passed: "
         f"{len(expected)} fields, P0={expected['white_pre_rule50']}/"
-        f"{expected['black_pre_rule50']}, {elapsed:.2f}s"
+        f"{expected['black_pre_rule50']}, sparse_positions={sparse_positions}, {elapsed:.2f}s"
     )
     return 0
 

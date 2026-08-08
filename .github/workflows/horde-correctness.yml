@@ -97,6 +97,9 @@ jobs:
           tests/horde_v2_engine_widths.py
           tests/horde_nnue_parity.py
           tests/horde_nnue_determinism.py
+          tests/horde_data_generator.py
+          tools/horde_bin_v1.py
+          tools/horde_training_decoder.py
 
   sanitizers:
     name: Linux ASan and UBSan

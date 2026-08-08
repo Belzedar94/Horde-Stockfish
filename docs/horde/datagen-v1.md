@@ -27,3 +27,39 @@ OpenBench publication protocol 41 remains the outer transport and authentication
 ## G0 audit
 
 Before a canary may be expanded, the decoder must validate the header, schema hash, payload hash, record framing, physical piece constraints, move encodings and origins, and terminal reason range. Exact move legality is enforced before encoding by the producer. The coverage report must include side-to-move balance, White piece-count buckets, promoted-piece presence, en-passant states and moves, Black castling rights and moves, best-versus-played divergence, score distribution, game results, and every terminal reason observed. Capture, check, and promotion samples are measured rather than filtered out.
+
+## Trainer reference decoder
+
+[`tools/horde_training_decoder.py`](../../tools/horde_training_decoder.py) is
+the fail-closed reference boundary between physical `HORDE_BIN_V1` records and
+evaluator-specific sparse rows. It verifies the manifest, exact file framing
+and payload SHA-256 before exposing a read-only memory map. Variable-length
+batches use CSR-style offsets and retain the search labels without copying the
+whole dataset into memory.
+
+Every decoded record exposes four independent sparse views:
+
+- legacy White-perspective and Black-perspective rows in the 896-dimensional
+  `HORDETEST_HP_LEGACY_V1` table;
+- absolute fixed-role rows in the 704-dimensional V2 Global table;
+- Black-king-relative fixed-role rows in the 20,480-dimensional V2 Royal
+  table, excluding the Black king itself.
+
+The legacy implementation and the C++ conformance oracle share
+[`src/nnue/horde_legacy_features.h`](../../src/nnue/horde_legacy_features.h),
+so the trainer cannot silently collapse the legacy White `H` plane into the
+Black `P` plane. The V2 oracle covers canonical Horde start, horizontal
+reflection, every promoted White role, both king-mirror halves and low
+material. The normal generator integration also decodes a deterministic real
+file into uneven batches and checks every sparse table bound.
+
+Generate a deterministic decoder receipt with:
+
+```console
+python tools/horde_training_decoder.py chunk.bin --batch-size 4096
+```
+
+This pure-Python implementation is the conformance reference and deterministic
+micro-fit input path, not a throughput claim for a full 50-million-position
+training run. Any future compiled loader must reproduce its sparse receipt
+exactly before replacing it in large-scale training.

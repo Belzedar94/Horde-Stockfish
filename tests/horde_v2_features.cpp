@@ -10,6 +10,7 @@
 #include <random>
 #include <string_view>
 
+#include "../src/nnue/horde_legacy_features.h"
 #include "../src/nnue/horde_v2_features.h"
 #include "../src/nnue/horde_v2_full_refresh.h"
 #include "../src/nnue/horde_v2_scalar.h"
@@ -81,6 +82,130 @@ void emit_json_array(const char* name, const std::array<T, Size>& values, bool l
         std::cout << +values[index];
     }
     std::cout << ']';
+}
+
+template<typename T, std::size_t Size>
+void emit_json_prefix(const char* name,
+                      const std::array<T, Size>& values,
+                      std::size_t                size,
+                      bool                       leadingComma) {
+    assert(size <= Size);
+    std::cout << (leadingComma ? ",\"" : "\"") << name << "\":[";
+    for (std::size_t index = 0; index < size; ++index)
+    {
+        if (index != 0)
+            std::cout << ',';
+        std::cout << +values[index];
+    }
+    std::cout << ']';
+}
+
+u8 physical_piece_code(Piece piece) {
+    switch (piece)
+    {
+    case NO_PIECE :
+        return 0;
+    case W_PAWN :
+        return 1;
+    case W_KNIGHT :
+        return 2;
+    case W_BISHOP :
+        return 3;
+    case W_ROOK :
+        return 4;
+    case W_QUEEN :
+        return 5;
+    case B_PAWN :
+        return 6;
+    case B_KNIGHT :
+        return 7;
+    case B_BISHOP :
+        return 8;
+    case B_ROOK :
+        return 9;
+    case B_QUEEN :
+        return 10;
+    case B_KING :
+        return 11;
+    default :
+        assert(false);
+        return 0xFF;
+    }
+}
+
+std::array<Piece, SQUARE_NB> promotion_fixture() {
+    std::array<Piece, SQUARE_NB> board{};
+    board[SQ_A8] = B_KING;
+    board[SQ_D4] = B_QUEEN;
+    board[SQ_G7] = B_PAWN;
+    board[SQ_A2] = W_PAWN;
+    board[SQ_B3] = W_KNIGHT;
+    board[SQ_C4] = W_BISHOP;
+    board[SQ_D5] = W_ROOK;
+    board[SQ_E6] = W_QUEEN;
+    return board;
+}
+
+std::array<Piece, SQUARE_NB> low_material_fixture() {
+    std::array<Piece, SQUARE_NB> board{};
+    board[SQ_H1] = B_KING;
+    board[SQ_F2] = B_ROOK;
+    board[SQ_A7] = W_PAWN;
+    board[SQ_C6] = W_QUEEN;
+    return board;
+}
+
+void emit_sparse_position(const std::array<Piece, SQUARE_NB>& board) {
+    const auto features = extract_full_refresh_features(board);
+    assert(features.valid());
+
+    std::array<Eval::NNUE::IndexType, MaxHordePieces> legacyWhite{};
+    std::array<Eval::NNUE::IndexType, MaxHordePieces> legacyBlack{};
+    std::size_t                                        legacySize = 0;
+    for (int rawSquare = 0; rawSquare < SQUARE_NB; ++rawSquare)
+    {
+        const Square square = Square(rawSquare);
+        const Piece  piece  = board[square];
+        if (piece == NO_PIECE)
+            continue;
+        legacyWhite[legacySize] = Eval::NNUE::HordeLegacy::feature_index(WHITE, square, piece);
+        legacyBlack[legacySize] = Eval::NNUE::HordeLegacy::feature_index(BLACK, square, piece);
+        assert(legacyWhite[legacySize] < Eval::NNUE::HordeLegacy::PieceSquareDimensions);
+        assert(legacyBlack[legacySize] < Eval::NNUE::HordeLegacy::PieceSquareDimensions);
+        ++legacySize;
+    }
+
+    std::cout << "{\"board\":[";
+    for (int rawSquare = 0; rawSquare < SQUARE_NB; ++rawSquare)
+    {
+        if (rawSquare != 0)
+            std::cout << ',';
+        std::cout << +physical_piece_code(board[rawSquare]);
+    }
+    std::cout << ']';
+    emit_json_prefix("legacy_white", legacyWhite, legacySize, true);
+    emit_json_prefix("legacy_black", legacyBlack, legacySize, true);
+    emit_json_prefix("v2_global", features.global, features.globalSize, true);
+    emit_json_prefix("v2_royal", features.royal, features.royalSize, true);
+    std::cout << ",\"royal_bucket\":" << features.royalKey.bucket;
+    std::cout << ",\"royal_mirror\":" << (features.royalKey.mirror ? "true" : "false");
+    std::cout << '}';
+}
+
+int emit_sparse_index_receipt() {
+    const std::array<std::array<Piece, SQUARE_NB>, 5> boards = {
+      horde_start_board(), horizontal_reflection(horde_start_board()), incremental_base_board(),
+      promotion_fixture(), low_material_fixture()};
+
+    std::cout << "{\"schema\":\"HORDE_SPARSE_INDEX_RECEIPT_V1\",\"positions\":[";
+    for (std::size_t index = 0; index < boards.size(); ++index)
+    {
+        if (index != 0)
+            std::cout << ',';
+        emit_sparse_position(boards[index]);
+    }
+    std::cout << "]}\n";
+    return 0;
 }
 
 int emit_scalar_receipt() {
@@ -172,6 +297,8 @@ void assert_incremental_transition(ScalarNetwork&                      network,
 int main(int argc, char* argv[]) {
     if (argc == 2 && std::string_view(argv[1]) == "--scalar-receipt")
         return emit_scalar_receipt();
+    if (argc == 2 && std::string_view(argv[1]) == "--sparse-index-receipt")
+        return emit_sparse_index_receipt();
 
     constexpr std::array<Piece, FIXED_ROLE_NB> FixedRolePieces = {
       W_PAWN,   W_KNIGHT, W_BISHOP, W_ROOK,  W_QUEEN, B_PAWN,

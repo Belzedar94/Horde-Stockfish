@@ -78,12 +78,13 @@ def run_engine(
     return result.stdout
 
 
-def import_decoder() -> Any:
-    path = REPO_ROOT / "tools" / "horde_bin_v1.py"
-    spec = importlib.util.spec_from_file_location("horde_bin_v1", path)
+def import_tool(module_name: str) -> Any:
+    path = REPO_ROOT / "tools" / f"{module_name}.py"
+    spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
-        raise AssertionError(f"cannot import decoder from {path}")
+        raise AssertionError(f"cannot import tool from {path}")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -128,7 +129,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     observed_schema_sha = hashlib.sha256(SCHEMA.read_bytes()).hexdigest().upper()
     if observed_schema_sha != SCHEMA_SHA256:
         raise AssertionError(f"HORDE_BIN_V1 schema SHA-256 mismatch: {observed_schema_sha}")
-    decoder = import_decoder()
+    decoder = import_tool("horde_bin_v1")
+    training_decoder = import_tool("horde_training_decoder")
 
     isolation = run_engine(normal_engine, ("horde_data_schema", "quit"), expect_success=True)
     if CAPABILITY_JSON in isolation:
@@ -176,6 +178,52 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise AssertionError(f"result perspective mismatch: {coverage}")
         if coverage["sample_flags"].get("best_capture") != TEST_RECORDS:
             raise AssertionError(f"forced captures were not encoded: {coverage}")
+
+        with training_decoder.HordeBinV1Dataset(first) as dataset:
+            batches = list(dataset.batches(3))
+            if len(dataset) != TEST_RECORDS or [len(batch) for batch in batches] != [3, 1]:
+                raise AssertionError("trainer decoder batch framing mismatch")
+            for batch in batches:
+                piece_counts = [
+                    batch.piece_offsets[row + 1] - batch.piece_offsets[row]
+                    for row in range(len(batch))
+                ]
+                royal_counts = [
+                    batch.royal_offsets[row + 1] - batch.royal_offsets[row]
+                    for row in range(len(batch))
+                ]
+                if piece_counts != [2] * len(batch) or royal_counts != [1] * len(batch):
+                    raise AssertionError("trainer decoder sparse row counts changed")
+                if any(index >= training_decoder.LEGACY_DIMENSIONS for index in batch.legacy_white):
+                    raise AssertionError("legacy White feature escaped its table")
+                if any(index >= training_decoder.LEGACY_DIMENSIONS for index in batch.legacy_black):
+                    raise AssertionError("legacy Black feature escaped its table")
+                if any(index >= training_decoder.V2_GLOBAL_DIMENSIONS for index in batch.v2_global):
+                    raise AssertionError("V2 Global feature escaped its table")
+                if any(index >= training_decoder.V2_ROYAL_DIMENSIONS for index in batch.v2_royal):
+                    raise AssertionError("V2 Royal feature escaped its table")
+
+        sparse_receipt = training_decoder.dataset_receipt(first, batch_size=3)
+        single_row_receipt = training_decoder.dataset_receipt(first, batch_size=1)
+        if sparse_receipt["record_count"] != TEST_RECORDS:
+            raise AssertionError(f"trainer decoder record count mismatch: {sparse_receipt}")
+        if sparse_receipt["piece_rows"] != 2 * TEST_RECORDS:
+            raise AssertionError(f"trainer decoder piece rows mismatch: {sparse_receipt}")
+        if sparse_receipt["royal_rows"] != TEST_RECORDS:
+            raise AssertionError(f"trainer decoder Royal rows mismatch: {sparse_receipt}")
+        if sparse_receipt["sparse_sha256"] != single_row_receipt["sparse_sha256"]:
+            raise AssertionError("trainer decoder receipt depends on batch partitioning")
+
+        tampered = root / "tampered.bin"
+        tampered_payload = bytearray(first.read_bytes())
+        tampered_payload[-1] ^= 1
+        tampered.write_bytes(tampered_payload)
+        try:
+            training_decoder.HordeBinV1Dataset(tampered)
+        except decoder.FormatError:
+            pass
+        else:
+            raise AssertionError("trainer decoder accepted a tampered payload")
 
         second_command = generator_command(
             output=second,

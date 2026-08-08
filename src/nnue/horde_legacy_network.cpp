@@ -216,36 +216,6 @@ T wrapping_sub(T lhs, T rhs) {
     return signedResult;
 }
 
-int feature_family(Piece pc) {
-    const PieceType type = type_of(pc);
-    if (type == PAWN)
-        // White PAWN occupies the serialized H plane; Black PAWN remains P.
-        return color_of(pc) == WHITE ? 5 : 0;
-
-    switch (type)
-    {
-    case KNIGHT :
-        return 1;
-    case BISHOP :
-        return 2;
-    case ROOK :
-        return 3;
-    case QUEEN :
-        return 4;
-    case KING :
-        return 6;
-    default :
-        return -1;
-    }
-}
-
-usize feature_index(Color perspective, Square square, Piece pc) {
-    const int family = feature_family(pc);
-    assert(family >= 0);
-    const int plane = 2 * family + (color_of(pc) != perspective);
-    return usize(plane) * SQUARE_NB + usize(relative_square(perspective, square));
-}
-
 u8 activate(i32 value) { return static_cast<u8>(std::clamp(value >> WeightScaleBits, 0, 127)); }
 
 }  // namespace
@@ -329,7 +299,7 @@ void HordeLegacyNetwork::refresh_accumulator(const Position& pos, AccumulatorSta
         {
             const Square square = pop_lsb(occupied);
             const Piece  pc     = pos.piece_on(square);
-            const usize  index  = feature_index(perspective, square, pc);
+            const usize  index  = HordeLegacy::feature_index(perspective, square, pc);
             assert(index < FeatureDimensions);
 
             const usize offset = index * AccumulatorDimensions;
@@ -362,7 +332,7 @@ void HordeLegacyNetwork::update_accumulator(const DirtyPiece&       dirty,
 
         for (Color perspective : {WHITE, BLACK})
         {
-            const usize index  = feature_index(perspective, square, pc);
+            const usize index  = HordeLegacy::feature_index(perspective, square, pc);
             const usize offset = index * AccumulatorDimensions;
             assert(index < FeatureDimensions);
 
