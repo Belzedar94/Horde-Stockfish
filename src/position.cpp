@@ -1682,27 +1682,25 @@ bool Position::is_horde_extinction_capture(Move m) const {
 
 std::optional<Outcome> Position::outcome(int ply) {
 
-    MoveList<LEGAL> legalMoves(*this);
-    const bool      noLegalMoves = legalMoves.size() == 0;
-
     // Lichess Horde terminal precedence is intentional. In particular, a
     // stalemate is resolved before the closed-position predicate.
-    if (sideToMove == BLACK && checkers() && noLegalMoves)
-        return Outcome{mated_in(ply), OutcomeReason::CHECKMATE};
-
-    if (horde_extinction())
-        return Outcome{sideToMove == BLACK ? mate_in(ply) : mated_in(ply),
-                       OutcomeReason::EXTINCTION};
-
-    if (noLegalMoves)
-        return Outcome{VALUE_DRAW, OutcomeReason::STALEMATE};
-
-    // A White-to-move closed position was already caught as stalemate above.
-    // For Black, reuse the legal list and the live Position state. The previous
-    // implementation serialized FEN, reparsed the whole board and regenerated
-    // the same Black list at every search node.
     if (sideToMove == BLACK)
     {
+        MoveList<LEGAL> legalMoves(*this);
+        const bool      noLegalMoves = legalMoves.size() == 0;
+
+        if (checkers() && noLegalMoves)
+            return Outcome{mated_in(ply), OutcomeReason::CHECKMATE};
+
+        if (horde_extinction())
+            return Outcome{mate_in(ply), OutcomeReason::EXTINCTION};
+
+        if (noLegalMoves)
+            return Outcome{VALUE_DRAW, OutcomeReason::STALEMATE};
+
+        // Reuse the legal list and the live Position state. The previous
+        // implementation serialized FEN, reparsed the whole board and
+        // regenerated the same Black list at every search node.
         Bitboard horde = pieces(WHITE);
         const bool mateInOne =
           !more_than_one(horde) && bool(attackers_to(lsb(horde), pieces()) & pieces(BLACK));
@@ -1727,6 +1725,14 @@ std::optional<Outcome> Position::outcome(int ply) {
             if (fortress)
                 return Outcome{VALUE_DRAW, OutcomeReason::HORDE_FORTRESS};
         }
+    }
+    else
+    {
+        if (horde_extinction())
+            return Outcome{mated_in(ply), OutcomeReason::EXTINCTION};
+
+        if (!has_horde_white_legal_move(*this))
+            return Outcome{VALUE_DRAW, OutcomeReason::STALEMATE};
     }
 
     if (st->rule50 >= 100)
