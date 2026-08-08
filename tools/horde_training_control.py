@@ -17,6 +17,7 @@ import json
 import math
 import os
 from pathlib import Path
+import pickle
 import platform
 import struct
 import subprocess
@@ -48,6 +49,7 @@ try:
         NNUE_TO_SCORE,
         OUTPUT_SIGMOID_SCALE,
     )
+    from .horde_training_split_audit import audit_pair
 except ImportError:
     from horde_training_decoder import (
         BLACK,
@@ -63,12 +65,16 @@ except ImportError:
         NNUE_TO_SCORE,
         OUTPUT_SIGMOID_SCALE,
     )
+    from horde_training_split_audit import audit_pair
 
 
-SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_TRAINING_V1"
-CHECKPOINT_SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_CHECKPOINT_V1"
+SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_TRAINING_V2"
+CHECKPOINT_SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_CHECKPOINT_V2"
 ARCHITECTURE_SCHEMA = "HORDETEST_HP_FRESH_CONTROL_V1"
-BOOK_SPLIT_SCHEMA = "HORDE_TRAINING_BOOK_SPLIT_V1"
+BOOK_SPLIT_SCHEMAS = {
+    "HORDE_TRAINING_BOOK_SPLIT_V1",
+    "HORDE_TRAINING_BOOK_SPLIT_V2",
+}
 MATE_SCORE_THRESHOLD = 31_507  # VALUE_TB_WIN_IN_MAX_PLY at MAX_PLY=246.
 DEFAULT_LAMBDA = 0.6
 DEFAULT_LEARNING_RATE = 1.5e-3
@@ -88,6 +94,7 @@ class LegacyBatch:
     piece_offsets: Tensor
     side_to_move: Tensor
     piece_buckets: Tensor
+    rule50_count: Tensor
     scores: Tensor
     result_targets: Tensor
     eval_eligible: Tensor
@@ -101,6 +108,36 @@ class MetricAccumulator:
     eval_sum: float = 0.0
     result_sum: float = 0.0
     prediction_sum: float = 0.0
+
+    @classmethod
+    def from_state(cls, state: dict[str, object]) -> MetricAccumulator:
+        expected = {
+            "samples",
+            "eval_eligible",
+            "composite_sum",
+            "eval_sum",
+            "result_sum",
+            "prediction_sum",
+        }
+        _require(set(state) == expected, "checkpoint metric state is incomplete")
+        return cls(
+            samples=int(state["samples"]),
+            eval_eligible=int(state["eval_eligible"]),
+            composite_sum=float(state["composite_sum"]),
+            eval_sum=float(state["eval_sum"]),
+            result_sum=float(state["result_sum"]),
+            prediction_sum=float(state["prediction_sum"]),
+        )
+
+    def state(self) -> dict[str, object]:
+        return {
+            "samples": self.samples,
+            "eval_eligible": self.eval_eligible,
+            "composite_sum": self.composite_sum,
+            "eval_sum": self.eval_sum,
+            "result_sum": self.result_sum,
+            "prediction_sum": self.prediction_sum,
+        }
 
     def update(
         self,
@@ -259,6 +296,7 @@ def _torch_batch(sparse: SparseBatch, device: torch.device) -> LegacyBatch:
         piece_offsets=torch.tensor(sparse.piece_offsets, dtype=torch.long, device=device),
         side_to_move=torch.tensor(sparse.side_to_move, dtype=torch.long, device=device),
         piece_buckets=torch.tensor(piece_buckets, dtype=torch.long, device=device),
+        rule50_count=torch.tensor(sparse.rule50_count, dtype=torch.long, device=device),
         scores=scores,
         result_targets=(
             torch.tensor(sparse.results, dtype=torch.float32, device=device) + 1.0
@@ -268,13 +306,25 @@ def _torch_batch(sparse: SparseBatch, device: torch.device) -> LegacyBatch:
     )
 
 
+def _rule50_postprocess(output: Tensor, rule50_count: Tensor) -> Tensor:
+    """Apply the engine's integer rule-50 damping with an STE gradient."""
+
+    pre_postprocessor = output * NNUE_TO_SCORE
+    rule50 = torch.clamp(rule50_count, 0, 100).to(dtype=pre_postprocessor.dtype)
+    damped_float = pre_postprocessor * (100.0 - rule50) / 100.0
+    damped_integer = torch.trunc(damped_float)
+    damped_ste = damped_float + (damped_integer - damped_float).detach()
+    return torch.clamp(damped_ste, -31_506.0, 31_506.0)
+
+
 def loss_terms(
     output: Tensor,
     batch: LegacyBatch,
     lambda_value: float,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     _require(0.0 <= lambda_value <= 1.0, "lambda is outside [0, 1]")
-    prediction = torch.sigmoid(output * NNUE_TO_SCORE / OUTPUT_SIGMOID_SCALE)
+    postprocessed_score = _rule50_postprocess(output, batch.rule50_count)
+    prediction = torch.sigmoid(postprocessed_score / OUTPUT_SIGMOID_SCALE)
     eval_target = torch.sigmoid(batch.scores / EVAL_SIGMOID_SCALE)
     eval_error = torch.square(eval_target - prediction)
     result_error = torch.square(batch.result_targets - prediction)
@@ -369,7 +419,7 @@ def validate_dataset_pair(
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise TrainingError(f"book split receipt is invalid JSON: {error}") from error
     _require(isinstance(split, dict), "book split receipt root is not an object")
-    _require(split.get("schema") == BOOK_SPLIT_SCHEMA, "book split receipt schema mismatch")
+    _require(split.get("schema") in BOOK_SPLIT_SCHEMAS, "book split receipt schema mismatch")
     _require(split.get("disjoint_position_keys") is True, "book split is not position-disjoint")
     _require(split.get("complete_partition") is True, "book split is not a complete partition")
     split_source = split.get("source")
@@ -424,6 +474,7 @@ def validate_dataset_pair(
         "book_split": {
             "receipt_name": split_path.name,
             "receipt_sha256": _sha256_bytes(split_payload),
+            "schema": split["schema"],
             "source": split_source,
             "assignment": split_assignment,
             "disjoint_position_keys": True,
@@ -486,11 +537,15 @@ def _configure_runtime(seed: int, device_name: str, cpu_threads: int) -> torch.d
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
     torch.use_deterministic_algorithms(True)
+    torch.set_float32_matmul_precision("highest")
     if device_name == "cpu":
         torch.backends.mkldnn.enabled = False
+    if hasattr(torch.backends, "cuda"):
+        torch.backends.cuda.matmul.allow_tf32 = False
     if hasattr(torch.backends, "cudnn"):
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.allow_tf32 = False
     return torch.device(device_name)
 
 
@@ -582,24 +637,117 @@ def _xor_zero_to(limit: int) -> int:
     return pattern[limit & 3]
 
 
+def _optimizer_to_device(optimizer: torch.optim.Optimizer, device: torch.device) -> None:
+    for state in optimizer.state.values():
+        for key, value in tuple(state.items()):
+            if isinstance(value, Tensor):
+                state[key] = value.to(device=device)
+
+
+def _rng_state(device: torch.device) -> dict[str, object]:
+    return {
+        "torch_cpu": torch.get_rng_state(),
+        "torch_cuda": torch.cuda.get_rng_state(device) if device.type == "cuda" else None,
+    }
+
+
+def _restore_rng_state(state: dict[str, object], device: torch.device) -> None:
+    _require(set(state) == {"torch_cpu", "torch_cuda"}, "checkpoint RNG state is incomplete")
+    cpu = state["torch_cpu"]
+    cuda = state["torch_cuda"]
+    _require(isinstance(cpu, Tensor), "checkpoint CPU RNG state is invalid")
+    _require(
+        (device.type == "cpu" and cuda is None)
+        or (device.type == "cuda" and isinstance(cuda, Tensor)),
+        "checkpoint CUDA RNG state contradicts the training device",
+    )
+    torch.set_rng_state(cpu.cpu())
+    if device.type == "cuda":
+        assert isinstance(cuda, Tensor)
+        torch.cuda.set_rng_state(cuda.cpu(), device=device)
+
+
+def _sample_chain(previous: bytes, payload_sha256: str, indices: Sequence[int]) -> bytes:
+    _require(len(previous) == 32, "sample-order chain state is invalid")
+    digest = hashlib.sha256()
+    digest.update(previous)
+    digest.update(bytes.fromhex(payload_sha256))
+    digest.update(struct.pack("<I", len(indices)))
+    for index in indices:
+        digest.update(struct.pack("<Q", index))
+    return digest.digest()
+
+
+def _training_settings(args: argparse.Namespace, device: torch.device) -> dict[str, object]:
+    return {
+        "seed": args.seed,
+        "epochs": args.epochs,
+        "lambda": args.lambda_value,
+        "learning_rate": args.learning_rate,
+        "scheduler_gamma": args.scheduler_gamma,
+        "batch_size": args.batch_size,
+        "block_size": args.block_size,
+        "device_type": device.type,
+        "cpu_threads": args.cpu_threads,
+        "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
+    }
+
+
+def _load_checkpoint(path: Path) -> tuple[dict[str, object], str]:
+    resolved = path.expanduser().resolve()
+    _require(resolved.is_file(), f"resume checkpoint does not exist: {resolved}")
+    sha256 = _sha256_file(resolved)
+    try:
+        checkpoint = torch.load(resolved, map_location="cpu", weights_only=True)
+    except (EOFError, pickle.UnpicklingError, RuntimeError, ValueError) as error:
+        raise TrainingError(f"cannot load resume checkpoint: {error}") from error
+    _require(isinstance(checkpoint, dict), "resume checkpoint root is not an object")
+    _require(checkpoint.get("schema") == CHECKPOINT_SCHEMA, "resume checkpoint schema mismatch")
+    _require(
+        checkpoint.get("architecture") == ARCHITECTURE_SCHEMA,
+        "resume checkpoint architecture mismatch",
+    )
+    return checkpoint, sha256
+
+
 def train(args: argparse.Namespace) -> dict[str, object]:
-    _require(args.seed > 0, "training seed must be positive")
+    _require(0 < args.seed <= U64_MASK, "training seed must be an unsigned 64-bit value")
     _require(args.epochs > 0, "epoch count must be positive")
     _require(args.batch_size > 0, "batch size must be positive")
     _require(args.block_size >= args.batch_size, "shuffle block size is too small")
     _require(0.0 <= args.lambda_value <= 1.0, "lambda is outside [0, 1]")
     _require(args.learning_rate > 0.0, "learning rate must be positive")
     _require(0.0 < args.scheduler_gamma <= 1.0, "scheduler gamma is outside (0, 1]")
+    _require(
+        args.stop_after_steps is None or args.stop_after_steps > 0,
+        "stop-after-steps must be positive",
+    )
 
     output = args.output.expanduser().resolve()
     _require(output.parent.is_dir(), f"output parent does not exist: {output.parent}")
     _require(not output.exists(), f"output already exists: {output}")
-    output.mkdir()
 
     repo_root = Path(__file__).resolve().parents[1]
     source = _repository_identity(repo_root)
     _require(args.allow_dirty or not source["dirty"], "trainer source tree is dirty")
     device = _configure_runtime(args.seed, args.device, args.cpu_threads)
+    settings = _training_settings(args, device)
+    environment = {
+        "python": platform.python_version(),
+        "pytorch": str(torch.__version__),
+        "platform": platform.platform(),
+        "device": _device_receipt(device, args.cpu_threads),
+        "float32_matmul_precision": torch.get_float32_matmul_precision(),
+        "cuda_matmul_allow_tf32": bool(
+            getattr(torch.backends.cuda.matmul, "allow_tf32", False)
+        ),
+        "cudnn_allow_tf32": bool(getattr(torch.backends.cudnn, "allow_tf32", False)),
+        "amp": False,
+    }
+    resume_checkpoint: dict[str, object] | None = None
+    resume_sha256: str | None = None
+    if args.resume is not None:
+        resume_checkpoint, resume_sha256 = _load_checkpoint(args.resume)
 
     train_path = args.train.expanduser().resolve()
     validation_path = args.validation.expanduser().resolve()
@@ -613,25 +761,136 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             validation_dataset.manifest,
             args.book_split_receipt,
         )
+        data_receipt["overlap_audit"] = audit_pair(
+            train_path,
+            validation_path,
+            example_limit=8,
+            require_zero=True,
+        )
+        _require(
+            args.allow_legacy_book_split_v1
+            or data_receipt["book_split"]["schema"] == "HORDE_TRAINING_BOOK_SPLIT_V2",
+            "legacy V1 book split requires --allow-legacy-book-split-v1",
+        )
+
+        batches_per_epoch = (len(train_dataset) + args.batch_size - 1) // args.batch_size
+        target_steps = args.epochs * batches_per_epoch
+        stop_at_step = args.stop_after_steps or target_steps
+        _require(stop_at_step <= target_steps, "stop-after-steps exceeds the target run")
 
         model = LegacyHPModel(args.seed).to(device)
-        initial_state = _state_sha256(model)
         optimizer = _make_optimizer(model, args.learning_rate)
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=1, gamma=args.scheduler_gamma
         )
 
-        metrics_path = output / "metrics.jsonl"
-        initial_validation = _evaluate(
-            model, validation_dataset, args.batch_size, device, args.lambda_value
-        )
-        metrics_lines = [
-            _compact_json({"epoch": 0, "validation": initial_validation})
-        ]
-        gradient_norms: dict[str, float] | None = None
-        epoch_receipts: list[dict[str, object]] = []
+        if resume_checkpoint is None:
+            initial_state = _state_sha256(model)
+            initial_validation = _evaluate(
+                model,
+                validation_dataset,
+                args.batch_size,
+                device,
+                args.lambda_value,
+            )
+            gradient_norms: dict[str, float] | None = None
+            epoch_receipts: list[dict[str, object]] = []
+            next_epoch = 0
+            next_batch = 0
+            optimizer_steps = 0
+            samples_consumed = 0
+            train_metrics = MetricAccumulator()
+            sample_order_chain = bytes(32)
+        else:
+            _require(resume_checkpoint.get("source") == source, "resume source identity mismatch")
+            _require(
+                resume_checkpoint.get("environment") == environment,
+                "resume environment identity mismatch",
+            )
+            _require(resume_checkpoint.get("settings") == settings, "resume settings mismatch")
+            _require(resume_checkpoint.get("data") == data_receipt, "resume data identity mismatch")
+            model_state = resume_checkpoint.get("model_state")
+            optimizer_state = resume_checkpoint.get("optimizer_state")
+            scheduler_state = resume_checkpoint.get("scheduler_state")
+            progress = resume_checkpoint.get("progress")
+            rng_state = resume_checkpoint.get("rng_state")
+            _require(isinstance(model_state, dict), "resume model state is invalid")
+            _require(isinstance(optimizer_state, dict), "resume optimizer state is invalid")
+            _require(isinstance(scheduler_state, dict), "resume scheduler state is invalid")
+            _require(isinstance(progress, dict), "resume progress state is invalid")
+            _require(isinstance(rng_state, dict), "resume RNG state is invalid")
+            model.load_state_dict(model_state, strict=True)
+            optimizer.load_state_dict(optimizer_state)
+            _optimizer_to_device(optimizer, device)
+            scheduler.load_state_dict(scheduler_state)
+            _restore_rng_state(rng_state, device)
 
-        for epoch in range(args.epochs):
+            expected_progress = {
+                "next_epoch",
+                "next_batch",
+                "optimizer_steps",
+                "samples_consumed",
+                "sample_order_chain_sha256",
+                "in_progress_metrics",
+                "initial_state_sha256",
+                "initial_validation",
+                "first_step_gradient_norms",
+                "epoch_receipts",
+            }
+            _require(set(progress) == expected_progress, "resume progress fields are incomplete")
+            next_epoch = int(progress["next_epoch"])
+            next_batch = int(progress["next_batch"])
+            optimizer_steps = int(progress["optimizer_steps"])
+            samples_consumed = int(progress["samples_consumed"])
+            chain_text = progress["sample_order_chain_sha256"]
+            _require(
+                isinstance(chain_text, str) and len(chain_text) == 64,
+                "resume sample-order chain is invalid",
+            )
+            sample_order_chain = bytes.fromhex(chain_text)
+            metric_state = progress["in_progress_metrics"]
+            _require(isinstance(metric_state, dict), "resume metric state is invalid")
+            train_metrics = MetricAccumulator.from_state(metric_state)
+            initial_state = str(progress["initial_state_sha256"])
+            initial_validation = progress["initial_validation"]
+            gradient_value = progress["first_step_gradient_norms"]
+            _require(
+                gradient_value is None or isinstance(gradient_value, dict),
+                "resume gradient receipt is invalid",
+            )
+            gradient_norms = gradient_value
+            epoch_value = progress["epoch_receipts"]
+            _require(isinstance(epoch_value, list), "resume epoch receipts are invalid")
+            epoch_receipts = epoch_value
+
+            _require(0 <= next_epoch <= args.epochs, "resume epoch cursor is out of range")
+            _require(
+                0 <= next_batch < batches_per_epoch or (next_epoch == args.epochs and next_batch == 0),
+                "resume batch cursor is out of range",
+            )
+            _require(
+                optimizer_steps == next_epoch * batches_per_epoch + next_batch,
+                "resume optimizer-step cursor is inconsistent",
+            )
+            _require(len(epoch_receipts) == next_epoch, "resume epoch receipt count is inconsistent")
+            _require(
+                (next_batch == 0 and train_metrics.samples == 0)
+                or (next_batch > 0 and train_metrics.samples > 0),
+                "resume in-progress metric cursor is inconsistent",
+            )
+            _require(
+                optimizer_steps < stop_at_step,
+                "resume checkpoint has already reached the requested stop step",
+            )
+
+        output.mkdir()
+        training_stopped = False
+        payload_identity = train_dataset.manifest["payload_sha256"]
+
+        for epoch in range(next_epoch, args.epochs):
+            start_batch = next_batch if epoch == next_epoch else 0
+            if epoch != next_epoch:
+                train_metrics = MetricAccumulator()
             schedule_digest = hashlib.sha256()
             schedule_count = 0
             schedule_sum = 0
@@ -639,7 +898,6 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             schedule_xor = 0
             schedule_min = len(train_dataset)
             schedule_max = -1
-            train_metrics = MetricAccumulator()
             model.train()
             batches = epoch_batches(
                 len(train_dataset),
@@ -658,6 +916,9 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                     schedule_xor ^= index
                     schedule_min = min(schedule_min, index)
                     schedule_max = max(schedule_max, index)
+                if batch_index < start_batch:
+                    continue
+
                 batch = _torch_batch(_load_sparse_batch(train_dataset, indices), device)
                 optimizer.zero_grad(set_to_none=True)
                 composite, eval_error, result_error, prediction = loss_terms(
@@ -666,7 +927,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 loss = composite.mean()
                 _require(bool(torch.isfinite(loss).detach().cpu()), "training loss is non-finite")
                 loss.backward()
-                if epoch == 0 and batch_index == 0:
+                if optimizer_steps == 0:
                     gradient_norms = _gradient_norms(model)
                 optimizer.step()
                 _clip_serialized_dense_weights(model)
@@ -678,10 +939,28 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                     prediction.detach(),
                     batch.eval_eligible,
                 )
+                optimizer_steps += 1
+                samples_consumed += len(indices)
+                sample_order_chain = _sample_chain(
+                    sample_order_chain,
+                    payload_identity,
+                    indices,
+                )
+                next_epoch = epoch
+                next_batch = batch_index + 1
+
+                if optimizer_steps == stop_at_step and next_batch < batches_per_epoch:
+                    training_stopped = True
+                    break
+
+            if training_stopped:
+                break
 
             record_count = len(train_dataset)
             expected_sum = record_count * (record_count - 1) // 2
-            expected_sum_squares = record_count * (record_count - 1) * (2 * record_count - 1) // 6
+            expected_sum_squares = (
+                record_count * (record_count - 1) * (2 * record_count - 1) // 6
+            )
             _require(
                 schedule_count == record_count
                 and schedule_sum == expected_sum
@@ -691,44 +970,76 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 and schedule_max == record_count - 1,
                 f"epoch {epoch + 1} schedule is not a complete permutation",
             )
-            schedule_sha = schedule_digest.hexdigest().upper()
-
             validation_metrics = _evaluate(
-                model, validation_dataset, args.batch_size, device, args.lambda_value
+                model,
+                validation_dataset,
+                args.batch_size,
+                device,
+                args.lambda_value,
             )
             epoch_receipt = {
                 "epoch": epoch + 1,
                 "learning_rates": [group["lr"] for group in optimizer.param_groups],
-                "schedule_sha256": schedule_sha,
+                "schedule_sha256": schedule_digest.hexdigest().upper(),
                 "state_sha256": _state_sha256(model),
                 "train": train_metrics.receipt(),
                 "validation": validation_metrics,
             }
             epoch_receipts.append(epoch_receipt)
-            metrics_lines.append(_compact_json(epoch_receipt))
             scheduler.step()
+            next_epoch = epoch + 1
+            next_batch = 0
+            train_metrics = MetricAccumulator()
+            if optimizer_steps == stop_at_step:
+                training_stopped = True
+                break
 
+        complete = optimizer_steps == target_steps
+        _require(
+            training_stopped or complete,
+            "training ended without reaching its stop or target step",
+        )
         _require(gradient_norms is not None, "training did not execute a gradient step")
+        stop_validation = _evaluate(
+            model,
+            validation_dataset,
+            args.batch_size,
+            device,
+            args.lambda_value,
+        )
+
+        metrics_lines = [
+            _compact_json({"epoch": 0, "validation": initial_validation}),
+            *(_compact_json(receipt) for receipt in epoch_receipts),
+        ]
         metrics_payload = b"\n".join(metrics_lines) + b"\n"
+        metrics_path = output / "metrics.jsonl"
         _write_exclusive(metrics_path, metrics_payload)
 
+        progress = {
+            "next_epoch": next_epoch,
+            "next_batch": next_batch,
+            "optimizer_steps": optimizer_steps,
+            "samples_consumed": samples_consumed,
+            "sample_order_chain_sha256": sample_order_chain.hex().upper(),
+            "in_progress_metrics": train_metrics.state(),
+            "initial_state_sha256": initial_state,
+            "initial_validation": initial_validation,
+            "first_step_gradient_norms": gradient_norms,
+            "epoch_receipts": epoch_receipts,
+        }
         checkpoint = {
             "schema": CHECKPOINT_SCHEMA,
             "architecture": ARCHITECTURE_SCHEMA,
             "source": source,
-            "epoch": args.epochs,
+            "environment": environment,
             "model_state": _cpu_tree(model.state_dict()),
             "optimizer_state": _cpu_tree(optimizer.state_dict()),
             "scheduler_state": scheduler.state_dict(),
-            "settings": {
-                "seed": args.seed,
-                "lambda": args.lambda_value,
-                "learning_rate": args.learning_rate,
-                "scheduler_gamma": args.scheduler_gamma,
-                "batch_size": args.batch_size,
-                "block_size": args.block_size,
-            },
+            "rng_state": _cpu_tree(_rng_state(device)),
+            "settings": settings,
             "data": data_receipt,
+            "progress": progress,
         }
         checkpoint_path = output / "checkpoint.pt"
         _save_checkpoint_exclusive(checkpoint_path, checkpoint)
@@ -741,20 +1052,26 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 "serialized_topology": "896 -> 512 shared FT + PSQT; 8 x (1024 -> 16 -> 32 -> 1)",
                 "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
                 "training_only_factorizer": False,
+                "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
             },
             "source": source,
-            "environment": {
-                "python": platform.python_version(),
-                "pytorch": torch.__version__,
-                "platform": platform.platform(),
-                "device": _device_receipt(device, args.cpu_threads),
-            },
+            "environment": environment,
             "data": data_receipt,
             "labels": {
                 "score": "raw root-search Value from side-to-move perspective",
                 "result": "terminal game result from side-to-move perspective mapped to [0, 1]",
+                "result_objective": "provisional scalar MSE integration control",
                 "mate_score_threshold": MATE_SCORE_THRESHOLD,
                 "mate_policy": MASK_POLICY,
+                "rule50": {
+                    "input": "HORDE_BIN_V1 rule50_count",
+                    "forward": (
+                        "clamp(trunc_toward_zero(v0 * (100 - min(rule50, 100)) / 100), "
+                        "-31506, 31506)"
+                    ),
+                    "v0": "float network output multiplied by 600",
+                    "gradient": "straight-through truncation estimator; exact integer forward",
+                },
                 "lambda": args.lambda_value,
                 "eval_sigmoid_scale": EVAL_SIGMOID_SCALE,
                 "network_to_score": NNUE_TO_SCORE,
@@ -781,18 +1098,30 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             },
             "run": {
                 "seed": args.seed,
-                "epochs": args.epochs,
+                "target_epochs": args.epochs,
+                "target_steps": target_steps,
+                "optimizer_steps": optimizer_steps,
+                "samples_consumed": samples_consumed,
+                "complete": complete,
+                "next_epoch": next_epoch,
+                "next_batch": next_batch,
                 "batch_size": args.batch_size,
                 "shuffle": {
                     "schema": "SPLITMIX64_BLOCK_SHUFFLE_V1",
                     "block_size": args.block_size,
                     "complete_permutation_each_epoch": True,
                 },
+                "sample_order_chain_sha256": sample_order_chain.hex().upper(),
                 "initial_state_sha256": initial_state,
                 "final_state_sha256": _state_sha256(model),
                 "first_step_gradient_norms": gradient_norms,
                 "initial_validation": initial_validation,
+                "stop_validation": stop_validation,
                 "epochs_receipt": epoch_receipts,
+                "in_progress_metrics": (
+                    train_metrics.receipt() if train_metrics.samples else None
+                ),
+                "resume_checkpoint_sha256": resume_sha256,
             },
             "artifacts": {
                 "checkpoint": {
@@ -805,7 +1134,9 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 },
             },
             "claims": {
+                "purpose": "real-data-integration-canary",
                 "integration_only": True,
+                "strength_eligible": False,
                 "strength_evidence": False,
                 "production_network": False,
             },
@@ -830,6 +1161,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--scheduler-gamma", type=float, default=DEFAULT_SCHEDULER_GAMMA)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--cpu-threads", type=int, default=1)
+    parser.add_argument("--resume", type=Path)
+    parser.add_argument("--stop-after-steps", type=int)
+    parser.add_argument("--allow-legacy-book-split-v1", action="store_true")
     parser.add_argument("--allow-dirty", action="store_true")
     return parser.parse_args(argv)
 

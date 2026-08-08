@@ -12,6 +12,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import horde_training_control as control  # noqa: E402
+import horde_training_decoder as decoder  # noqa: E402
 import horde_training_microfit as microfit  # noqa: E402
 
 
@@ -57,6 +58,7 @@ def test_mate_mask() -> None:
         piece_offsets=torch.zeros(4, dtype=torch.long),
         side_to_move=torch.tensor([0, 1, 0]),
         piece_buckets=torch.zeros(3, dtype=torch.long),
+        rule50_count=torch.zeros(3, dtype=torch.long),
         scores=torch.tensor([0.0, 31507.0, -31999.0]),
         result_targets=torch.tensor([0.5, 1.0, 0.0]),
         eval_eligible=torch.tensor([True, False, False]),
@@ -77,6 +79,8 @@ def test_mate_mask() -> None:
 
 
 def test_gradient_path() -> None:
+    if sum(code != 0 for code in microfit._fixture_board(52, 0)) != 52:
+        raise AssertionError("maximum-capacity Horde fixture changed")
     fixture, _ = microfit.make_fixture_batch()
     batch = control.LegacyBatch(
         legacy_white=fixture.legacy_white,
@@ -84,6 +88,7 @@ def test_gradient_path() -> None:
         piece_offsets=fixture.piece_offsets,
         side_to_move=fixture.side_to_move,
         piece_buckets=fixture.piece_buckets,
+        rule50_count=torch.zeros_like(fixture.side_to_move),
         scores=fixture.scores,
         result_targets=fixture.result_targets,
         eval_eligible=torch.ones_like(fixture.scores, dtype=torch.bool),
@@ -112,6 +117,7 @@ def test_gradient_path() -> None:
             piece_offsets=batch.piece_offsets.to("cuda"),
             side_to_move=batch.side_to_move.to("cuda"),
             piece_buckets=batch.piece_buckets.to("cuda"),
+            rule50_count=batch.rule50_count.to("cuda"),
             scores=batch.scores.to("cuda"),
             result_targets=batch.result_targets.to("cuda"),
             eval_eligible=batch.eval_eligible.to("cuda"),
@@ -122,6 +128,72 @@ def test_gradient_path() -> None:
             raise AssertionError("legacy control forward is not CUDA-safe")
 
 
+def test_named_initialization() -> None:
+    narrow_royal = microfit.HordeV2Model(64, 192, 0xC0FFEE)
+    wide_royal = microfit.HordeV2Model(128, 128, 0xC0FFEE)
+    for name in (
+        "hidden0_weights",
+        "hidden0_bias",
+        "hidden1_weights",
+        "hidden1_bias",
+        "output_weights",
+        "output_bias",
+    ):
+        if not torch.equal(getattr(narrow_royal, name), getattr(wide_royal, name)):
+            raise AssertionError(f"named initialization changed common V2 parameter {name}")
+
+
+def test_rule50_postprocessor() -> None:
+    output = torch.tensor(
+        [100.9 / 600.0, -100.9 / 600.0, 100.9 / 600.0],
+        requires_grad=True,
+    )
+    rule50 = torch.tensor([50, 50, 100])
+    observed = control._rule50_postprocess(output, rule50)
+    expected = torch.tensor([50.0, -50.0, 0.0])
+    if not torch.equal(observed, expected):
+        raise AssertionError(f"rule-50 integer forward changed: {observed}")
+    observed.sum().backward()
+    expected_gradient = torch.tensor([300.0, 300.0, 0.0])
+    if not torch.equal(output.grad, expected_gradient):
+        raise AssertionError(f"rule-50 STE gradient changed: {output.grad}")
+
+
+def test_position_and_model_keys() -> None:
+    board = [0] * 64
+    board[8] = decoder.WHITE_PAWN
+    board[56] = decoder.BLACK_ROOK
+    board[60] = decoder.BLACK_KING
+    board[63] = decoder.BLACK_ROOK
+    physical_board = tuple(board)
+    features = decoder.extract_sparse_features(physical_board)
+    common = dict(
+        index=7,
+        features=features,
+        side_to_move=decoder.WHITE,
+        rule50_count=23,
+        game_ply=90,
+        score=10,
+        best_move=1,
+        played_move=1,
+        result=0,
+        outcome_reason=3,
+        board=physical_board,
+        ep_square=64,
+    )
+    kingside = decoder.TrainingRecord(**common, castling_rights=1)
+    queenside = decoder.TrainingRecord(**common, castling_rights=2)
+    if decoder.physical_position_key(kingside) == decoder.physical_position_key(queenside):
+        raise AssertionError("physical key discarded castling rights")
+    if decoder.legacy_model_input_key(kingside) != decoder.legacy_model_input_key(queenside):
+        raise AssertionError("legacy input key incorrectly includes invisible castling rights")
+    changed_rule50 = decoder.TrainingRecord(**{**common, "rule50_count": 24}, castling_rights=1)
+    if decoder.physical_position_key(kingside) != decoder.physical_position_key(changed_rule50):
+        raise AssertionError("physical key incorrectly includes clock labels")
+    if decoder.legacy_model_input_key(kingside) == decoder.legacy_model_input_key(changed_rule50):
+        raise AssertionError("legacy evaluator-input key discarded rule50")
+
+
 def main() -> int:
     torch.set_num_threads(1)
     torch.backends.mkldnn.enabled = False
@@ -129,6 +201,9 @@ def main() -> int:
     test_schedule()
     test_mate_mask()
     test_gradient_path()
+    test_named_initialization()
+    test_rule50_postprocessor()
+    test_position_and_model_keys()
     print("Horde fresh legacy-control trainer tests passed")
     return 0
 
