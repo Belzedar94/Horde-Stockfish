@@ -85,12 +85,25 @@ First wave, all at priority 1000:
    pairs measured `1.035770`, with 28/32 favorable and a `1.035564` ratio after
    trimming one extreme from each tail. Fixed work and best moves were
    identical. All four artifact jobs pass.
-3. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
+3. `test/fortress-white-mobility-fastpath` at
+   `f25edacd54d897b97590c67edc09c5fcfc82b74b`. It applies the same proven
+   White legal-move predicate only after each legal Black move in the fortress
+   scan, leaving direct White terminal detection unchanged so the two hot
+   paths remain independently measurable. Its movegen implementation is
+   byte-identical to the predicate that matched 100,010 full legal-generation
+   receipts. Horde rules, the Run 6B contract, and three deterministic
+   315,576-node benches passed with the accepted best-move digest. A
+   start-position sample was nearly neutral at `1.006114`, as expected for
+   opening-heavy work. Two independent 32-pair depth-16 ten-position bench
+   samples measured `1.084210` and `1.025097`; their combined geometric ratio
+   is `1.054239`, with 55/64 favorable pairs and identical fixed work and best
+   moves. All four artifact jobs pass.
+4. `test/white-pawn-quiet-see` at `1f3eb1d5685241f76834ed9a8c03bbbdb3fef00a`.
    Its defect-free V1 sample had LLR `+0.97` after 4,096 games.
-4. `test/outcome-fastpath` at `bffa9a10ff4c3ce7ea61361f98d2814ffa1c6256`.
+5. `test/outcome-fastpath` at `bffa9a10ff4c3ce7ea61361f98d2814ffa1c6256`.
    Its early V1 signal was LLR `+0.73`, but four time losses invalidate the
    1,600-game sample.
-5. `test/movepicker-legacy-pawn` at
+6. `test/movepicker-legacy-pawn` at
    `a7161dc472672ac09d9e9616766e9bb1b01c37a1`. Its early V1 signal was LLR
    `+0.51`, but one time loss invalidates the 1,536-game sample.
 
