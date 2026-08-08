@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import difflib
 import json
 from pathlib import Path
 import sys
@@ -37,7 +38,18 @@ def main() -> int:
         )
     )
     if first != frozen:
-        raise AssertionError("C0 frozen receipt does not match the implementation")
+        difference = "\n".join(
+            difflib.unified_diff(
+                json.dumps(frozen, indent=2, sort_keys=True).splitlines(),
+                json.dumps(first, indent=2, sort_keys=True).splitlines(),
+                fromfile="frozen receipt",
+                tofile="runtime receipt",
+                lineterm="",
+            )
+        )
+        raise AssertionError(
+            "C0 frozen receipt does not match the implementation:\n" + difference
+        )
     if (
         first["schema"] != c0.SCHEMA
         or first["cross_split_exact"] is not True
