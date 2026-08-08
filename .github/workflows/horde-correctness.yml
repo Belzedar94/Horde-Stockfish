@@ -45,6 +45,15 @@ jobs:
             tests/horde_v2_features.cpp -o /tmp/horde-v2-features
           /tmp/horde-v2-features
           python3 tests/horde_v2_trainer_parity.py /tmp/horde-v2-features
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_widths.cpp -o /tmp/horde-v2-widths
+          /tmp/horde-v2-widths
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_backend.cpp -o /tmp/horde-v2-backend
+          /tmp/horde-v2-backend
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 \
+            tests/horde_v2_backend.cpp -o /tmp/horde-v2-backend-avx2
+          /tmp/horde-v2-backend-avx2
       - name: Verify experimental V2 real Position stack
         run: |
           make -j2 -C src ARCH=x86-64 ${{ matrix.make_args }} horde-v2-position-test-bin
@@ -91,6 +100,14 @@ jobs:
             tests/horde_v2_features.cpp -o /tmp/horde-v2-features-sanitize
           /tmp/horde-v2-features-sanitize
           python3 tests/horde_v2_trainer_parity.py /tmp/horde-v2-features-sanitize
+          c++ -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            tests/horde_v2_widths.cpp -o /tmp/horde-v2-widths-sanitize
+          /tmp/horde-v2-widths-sanitize
+          c++ -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            tests/horde_v2_backend.cpp -o /tmp/horde-v2-backend-sanitize
+          /tmp/horde-v2-backend-sanitize
           make -j2 -C src ARCH=x86-64 sanitize="address undefined" debug=yes optimize=no \
             EXTRACXXFLAGS="-O1 -fno-inline" horde-v2-position-test-bin
           src/horde-v2-position-test
@@ -192,6 +209,15 @@ jobs:
             tests/horde_v2_features.cpp -o horde-v2-features.exe
           ./horde-v2-features.exe
           python tests/horde_v2_trainer_parity.py ./horde-v2-features.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_widths.cpp -o horde-v2-widths.exe
+          ./horde-v2-widths.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_backend.cpp -o horde-v2-backend.exe
+          ./horde-v2-backend.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 \
+            tests/horde_v2_backend.cpp -o horde-v2-backend-avx2.exe
+          ./horde-v2-backend-avx2.exe
           make -j2 -C src ARCH=x86-64 horde-v2-position-test-bin
           src/horde-v2-position-test.exe
           python scripts/horde/verify_baseline.py

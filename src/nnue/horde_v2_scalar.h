@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "horde_v2_full_refresh.h"
+#include "horde_v2_widths.h"
 
 namespace Stockfish::Eval::NNUE::HordeV2 {
 
@@ -26,12 +27,14 @@ namespace Stockfish::Eval::NNUE::HordeV2 {
 // production dispatch, file parser, incremental accumulator, or SIMD path.
 // Those consumers must match this discrete full-refresh contract before a V2
 // network can become eligible for strength testing.
-inline constexpr IndexType RoyalLanes       = 256;
-inline constexpr IndexType GlobalLanes      = 256;
-inline constexpr IndexType TransformedLanes = RoyalLanes + GlobalLanes;
-inline constexpr IndexType Hidden0Lanes     = 32;
-inline constexpr IndexType Hidden1Lanes     = 32;
-inline constexpr IndexType OutputHeads      = COLOR_NB;
+using ScalarWidth = Width256x256;
+
+inline constexpr IndexType RoyalLanes       = ScalarWidth::RoyalLanes;
+inline constexpr IndexType GlobalLanes      = ScalarWidth::GlobalLanes;
+inline constexpr IndexType TransformedLanes = ScalarWidth::TransformedLanes;
+inline constexpr IndexType Hidden0Lanes     = ScalarWidth::Hidden0Lanes;
+inline constexpr IndexType Hidden1Lanes     = ScalarWidth::Hidden1Lanes;
+inline constexpr IndexType OutputHeads      = ScalarWidth::OutputHeads;
 
 inline constexpr int FtActivationShift    = 6;
 inline constexpr int DenseActivationShift = 6;
@@ -45,18 +48,12 @@ using AffineBias  = i32;
 using Accumulator = i32;
 using Activation  = u8;
 
-inline constexpr std::size_t RoyalWeightCount =
-  std::size_t(RoyalPieceSquareDimensions) * RoyalLanes;
-inline constexpr std::size_t GlobalWeightCount =
-  std::size_t(FixedRolePieceSquareDimensions) * GlobalLanes;
-inline constexpr std::size_t Hidden0WeightCount = std::size_t(Hidden0Lanes) * TransformedLanes;
-inline constexpr std::size_t Hidden1WeightCount = std::size_t(Hidden1Lanes) * Hidden0Lanes;
-inline constexpr std::size_t OutputWeightCount  = std::size_t(OutputHeads) * Hidden1Lanes;
-inline constexpr std::size_t ScalarParameterBytes =
-  RoyalWeightCount * sizeof(FtWeight) + GlobalWeightCount * sizeof(FtWeight)
-  + (RoyalLanes + GlobalLanes) * sizeof(AffineBias)
-  + (Hidden0WeightCount + Hidden1WeightCount + OutputWeightCount) * sizeof(DenseWeight)
-  + (Hidden0Lanes + Hidden1Lanes + OutputHeads) * sizeof(AffineBias);
+inline constexpr std::size_t RoyalWeightCount     = ScalarWidth::RoyalWeightCount;
+inline constexpr std::size_t GlobalWeightCount    = ScalarWidth::GlobalWeightCount;
+inline constexpr std::size_t Hidden0WeightCount   = ScalarWidth::Hidden0WeightCount;
+inline constexpr std::size_t Hidden1WeightCount   = ScalarWidth::Hidden1WeightCount;
+inline constexpr std::size_t OutputWeightCount    = ScalarWidth::OutputWeightCount;
+inline constexpr std::size_t ScalarParameterBytes = ScalarWidth::ParameterBytes;
 
 constexpr Activation clipped_activation(Accumulator value, int shift) noexcept {
     if (value <= 0)

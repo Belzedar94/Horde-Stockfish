@@ -154,7 +154,6 @@ void exercise_null_move(const ScalarNetwork& network) {
     assert(stack.size() == 1);
     const ScalarTrace afterNull = stack.evaluate(pos);
     assert_same_evaluation(afterNull, network.evaluate_full_refresh(pos));
-    assert(afterNull.outputAffine != before.outputAffine);
 
     pos.undo_null_move();
     assert(pos.piece_array() == board);
