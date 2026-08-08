@@ -103,7 +103,7 @@
   },
   "cross_split_exact": true,
   "implementation": {
-    "control_sha256": "6CE3FB572C1EE1F018FBD87428B6995775C1B9605BDDE4277A9982B79AB189A6",
+    "control_sha256": "F6542C1C4CA07C93C38435C31272A4B444832AF413B4779A20F84AE56A35BBE7",
     "models_sha256": "336BCE67BF52B6A1F05F69B6144B4B313B105FD9DCBFD2532D1E4FDFDE4E9A76"
   },
   "integer_contract": {
@@ -126,6 +126,13 @@
     }
   },
   "purpose": "engineering equality control; no architecture or strength claim",
+  "runtime": {
+    "cuda_available_but_unused": true,
+    "float_receipt_scope": "exact only within one pinned runtime",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "python": "3.12.0",
+    "torch": "2.7.1+cu118"
+  },
   "schema": "HORDE_V2_C0_EQUALITY_RECEIPT_V1",
   "strength_evidence": false,
   "variants": [

@@ -676,8 +676,11 @@ exact row and lane slices into `G0_SPLIT_64_192` and
 RAdam steps. Both splits reproduce the single model's floating-point forward
 values, reassembled gradients, parameters, and optimizer state exactly. A
 canonical engineering quantizer also produces identical integer accumulator,
-hidden-layer, and output traces after reassembly. Its framed payload is marked
-`production_schema: false`: it is an equality oracle, not a V2 network
+hidden-layer, and output traces after reassembly. PyTorch floating-point hashes
+are explicitly runtime-scoped because named initialization can differ by an
+ULP across operating systems; CI instead requires the quantized payload and
+complete integer trace to match on Windows and Linux. The framed payload is
+marked `production_schema: false`: it is an equality oracle, not a V2 network
 container, trained candidate, or strength result. C0 therefore closes only the
 mechanical split control; C1 remains the first test of whether Royal-relative
 content is useful.

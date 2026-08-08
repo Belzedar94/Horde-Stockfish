@@ -17,14 +17,36 @@ from horde_training_models import C0SingleG0Model, C0SplitG0Model  # noqa: E402
 
 
 EXPECTED = {
-    "initial_parameter_sha256": "9EEF246454FFD7C0773DCA7353DD006CB1C424AB827B4ABAF17B1B9713C355E1",
-    "initial_output_sha256": "5D548B08E7CE216052D946851A5F64CD55EA8F69AA0DBE32C504BF47DE0B9F97",
-    "final_parameter_sha256": "A1AE87218D9C18D15CEDD600F77796E9AF437D941F005C011608944F0D9FE497",
-    "final_optimizer_sha256": "B77C9355894D81F5A2ED7D51D67DB75A01F52C9F22E835858F73B2C57D5E9CA5",
     "payload_sha256": "0D3DA00CC9E441030DE2BFD9D1B7EE4FA7DB82926BD30EAA3316D3B1F3C58461",
     "trace_sha256": "4E45E11904A624CFB5099B385E79BAED522423293ABB98FA72C20558056CCC69",
     "value_sha256": "6848C7C85CA20C95F9EEB89E7C9F31F5D41F6029683F9CCF96C95A133BF450BC",
 }
+
+
+def _platform_invariant(receipt: dict[str, object]) -> dict[str, object]:
+    projected = json.loads(json.dumps(receipt))
+    del projected["runtime"]
+    for field in (
+        "initial_parameter_sha256",
+        "initial_output_sha256",
+        "steps",
+        "final_parameter_sha256",
+        "final_optimizer_sha256",
+    ):
+        del projected["common"][field]
+    return projected
+
+
+def _difference(expected: object, actual: object) -> str:
+    return "\n".join(
+        difflib.unified_diff(
+            json.dumps(expected, indent=2, sort_keys=True).splitlines(),
+            json.dumps(actual, indent=2, sort_keys=True).splitlines(),
+            fromfile="frozen receipt",
+            tofile="runtime receipt",
+            lineterm="",
+        )
+    )
 
 
 def main() -> int:
@@ -37,18 +59,15 @@ def main() -> int:
             encoding="utf-8"
         )
     )
-    if first != frozen:
-        difference = "\n".join(
-            difflib.unified_diff(
-                json.dumps(frozen, indent=2, sort_keys=True).splitlines(),
-                json.dumps(first, indent=2, sort_keys=True).splitlines(),
-                fromfile="frozen receipt",
-                tofile="runtime receipt",
-                lineterm="",
-            )
-        )
+    if _platform_invariant(first) != _platform_invariant(frozen):
         raise AssertionError(
-            "C0 frozen receipt does not match the implementation:\n" + difference
+            "C0 platform-invariant receipt changed:\n"
+            + _difference(_platform_invariant(frozen), _platform_invariant(first))
+        )
+    if first["runtime"] == frozen["runtime"] and first != frozen:
+        raise AssertionError(
+            "C0 frozen receipt changed on its canonical runtime:\n"
+            + _difference(frozen, first)
         )
     if (
         first["schema"] != c0.SCHEMA
@@ -69,14 +88,6 @@ def main() -> int:
         if not all(variant["equalities"].values()):
             raise AssertionError(f"C0 equality failed: {variant['equalities']}")
     common = first["common"]
-    for field in (
-        "initial_parameter_sha256",
-        "initial_output_sha256",
-        "final_parameter_sha256",
-        "final_optimizer_sha256",
-    ):
-        if common[field] != EXPECTED[field]:
-            raise AssertionError(f"C0 {field} changed: {common[field]}")
     for field in ("payload_sha256", "trace_sha256", "value_sha256"):
         if common["integer_export"][field] != EXPECTED[field]:
             raise AssertionError(f"C0 integer {field} changed")

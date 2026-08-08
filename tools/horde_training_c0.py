@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import platform
 import struct
 import sys
 from typing import Callable, Mapping, Sequence
@@ -460,6 +461,7 @@ def build_receipt(
         _require(torch.get_num_interop_threads() == 1, "PyTorch interop threads are not one")
     if hasattr(torch.backends, "mkldnn"):
         torch.backends.mkldnn.enabled = False
+    torch.set_float32_matmul_precision("highest")
 
     variants = [_run_split(width, steps, learning_rate) for width in (64, 128)]
     for field in (
@@ -500,6 +502,13 @@ def build_receipt(
     return {
         "schema": SCHEMA,
         "purpose": "engineering equality control; no architecture or strength claim",
+        "runtime": {
+            "python": platform.python_version(),
+            "torch": torch.__version__,
+            "platform": platform.platform(),
+            "cuda_available_but_unused": torch.cuda.is_available(),
+            "float_receipt_scope": "exact only within one pinned runtime",
+        },
         "control": {
             "single": "G0_SINGLE_256",
             "splits": [variant["name"] for variant in variants],
