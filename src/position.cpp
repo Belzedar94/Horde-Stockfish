@@ -1682,51 +1682,75 @@ bool Position::is_horde_extinction_capture(Move m) const {
 
 std::optional<Outcome> Position::outcome(int ply) {
 
-    MoveList<LEGAL> legalMoves(*this);
-    const bool      noLegalMoves = legalMoves.size() == 0;
-
-    // Lichess Horde terminal precedence is intentional. In particular, a
-    // stalemate is resolved before the closed-position predicate.
-    if (sideToMove == BLACK && checkers() && noLegalMoves)
-        return Outcome{mated_in(ply), OutcomeReason::CHECKMATE};
-
-    if (horde_extinction())
-        return Outcome{sideToMove == BLACK ? mate_in(ply) : mated_in(ply),
-                       OutcomeReason::EXTINCTION};
-
-    if (noLegalMoves)
-        return Outcome{VALUE_DRAW, OutcomeReason::STALEMATE};
-
-    // A White-to-move closed position was already caught as stalemate above.
-    // For Black, reuse the legal list and the live Position state. The previous
-    // implementation serialized FEN, reparsed the whole board and regenerated
-    // the same Black list at every search node.
-    if (sideToMove == BLACK)
+    if (sideToMove == WHITE)
     {
-        Bitboard horde = pieces(WHITE);
-        const bool mateInOne =
+        MoveList<LEGAL> legalMoves(*this);
+
+        if (horde_extinction())
+            return Outcome{mated_in(ply), OutcomeReason::EXTINCTION};
+
+        if (legalMoves.size() == 0)
+            return Outcome{VALUE_DRAW, OutcomeReason::STALEMATE};
+    }
+    else
+    {
+        // Pseudo-legal generation does not have generate<LEGAL>()'s extinction
+        // guard. Resolve the already-extinct state before scanning Black moves.
+        if (horde_extinction())
+        {
+            assert(!checkers());
+            return Outcome{mate_in(ply), OutcomeReason::EXTINCTION};
+        }
+
+        const Bitboard horde = pieces(WHITE);
+        const bool     mateInOne =
           !more_than_one(horde) && bool(attackers_to(lsb(horde), pieces()) & pieces(BLACK));
 
-        if (!mateInOne)
+        Move  pseudoMoves[MAX_MOVES];
+        Move* pseudoEnd =
+          checkers() ? generate<EVASIONS>(*this, pseudoMoves)
+                     : generate<NON_EVASIONS>(*this, pseudoMoves);
+
+        const Bitboard pinned = blockers_for_king(BLACK) & pieces(BLACK);
+        const Square   kingSq = square<KING>(BLACK);
+        bool           hasLegalMove = false;
+        bool           fortress     = !mateInOne;
+
+        for (Move* current = pseudoMoves; current != pseudoEnd; ++current)
         {
-            bool fortress = true;
-            for (Move move : legalMoves)
+            const Move move = *current;
+            if (((pinned & move.from_sq()) || move.from_sq() == kingSq
+                 || move.type_of() == EN_PASSANT)
+                && !legal(move))
+                continue;
+
+            hasLegalMove = true;
+
+            // Preserve the exact geometric exception for a capturable final
+            // Horde unit, but only after proving that Black can legally move.
+            if (!fortress)
+                break;
+
+            StateInfo moveState;
+            do_move(move, moveState);
+            const bool whiteCanMove = MoveList<LEGAL>(*this).size() != 0;
+            undo_move(move);
+
+            if (whiteCanMove)
             {
-                StateInfo moveState;
-                do_move(move, moveState);
-                const bool whiteCanMove = MoveList<LEGAL>(*this).size() != 0;
-                undo_move(move);
-
-                if (whiteCanMove)
-                {
-                    fortress = false;
-                    break;
-                }
+                fortress = false;
+                break;
             }
-
-            if (fortress)
-                return Outcome{VALUE_DRAW, OutcomeReason::HORDE_FORTRESS};
         }
+
+        // Lichess Horde terminal precedence is intentional: checkmate before
+        // stalemate, and both before the closed-position predicate.
+        if (!hasLegalMove)
+            return checkers() ? Outcome{mated_in(ply), OutcomeReason::CHECKMATE}
+                              : Outcome{VALUE_DRAW, OutcomeReason::STALEMATE};
+
+        if (fortress)
+            return Outcome{VALUE_DRAW, OutcomeReason::HORDE_FORTRESS};
     }
 
     if (st->rule50 >= 100)
