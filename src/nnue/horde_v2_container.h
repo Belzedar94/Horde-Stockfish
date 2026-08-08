@@ -342,14 +342,14 @@ class ContainerNetwork {
                    Piece                                           piece,
                    Square                                          square,
                    RoyalKey                                       key) const noexcept {
+        if (piece == B_KING)
+            return;
         const IndexType index = parameters_.firstDomain == FirstDomain::ROYAL
                                 ? royal_piece_square_index(piece, square, key)
                                 : absolute_nonking_piece_square_index(piece, square);
-        if (index == InvalidFeatureIndex)
-        {
-            assert(piece == B_KING);
-            return;
-        }
+        assert(index
+               != (parameters_.firstDomain == FirstDomain::ROYAL ? InvalidRoyalFeatureIndex
+                                                                  : InvalidFeatureIndex));
         Kernels::add_row(accumulator, parameters_.firstWeights.data()
                                         + std::size_t(index) * V2ContainerFirstLanes);
     }
@@ -358,14 +358,14 @@ class ContainerNetwork {
                         Piece                                           piece,
                         Square                                          square,
                         RoyalKey                                       key) const noexcept {
+        if (piece == B_KING)
+            return;
         const IndexType index = parameters_.firstDomain == FirstDomain::ROYAL
                                 ? royal_piece_square_index(piece, square, key)
                                 : absolute_nonking_piece_square_index(piece, square);
-        if (index == InvalidFeatureIndex)
-        {
-            assert(piece == B_KING);
-            return;
-        }
+        assert(index
+               != (parameters_.firstDomain == FirstDomain::ROYAL ? InvalidRoyalFeatureIndex
+                                                                  : InvalidFeatureIndex));
         Kernels::subtract_row(accumulator, parameters_.firstWeights.data()
                                              + std::size_t(index) * V2ContainerFirstLanes);
     }
