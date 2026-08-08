@@ -695,6 +695,15 @@ not parameter matched: the absolute control serializes 362,824 parameter bytes
 and the Royal candidate 2,902,344. C1 must therefore judge any fixed-node gain
 against the Royal table's measured refresh, cache, and equal-time cost.
 
+The real-data C1 plumbing canary is frozen in
+`docs/horde/nnue-v2-c1-real-canary-receipt.json`. Both architectures completed
+two byte-identical three-epoch CPU runs on the same authenticated 4,096/1,024
+split, and every first-domain, Global, dense, and output gradient group was
+non-zero. Their final validation losses differ by only `5.10e-6` in favour of
+the absolute control. One seed on this integration sample cannot rank either
+architecture, so the receipt explicitly forbids architecture selection and
+makes no strength claim.
+
 After training, fixed-node Elo and uninstrumented NPS remain separate axes.
 Practical equivalence margins are 2 Elo and 1% NPS. A larger/slower point must
 show a positive 95% lower confidence bound in fixed-node Elo against the

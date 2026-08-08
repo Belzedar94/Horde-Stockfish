@@ -204,3 +204,10 @@ width, checkpoints, metrics, and receipts were byte-identical across repeats;
 all Royal, Global, dense, and output gradient groups were non-zero. The canary
 proves real-data and restart plumbing only. Its validation losses must not be
 used to rank the widths, skip C0/C1/C2, or justify a strength test.
+
+The corresponding C1 content-plumbing receipt is frozen in
+[`nnue-v2-c1-real-canary-receipt.json`](nnue-v2-c1-real-canary-receipt.json).
+The absolute non-king control and Royal candidate each reproduced checkpoint,
+metrics, and receipt bytes across two three-epoch runs on the same data, seed,
+and recipe. The tiny one-seed validation difference is recorded only as an
+integrity receipt and is not architecture or strength evidence.

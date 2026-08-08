@@ -1,0 +1,240 @@
+{
+  "architectures": {
+    "v2-64x192": {
+      "artifacts": {
+        "checkpoint": {
+          "bytes": 17495656,
+          "semantic_sha256": "B985762F681C8FE389D2CB3F3AEAE5AB6B1F00ED134A5AE0C27ADE8293897C98",
+          "sha256": "7FE5D51C0027FFD55D07C35129AF68C697DD431EAD93BA5DD1C0C8AABE3AFF29"
+        },
+        "metrics_sha256": "003E61DDB22AB5C499EEEE54C010D4267FA8B822A5ABD4B2E2114A9466F6C10B",
+        "receipt_sha256": "6E41F4968C310572B2F6DB069022D624E962DBEF9E8AC901B85FA20946D83A5A"
+      },
+      "final_state_sha256": "CA90D71BB8F3A43D46075424AF34236993708BCA5B2CF8AAAC92111BDAF34C6D",
+      "first_domain": {
+        "black_king_buckets": 32,
+        "dimensions": 20480,
+        "horizontal_mirror": "black king canonicalized to files E-H",
+        "includes_black_king": false,
+        "lanes": 64,
+        "name": "royal"
+      },
+      "first_step_gradient_norms": {
+        "dense_trunk": 0.0038824573467407513,
+        "global_transformer": 0.00010305714520061493,
+        "output": 0.0583529031953511,
+        "royal_transformer": 4.442118124963786e-05
+      },
+      "global_domain": {
+        "dimensions": 704,
+        "fixed_roles": 11,
+        "includes_black_king": true,
+        "lanes": 192,
+        "name": "global"
+      },
+      "initial_validation_composite_loss": 0.2157193173552514,
+      "parameter_count": 1455490,
+      "repeat": {
+        "checkpoint_byte_identical": true,
+        "metrics_byte_identical": true,
+        "receipt_byte_identical": true,
+        "runs": 2,
+        "semantic_checkpoint_identical": true
+      },
+      "schema": "V2_BASE_P0_64X192",
+      "serialized_parameter_bytes": 2902344,
+      "stop_validation": {
+        "composite_loss": 0.21565030103738536,
+        "mate_scores_masked": 21,
+        "prediction_mean_wdl": [
+          0.4842834254086483,
+          0.047406527293787804,
+          0.4683100449619815
+        ],
+        "result_half_brier": 0.37669342232402414,
+        "samples": 1024,
+        "score_eligible": 1003,
+        "score_half_brier_eligible": 0.11055546079636537
+      },
+      "structural_sha256": "5360985A5B08E43A6F7C23E8601DF159BAEE38E9306C3652867AA93EEAD39862"
+    },
+    "v2-c1-abs64x192": {
+      "artifacts": {
+        "checkpoint": {
+          "bytes": 2258600,
+          "semantic_sha256": "8308F3B22F51EE07C1EA7E94281471B5DE8781B0534BC41E3775483D45F01805",
+          "sha256": "9802851CEC667C42D82D12ABFF0B93F8198A1D15D2C3D8AB97791A35EF0AAFCB"
+        },
+        "metrics_sha256": "2CD51A25985A49AD8CB4A8F95E47D5CABC542FA9C8F12E85EC0197C524E422CE",
+        "receipt_sha256": "7C09748E40CF8DD110077ABC3D19D458EF1841B3A641DB54A5CDC0BE7914FB47"
+      },
+      "final_state_sha256": "D45E04B952BAFD2CF9D51408543CEF7F7CCEFD3D40D7CF93F58983CA3A18A48F",
+      "first_domain": {
+        "dimensions": 640,
+        "fixed_roles": 10,
+        "includes_black_king": false,
+        "lanes": 64,
+        "name": "absolute_nonking",
+        "orientation": "absolute A1-H8",
+        "source_projection": "G0 rows 0-639; Black king row omitted"
+      },
+      "first_step_gradient_norms": {
+        "absolute_nonking_transformer": 6.232775266755583e-05,
+        "dense_trunk": 0.0038811789773981527,
+        "global_transformer": 0.00010305849510933889,
+        "output": 0.05834802288592567
+      },
+      "global_domain": {
+        "dimensions": 704,
+        "fixed_roles": 11,
+        "includes_black_king": true,
+        "lanes": 192,
+        "name": "global"
+      },
+      "initial_validation_composite_loss": 0.21572690856919507,
+      "parameter_count": 185730,
+      "repeat": {
+        "checkpoint_byte_identical": true,
+        "metrics_byte_identical": true,
+        "receipt_byte_identical": true,
+        "runs": 2,
+        "semantic_checkpoint_identical": true
+      },
+      "schema": "V2_C1_ABS_NONKING_64X192",
+      "serialized_parameter_bytes": 362824,
+      "stop_validation": {
+        "composite_loss": 0.21564520163883572,
+        "mate_scores_masked": 21,
+        "prediction_mean_wdl": [
+          0.4842543373524677,
+          0.04740744312584866,
+          0.4683382201765198
+        ],
+        "result_half_brier": 0.37669382645981386,
+        "samples": 1024,
+        "score_eligible": 1003,
+        "score_half_brier_eligible": 0.11054650904428939
+      },
+      "structural_sha256": "66538DB76A0248662A824545A2ECCD2AE84CD4805DDFCA206B5239FA3BDE45B6"
+    }
+  },
+  "claims": {
+    "architecture_comparison_allowed": false,
+    "integration_only": true,
+    "production_network": false,
+    "strength_eligible": false,
+    "strength_evidence": false
+  },
+  "comparison_contract": {
+    "candidate": "v2-64x192",
+    "control": "v2-c1-abs64x192",
+    "held_constant": [
+      "G0 192 lanes",
+      "256-lane dense input",
+      "32x32 trunk",
+      "two side-to-move heads",
+      "data and split",
+      "labels and WDL link",
+      "optimizer and schedule",
+      "seed and sample order"
+    ],
+    "not_parameter_matched": true,
+    "only_semantic_variable": "first 64-lane domain: absolute non-king G0 projection versus Royal-relative rows"
+  },
+  "configuration": {
+    "batch_size": 512,
+    "block_size": 2048,
+    "cpu_threads": 1,
+    "device_type": "cpu",
+    "epochs": 3,
+    "lambda": 0.6,
+    "learning_rate": 0.0015,
+    "scheduler_gamma": 0.987,
+    "seed": 2026080803
+  },
+  "data": {
+    "book_split": {
+      "receipt_sha256": "0301BAC3374D8DD4194E03686B27EEB1DBA2EAF0D8B09BD273EF04D33B715DD2",
+      "schema": "HORDE_TRAINING_BOOK_SPLIT_V2",
+      "source": {
+        "bytes": 117653,
+        "canonical_groups": 1500,
+        "multi_record_groups": 0,
+        "name": "HORDE_openings_v3.epd",
+        "records": 1500,
+        "sha256": "E09630E8A0A7D28028E2B02131E82A176DD2D8B18634D671F93E230F9D14F304"
+      }
+    },
+    "train_file": {
+      "book_sha256": "1DC2DD829962CD29FA98CAFC1B0613AC2FCAAFF088B65977E10AAEAF76E96A55",
+      "name": "train.bin",
+      "payload_sha256": "6DD56C8334E535B9997BCA1B8FE7B725D2A17019646499DB24ED000682C99DD6",
+      "records": 4096,
+      "seed": "2026080801",
+      "sha256": "28E9E96B9813E629352966E383BD87438C5295CE11DB8E62B5A164F220B0CBD1"
+    },
+    "validation_file": {
+      "book_sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A",
+      "name": "validation.bin",
+      "payload_sha256": "653F4FD7F733E3761DDCD621B032710F9699F2930ABA1FC7916E5CCBA9438D45",
+      "records": 1024,
+      "seed": "2026080802",
+      "sha256": "2B2E724B9CF42E60DF8EECF67DBBA5609240023DAA102B3743A654843EE9ADE4"
+    },
+    "wdl_calibration": {
+      "eligible_records_sha256": "FA619F0C598D487D0178799EA2F48874A86CF6FAFF64955AA61AEE4A1DB21002",
+      "link_schema": "DAVIDSON_STM_SOFTMAX_V1",
+      "name": "wdl-calibration-v1.json",
+      "schema": "HORDE_WDL_CALIBRATION_V1",
+      "selection_sha256": "89CF8ADD5B2E144525D0B1310F07D9079736A830AADD1F0627B9E42846A097FD",
+      "sha256": "AAD0DE1A06C1BC9B6C0AC11F60B2581D5802519017DC4AF34F02B06560FC2B14"
+    },
+    "zero_cross_role_overlap": true
+  },
+  "environment": {
+    "amp": false,
+    "cuda_matmul_allow_tf32": false,
+    "cudnn_allow_tf32": false,
+    "device": {
+      "cpu_threads": 1,
+      "cublas_workspace_config": ":4096:8",
+      "deterministic_algorithms": true,
+      "mkldnn_enabled": false,
+      "type": "cpu"
+    },
+    "float32_matmul_precision": "highest",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "python": "3.12.0",
+    "pytorch": "2.7.1+cu118"
+  },
+  "gates": {
+    "c0_correctness": {
+      "commit": "e2725f02a477ff60e4f2f753b782140ea6482d37",
+      "conclusion": "success",
+      "run_id": 31276264602,
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31276264602"
+    },
+    "c1_correctness": {
+      "commit": "50c5eeaef53ef47db59c7cb92e6baa340152c793",
+      "conclusion": "success",
+      "run_id": 31276803459,
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31276803459"
+    },
+    "c1_openbench_artifacts": {
+      "commit": "50c5eeaef53ef47db59c7cb92e6baa340152c793",
+      "conclusion": "success",
+      "run_id": 31276803069,
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31276803069"
+    }
+  },
+  "observed_validation_loss": {
+    "royal_minus_absolute_initial": -7.5912139436695725e-06,
+    "royal_minus_absolute_stop": 5.099398549646139e-06,
+    "selection_use": "none; 4,096/1,024 records and one seed are plumbing evidence only"
+  },
+  "schema": "HORDE_V2_C1_REAL_DATA_CANARY_RECEIPT_V1",
+  "source": {
+    "commit": "50c5eeaef53ef47db59c7cb92e6baa340152c793",
+    "dirty": false
+  }
+}
