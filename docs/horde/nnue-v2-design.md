@@ -425,6 +425,19 @@ score_stm, result_stm
 ```
 
 Its decoder has invariant and horizontal-reflection tests before training.
+It retains the physical board, castling rights, en-passant square, and source
+payload identity instead of discarding fields that are invisible to the first
+network. `white_piece_count` is an explicit decoded value. Receipts bind the
+whole input file, fixed header, manifest, record payload, book, producer,
+teacher network, sparse rows, physical states, evaluator inputs, and mate-mask
+eligibility. A sample identity is `(payload_sha256, local_record_index)`.
+
+Opening roots are assigned by a horizontal-reflection canonical key before
+generation. After generation, both physical-state keys and complete
+legacy-evaluator-input keys must have zero train/validation overlap. The split
+and record-level audit are independent gates; neither substitutes for the
+other. Until the wire format gains a game identifier, weighting and validation
+metrics are per record and make no game-clustered statistical claim.
 
 The dataset manifest states:
 
@@ -442,12 +455,19 @@ measured separately.
 
 Horde's asymmetric WDL calibration is measured independently for White-to-move
 and Black-to-move samples. The initial result model is a three-class monotone
-link whose fitted parameters are frozen across architecture candidates.
+link whose fitted parameters are frozen across architecture candidates. The
+scalar result MSE used by the small integration trainer is provisional and is
+not eligible for architecture selection or the 50-million-position ladder.
 
 Every strength-comparable rung uses the same dataset split, labels, optimizer,
 schedule, loss, lambda policy, filters, and at least three seeds. The manifest
 records trainer commit, dataset hashes, structural schema hash, seed,
 validation metrics, engine NPS, and refresh rates.
+
+Initialization uses independent SHA-256-derived streams keyed by semantic
+parameter name. Identically shaped shared trunks and output heads therefore
+start byte-identically across width candidates even when their sparse
+transformers consume different parameter counts.
 
 ## Rule-50 contract
 
@@ -464,6 +484,15 @@ Python must emulate truncation toward zero; integer `//` is wrong for negative
 scores. The trainer objective must state whether it predicts `v0` or the
 postprocessed `v`, so damping is never learned and applied twice. A learned
 rule-50 input, changed postprocessor, or no damping is a later isolated test.
+
+The control trainer predicts `v0`, applies this integer forward exactly once
+inside the loss, and uses a straight-through estimator only for the gradient
+through truncation. Its checkpoint freezes model, optimizer, scheduler,
+device-specific RNG, deterministic sample-order hash chain, partial-epoch
+cursor and metrics, examples consumed, source/data/recipe identities, and the
+exact runtime. Uninterrupted and mid-epoch-resumed runs must be semantically
+identical across every field and tensor; container-level `torch.save` bytes are
+not accepted as a substitute for this comparison.
 
 ## Network container and dispatch
 

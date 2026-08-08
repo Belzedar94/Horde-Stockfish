@@ -77,12 +77,23 @@ optimized or exported.
 ## Fresh legacy control
 
 [`tools/horde_split_training_book.py`](../../tools/horde_split_training_book.py)
-partitions one source EPD by the SHA-256 of its first four normalized FEN
-fields. It rejects duplicate physical states and writes exclusive train,
-validation, and receipt artifacts. The fresh-control trainer requires that
-receipt and independently checks that the two `HORDE_BIN_V1` files identify
-different book hashes, identical teacher settings, and the same producer and
-Run 6B identities.
+partitions one source EPD by the SHA-256 of a horizontal-reflection canonical
+key made from its first four normalized FEN fields. A position and its file
+mirror therefore cannot cross training and validation roles. It rejects
+duplicate physical states and writes exclusive train, validation, and receipt
+artifacts. The old exact-key V1 assignment remains available only through
+`--legacy-exact-key-v1` for receipt replay; new generation uses
+`HORDE_TRAINING_BOOK_SPLIT_V2`.
+
+The fresh-control trainer requires the split receipt and independently checks
+that the two `HORDE_BIN_V1` files identify different book hashes, identical
+teacher settings, and the same producer and Run 6B identities. It then runs
+[`tools/horde_training_split_audit.py`](../../tools/horde_training_split_audit.py)
+over the generated records. The audit requires zero cross-role overlap for
+both the complete physical state and the complete legacy evaluator input.
+Every sample is globally identified by `(payload_sha256, local_record_index)`;
+the full file, header, manifest, payload, producer, book, and network identities
+are retained in decoder and trainer receipts.
 
 [`tools/horde_training_control.py`](../../tools/horde_training_control.py)
 trains the exact serialized legacy topology: one shared 896-by-512 H/P feature
@@ -94,12 +105,29 @@ training-method ablation, but it is not mixed into the architecture control.
 
 The reference recipe uses lambda 0.6, RAdam, a lower output-head learning rate,
 the legacy dense quantization bounds, and a deterministic bounded-memory
-SplitMix64 block shuffle. Scores with absolute value at least 31,507 are
+SplitMix64 block shuffle. Parameter initialization derives an independent
+SHA-256 seed from each semantic parameter name, so changing one transformer's
+shape cannot perturb identically shaped trunks or heads in another candidate.
+Scores with absolute value at least 31,507 are
 excluded from the evaluation term and retained in the game-result term, so
-mate-distance values are never regressed as ordinary centipawns. CPU and CUDA
-runs record complete environment, data, schedule, state, checkpoint, and
-metric hashes. CPU is the exact cross-run receipt path; CUDA determinism is
-verified independently on the target trainer host.
+mate-distance values are never regressed as ordinary centipawns. The network
+predicts the pre-postprocessor value. The loss graph applies the engine's
+integer rule-50 damping exactly once, including truncation toward zero and the
+tablebase-safe clamp, while using a straight-through gradient for truncation.
+The current scalar result MSE is explicitly provisional and cannot be used for
+the architecture ladder until the frozen three-class monotone calibration is
+implemented.
+
+CPU and CUDA runs record complete environment, data, schedule, sample-order
+chain, state, checkpoint, and metric hashes. A checkpoint contains the model,
+optimizer, scheduler, device-specific RNG, sampler cursor, partial-epoch
+metrics, examples consumed, and every identity needed to reject an incompatible
+resume. [`tests/horde_training_resume.py`](../../tests/horde_training_resume.py)
+compares an uninterrupted run with a mid-epoch stop/resume. It requires exact
+semantic equality of every checkpoint field and byte-identical metrics; the
+PyTorch archive SHA itself is not treated as semantic identity. CPU is the
+exact cross-run receipt path; CUDA determinism is verified independently on
+the target trainer host.
 
 This Python path is a correctness and convergence reference. A compiled loader
 must reproduce its batches, masks, loss, and state transitions before the
@@ -112,4 +140,7 @@ Two independent three-epoch runs produced byte-identical checkpoints, metrics,
 and receipts. Their checkpoint SHA-256 is
 `D60C946E3943681EE7B0ADA6FE496E324D6F84C67AC0AF3D4D9626701D12A495`;
 the validation loss moved from `0.1912389414` to `0.1884044660`. This is an
-integration and determinism receipt only, not a comparison against Run 6B.
+integration and determinism receipt only, not a comparison against Run 6B. It
+predates split V2, cross-role generated-record auditing, exact rule-50 loss,
+and resumable checkpoints, so it remains historical evidence rather than the
+authorization for a 50-million-position campaign.
