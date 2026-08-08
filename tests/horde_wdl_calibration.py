@@ -234,6 +234,18 @@ def test_fail_closed_support() -> None:
         raise AssertionError("Davidson calibration accepted insufficient class support")
 
 
+def test_fail_closed_non_positive_slope() -> None:
+    observations = wdl.aggregate_observations(
+        ((600, -1, 64), (0, 0, 64), (-600, 1, 64))
+    )
+    try:
+        wdl.fit_side(observations)
+    except wdl.CalibrationError:
+        pass
+    else:
+        raise AssertionError("Davidson calibration accepted a non-positive score relation")
+
+
 def test_dataset_aggregation() -> None:
     with tempfile.TemporaryDirectory(prefix="horde-wdl-") as temporary:
         path = Path(temporary) / "train.bin"
@@ -260,6 +272,7 @@ def main() -> int:
     test_recovery_and_determinism()
     test_artifact_validation()
     test_fail_closed_support()
+    test_fail_closed_non_positive_slope()
     test_dataset_aggregation()
     print("Horde Davidson WDL calibration tests passed")
     return 0

@@ -108,15 +108,22 @@ the legacy dense quantization bounds, and a deterministic bounded-memory
 SplitMix64 block shuffle. Parameter initialization derives an independent
 SHA-256 seed from each semantic parameter name, so changing one transformer's
 shape cannot perturb identically shaped trunks or heads in another candidate.
-Scores with absolute value at least 31,507 are
-excluded from the evaluation term and retained in the game-result term, so
-mate-distance values are never regressed as ordinary centipawns. The network
-predicts the pre-postprocessor value. The loss graph applies the engine's
-integer rule-50 damping exactly once, including truncation toward zero and the
-tablebase-safe clamp, while using a straight-through gradient for truncation.
-The current scalar result MSE is explicitly provisional and cannot be used for
-the architecture ladder until the frozen three-class monotone calibration is
-implemented.
+Scores with absolute value at least 31,507 are excluded from the score-derived
+WDL term and retained in the game-result term, so mate-distance values are
+never regressed as ordinary centipawns. The network predicts the
+pre-postprocessor value. The loss graph applies the engine's integer rule-50
+damping exactly once, including truncation toward zero and the tablebase-safe
+clamp, while using a straight-through gradient for truncation.
+
+Every run requires a validated `HORDE_WDL_CALIBRATION_V1` artifact fitted from
+the exact authenticated training file. Its side-specific Davidson parameters
+are frozen across architecture candidates. Both the postprocessed network
+prediction and stored non-mate teacher score are mapped to loss/draw/win
+probabilities. The score and one-hot result terms are half-Brier losses combined
+per record with lambda 0.6 and then averaged without class weighting,
+resampling, or side pooling. The calibration SHA-256 and source identities are
+bound into settings, checkpoints, metrics, and the final receipt. See
+[`wdl-calibration-v1.md`](wdl-calibration-v1.md) for the complete contract.
 
 CPU and CUDA runs record complete environment, data, schedule, sample-order
 chain, state, checkpoint, and metric hashes. A checkpoint contains the model,

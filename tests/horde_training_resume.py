@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import horde_compare_training_checkpoints as checkpoint_compare  # noqa: E402
 import horde_training_control as control  # noqa: E402
+import horde_training_decoder as decoder  # noqa: E402
+import horde_wdl as wdl  # noqa: E402
 from horde_bin_v1 import (  # noqa: E402
     HEADER_SIZE,
     LABEL_CONTRACT_NAME,
@@ -29,16 +31,26 @@ from horde_bin_v1 import (  # noqa: E402
 
 def _record(index: int) -> bytes:
     board = [0] * 64
-    source = index
-    target = 40 + index
-    board[source] = 2  # White knight; geometry is immaterial to the wire contract.
+    side = index & 1
+    result = (-1, 0, 1)[(index // 2) % 3]
+    board[0] = 2  # White knight.
+    board[8 + index % 40] = 4  # Unique White-rook component of the physical key.
+    board[48 + (index // 40) % 8] = 9  # Unique Black-rook component.
+    board[57] = 7  # Black knight.
     board[60] = 11  # The unique Black king.
     packed_board = bytes(
         board[square] | (board[square + 1] << 4) for square in range(0, 64, 2)
     )
-    move = (source << 6) | target
-    state = bytes((0, 0, 64, 0))
-    labels = struct.pack("<HHhHHbB", index, 0, index * 7 - 30, move, move, 0, 3)
+    move = (0 << 6) | 7 if side == 0 else (57 << 6) | 56
+    state = bytes((side, 0, 64, 0))
+    # Keep the three outcome distributions overlapping while giving both
+    # side-to-move fits the positive score/result relation required by the
+    # frozen Davidson contract.
+    score = result * 200 + (index * 137) % 1201 - 600
+    reason = 3 if result == 0 else 1
+    labels = struct.pack(
+        "<HHhHHbB", index % 100, side, score, move, move, result, reason
+    )
     record = packed_board + state + labels
     if len(record) != RECORD_SIZE:
         raise AssertionError("synthetic HORDE_BIN_V1 record has the wrong size")
@@ -144,10 +156,44 @@ def _write_split_receipt(
     )
 
 
+def _write_wdl_calibration(
+    path: Path,
+    train: Path,
+    *,
+    software_commit: str = "3" * 40,
+) -> None:
+    with decoder.HordeBinV1Dataset(train) as dataset:
+        aggregated = wdl.aggregate_labels(dataset)
+        manifest = dataset.manifest
+        source = {
+            "training_file": {
+                "name": train.name,
+                "sha256": dataset.file_sha256,
+                "payload_sha256": manifest["payload_sha256"],
+                "manifest_sha256": dataset.manifest_sha256,
+                "records": len(dataset),
+            },
+            "teacher": {
+                "source_commit": manifest["source_commit"],
+                "producer_sha256": manifest["producer_sha256"],
+                "network": manifest["network"],
+                "label_contract": manifest["label_contract"],
+            },
+            "software": {
+                "commit": software_commit,
+                "dirty": False,
+                "python": "3.12.0",
+                "implementation": "CPython",
+            },
+        }
+    path.write_bytes(wdl.canonical_json(wdl.build_artifact(aggregated, source)))
+
+
 def _arguments(
     train: Path,
     validation: Path,
     split_receipt: Path,
+    wdl_calibration: Path,
     output: Path,
     *,
     resume: Path | None = None,
@@ -157,14 +203,15 @@ def _arguments(
         train=train,
         validation=validation,
         book_split_receipt=split_receipt,
+        wdl_calibration=wdl_calibration,
         output=output,
         seed=2026080811,
         epochs=2,
         lambda_value=0.6,
         learning_rate=control.DEFAULT_LEARNING_RATE,
         scheduler_gamma=control.DEFAULT_SCHEDULER_GAMMA,
-        batch_size=2,
-        block_size=4,
+        batch_size=64,
+        block_size=128,
         device="cpu",
         cpu_threads=1,
         resume=resume,
@@ -180,50 +227,112 @@ def main() -> int:
         train = root / "train.bin"
         validation = root / "validation.bin"
         split_receipt = root / "split-receipt.json"
+        wdl_calibration = root / "wdl-calibration.json"
         train_book_sha256 = "A" * 64
         validation_book_sha256 = "B" * 64
         _write_dataset(
             train,
             first=0,
-            count=6,
+            count=192,
             book_sha256=train_book_sha256,
             seed=101,
         )
         _write_dataset(
             validation,
-            first=8,
-            count=4,
+            first=192,
+            count=96,
             book_sha256=validation_book_sha256,
             seed=202,
         )
         _write_split_receipt(
             split_receipt,
-            train_count=6,
-            validation_count=4,
+            train_count=192,
+            validation_count=96,
             train_book_sha256=train_book_sha256,
             validation_book_sha256=validation_book_sha256,
         )
+        _write_wdl_calibration(wdl_calibration, train)
+
+        other_train = root / "other-train.bin"
+        other_calibration = root / "other-wdl-calibration.json"
+        _write_dataset(
+            other_train,
+            first=384,
+            count=192,
+            book_sha256=train_book_sha256,
+            seed=303,
+        )
+        _write_wdl_calibration(other_calibration, other_train)
+        mismatched_dataset_output = root / "mismatched-dataset"
+        try:
+            control.train(
+                _arguments(
+                    train,
+                    validation,
+                    split_receipt,
+                    other_calibration,
+                    mismatched_dataset_output,
+                )
+            )
+        except control.TrainingError as error:
+            if "exact training dataset" not in str(error):
+                raise
+        else:
+            raise AssertionError("trainer accepted calibration from another dataset")
+        if mismatched_dataset_output.exists():
+            raise AssertionError("calibration mismatch created a partial output directory")
 
         full = root / "full"
         partial = root / "partial"
         resumed = root / "resumed"
-        full_receipt = control.train(_arguments(train, validation, split_receipt, full))
+        full_receipt = control.train(
+            _arguments(train, validation, split_receipt, wdl_calibration, full)
+        )
         partial_receipt = control.train(
             _arguments(
                 train,
                 validation,
                 split_receipt,
+                wdl_calibration,
                 partial,
                 stop_after_steps=2,
             )
         )
         if partial_receipt["run"]["complete"] is not False:
             raise AssertionError("partial trainer run was incorrectly marked complete")
+
+        alternate_calibration = root / "alternate-wdl-calibration.json"
+        _write_wdl_calibration(
+            alternate_calibration,
+            train,
+            software_commit="4" * 40,
+        )
+        mismatched_resume_output = root / "mismatched-resume"
+        try:
+            control.train(
+                _arguments(
+                    train,
+                    validation,
+                    split_receipt,
+                    alternate_calibration,
+                    mismatched_resume_output,
+                    resume=partial / "checkpoint.pt",
+                )
+            )
+        except control.TrainingError as error:
+            if "resume settings mismatch" not in str(error):
+                raise
+        else:
+            raise AssertionError("resume accepted a different calibration artifact")
+        if mismatched_resume_output.exists():
+            raise AssertionError("resume calibration mismatch created a partial output directory")
+
         resumed_receipt = control.train(
             _arguments(
                 train,
                 validation,
                 split_receipt,
+                wdl_calibration,
                 resumed,
                 resume=partial / "checkpoint.pt",
             )

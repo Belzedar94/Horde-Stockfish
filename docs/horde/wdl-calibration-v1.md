@@ -28,6 +28,27 @@ teacher score already includes search's rule-50 behavior and is therefore
 passed directly to the frozen link. A network prediction first passes through
 `HORDE_RULE50_LINEAR_V1` and then through this link.
 
+## Trainer objective
+
+For a network prediction `v`, stored teacher score `t`, side to move `s`, and
+one-hot game result `y`:
+
+```text
+p = WDL_s(HORDE_RULE50_LINEAR_V1(v))
+q = WDL_s(t)
+score_half_brier  = 0.5 * sum((p - q)^2)
+result_half_brier = 0.5 * sum((p - y)^2)
+loss = lambda * score_eligible * score_half_brier
+     + (1 - lambda) * result_half_brier
+```
+
+The batch objective is the mean of `loss` over every record. The score mask is
+zero only for mate-distance labels; their result term remains active. The
+stored teacher score is not passed through the rule-50 postprocessor again.
+There is no class weighting, resampling, side pooling, or per-term denominator.
+The calibration artifact must bind the exact authenticated training file, and
+its complete SHA-256 is frozen in training settings and checkpoints.
+
 ## Fit gates
 
 Each side must contain at least 32 eligible loss, draw, and win records. The

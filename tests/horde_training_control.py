@@ -14,6 +14,17 @@ sys.path.insert(0, str(ROOT / "tools"))
 import horde_training_control as control  # noqa: E402
 import horde_training_decoder as decoder  # noqa: E402
 import horde_training_microfit as microfit  # noqa: E402
+import horde_wdl as wdl  # noqa: E402
+
+
+def calibration(device: str = "cpu") -> control.DavidsonCalibration:
+    return control._torch_calibration(
+        {
+            "white_to_move": (1.0, 0.0, 0.0),
+            "black_to_move": (1.0, 0.0, 0.0),
+        },
+        torch.device(device),
+    )
 
 
 def test_schedule() -> None:
@@ -60,22 +71,23 @@ def test_mate_mask() -> None:
         piece_buckets=torch.zeros(3, dtype=torch.long),
         rule50_count=torch.zeros(3, dtype=torch.long),
         scores=torch.tensor([0.0, 31507.0, -31999.0]),
-        result_targets=torch.tensor([0.5, 1.0, 0.0]),
-        eval_eligible=torch.tensor([True, False, False]),
+        results=torch.tensor([0, 1, -1]),
+        score_eligible=torch.tensor([True, False, False]),
     )
-    output = torch.zeros(3)
-    composite, eval_error, result_error, prediction = control.loss_terms(output, batch, 0.6)
-    expected = torch.tensor([0.0, 0.1, 0.1])
-    if not torch.equal(batch.eval_eligible, torch.tensor([True, False, False])):
+    output = torch.tensor([0.0, 0.5, -0.5])
+    composite, score_error, result_error, prediction = control.loss_terms(
+        output, batch, 0.6, calibration()
+    )
+    if not torch.equal(batch.score_eligible, torch.tensor([True, False, False])):
         raise AssertionError("mate eligibility threshold changed")
-    if not torch.allclose(composite, expected, atol=1.0e-7, rtol=0.0):
-        raise AssertionError(f"mate eval term was not masked: {composite}")
-    if not bool(torch.all(eval_error[1:] > 0.2)):
-        raise AssertionError("mate fixture does not exercise a non-zero masked eval error")
-    if not torch.allclose(result_error[1:], torch.tensor([0.25, 0.25])):
-        raise AssertionError("mate result term changed")
-    if not torch.equal(prediction, torch.full((3,), 0.5)):
-        raise AssertionError("zero-output prediction changed")
+    if not torch.allclose(composite[1:], 0.4 * result_error[1:], atol=1.0e-7, rtol=0.0):
+        raise AssertionError(f"mate score-derived WDL term was not masked: {composite}")
+    if not bool(torch.all(score_error[1:] > 0.0)):
+        raise AssertionError("mate fixture does not exercise a non-zero masked score error")
+    if not torch.allclose(prediction[0], torch.full((3,), 1.0 / 3.0), atol=1.0e-7, rtol=0.0):
+        raise AssertionError("zero-score Davidson prediction changed")
+    if not torch.allclose(composite[0], torch.tensor(0.4 / 3.0), atol=1.0e-7, rtol=0.0):
+        raise AssertionError("result half-Brier normalization changed")
 
 
 def test_gradient_path() -> None:
@@ -90,13 +102,13 @@ def test_gradient_path() -> None:
         piece_buckets=fixture.piece_buckets,
         rule50_count=torch.zeros_like(fixture.side_to_move),
         scores=fixture.scores,
-        result_targets=fixture.result_targets,
-        eval_eligible=torch.ones_like(fixture.scores, dtype=torch.bool),
+        results=torch.round(2.0 * fixture.result_targets - 1.0).to(dtype=torch.long),
+        score_eligible=torch.ones_like(fixture.scores, dtype=torch.bool),
     )
     model = control.LegacyHPModel(0xC0FFEE)
     before = control._state_sha256(model)
     optimizer = control._make_optimizer(model, control.DEFAULT_LEARNING_RATE)
-    composite, *_ = control.loss_terms(model(batch), batch, 0.6)
+    composite, *_ = control.loss_terms(model(batch), batch, 0.6, calibration())
     composite.mean().backward()
     norms = control._gradient_norms(model)
     if set(norms) != {"feature_transformer", "psqt", "dense_trunk", "output"}:
@@ -119,13 +131,68 @@ def test_gradient_path() -> None:
             piece_buckets=batch.piece_buckets.to("cuda"),
             rule50_count=batch.rule50_count.to("cuda"),
             scores=batch.scores.to("cuda"),
-            result_targets=batch.result_targets.to("cuda"),
-            eval_eligible=batch.eval_eligible.to("cuda"),
+            results=batch.results.to("cuda"),
+            score_eligible=batch.score_eligible.to("cuda"),
         )
         with torch.no_grad():
             output = cuda_model(cuda_batch)
         if output.device.type != "cuda" or not bool(torch.isfinite(output).all().cpu()):
             raise AssertionError("legacy control forward is not CUDA-safe")
+
+
+def test_wdl_label_path() -> None:
+    batch = control.LegacyBatch(
+        legacy_white=torch.empty(0, dtype=torch.long),
+        legacy_black=torch.empty(0, dtype=torch.long),
+        piece_offsets=torch.zeros(3, dtype=torch.long),
+        side_to_move=torch.tensor([0, 0]),
+        piece_buckets=torch.zeros(2, dtype=torch.long),
+        rule50_count=torch.tensor([0, 100]),
+        scores=torch.tensor([600.0, 600.0]),
+        results=torch.tensor([1, 1]),
+        score_eligible=torch.tensor([True, True]),
+    )
+    output = torch.ones(2)
+    _, score_error, _, prediction = control.loss_terms(output, batch, 0.6, calibration())
+    if score_error[0] != 0.0 or score_error[1] <= 0.0:
+        raise AssertionError("stored teacher score was incorrectly reprocessed by rule 50")
+    if torch.equal(prediction[0], prediction[1]):
+        raise AssertionError("prediction rule-50 postprocessor was bypassed")
+
+    asymmetric = control._torch_calibration(
+        {
+            "white_to_move": (1.0, 0.5, -0.5),
+            "black_to_move": (1.0, -0.5, -0.5),
+        },
+        torch.device("cpu"),
+    )
+    scores = torch.zeros(2)
+    sides = torch.tensor([0, 1])
+    side_predictions = control._wdl_probabilities(scores, sides, asymmetric)
+    if side_predictions[0, 2] <= side_predictions[1, 2]:
+        raise AssertionError("side-specific Davidson intercepts were pooled")
+
+
+def test_wdl_tensor_link() -> None:
+    parameters = {
+        "white_to_move": (0.75, -0.2, -0.8),
+        "black_to_move": (1.25, 0.3, -0.4),
+    }
+    scores = torch.tensor([-1200.0, 0.0, 600.0, 1800.0])
+    sides = torch.tensor([0, 1, 0, 1])
+    observed = control._wdl_probabilities(
+        scores,
+        sides,
+        control._torch_calibration(parameters, torch.device("cpu")),
+    )
+    expected = torch.tensor(
+        [
+            wdl.probabilities(float(score), parameters[wdl.SIDE_NAMES[int(side)]])
+            for score, side in zip(scores, sides, strict=True)
+        ]
+    )
+    if not torch.allclose(observed, expected, atol=1.0e-7, rtol=0.0):
+        raise AssertionError("trainer Davidson tensor link differs from the frozen scalar contract")
 
 
 def test_named_initialization() -> None:
@@ -207,6 +274,8 @@ def main() -> int:
     test_schedule()
     test_mate_mask()
     test_gradient_path()
+    test_wdl_label_path()
+    test_wdl_tensor_link()
     test_named_initialization()
     test_rule50_postprocessor()
     test_position_and_model_keys()

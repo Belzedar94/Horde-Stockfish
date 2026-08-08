@@ -43,13 +43,17 @@ try:
         make_sparse_batch,
     )
     from .horde_training_microfit import (
-        EVAL_SIGMOID_SCALE,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
-        OUTPUT_SIGMOID_SCALE,
     )
     from .horde_training_split_audit import audit_pair
+    from .horde_wdl import (
+        CalibrationError,
+        LINK_SCHEMA as WDL_LINK_SCHEMA,
+        SIDE_NAMES as WDL_SIDE_NAMES,
+        load_artifact as load_wdl_artifact,
+    )
 except ImportError:
     from horde_training_decoder import (
         BLACK,
@@ -59,17 +63,21 @@ except ImportError:
         make_sparse_batch,
     )
     from horde_training_microfit import (
-        EVAL_SIGMOID_SCALE,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
-        OUTPUT_SIGMOID_SCALE,
     )
     from horde_training_split_audit import audit_pair
+    from horde_wdl import (
+        CalibrationError,
+        LINK_SCHEMA as WDL_LINK_SCHEMA,
+        SIDE_NAMES as WDL_SIDE_NAMES,
+        load_artifact as load_wdl_artifact,
+    )
 
 
-SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_TRAINING_V2"
-CHECKPOINT_SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_CHECKPOINT_V2"
+SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_TRAINING_V3"
+CHECKPOINT_SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_CHECKPOINT_V3"
 ARCHITECTURE_SCHEMA = "HORDETEST_HP_FRESH_CONTROL_V1"
 BOOK_SPLIT_SCHEMAS = {
     "HORDE_TRAINING_BOOK_SPLIT_V1",
@@ -79,7 +87,7 @@ MATE_SCORE_THRESHOLD = 31_507  # VALUE_TB_WIN_IN_MAX_PLY at MAX_PLY=246.
 DEFAULT_LAMBDA = 0.6
 DEFAULT_LEARNING_RATE = 1.5e-3
 DEFAULT_SCHEDULER_GAMMA = 0.987
-MASK_POLICY = "exclude abs(score) >= 31507 from eval term; retain result term"
+MASK_POLICY = "exclude abs(score) >= 31507 from score-derived WDL term; retain result WDL term"
 U64_MASK = (1 << 64) - 1
 
 
@@ -96,77 +104,103 @@ class LegacyBatch:
     piece_buckets: Tensor
     rule50_count: Tensor
     scores: Tensor
-    result_targets: Tensor
-    eval_eligible: Tensor
+    results: Tensor
+    score_eligible: Tensor
+
+
+@dataclass(frozen=True, slots=True)
+class DavidsonCalibration:
+    parameters: Tensor
 
 
 @dataclass(slots=True)
 class MetricAccumulator:
     samples: int = 0
-    eval_eligible: int = 0
+    score_eligible: int = 0
     composite_sum: float = 0.0
-    eval_sum: float = 0.0
+    score_sum: float = 0.0
     result_sum: float = 0.0
-    prediction_sum: float = 0.0
+    prediction_loss_sum: float = 0.0
+    prediction_draw_sum: float = 0.0
+    prediction_win_sum: float = 0.0
 
     @classmethod
     def from_state(cls, state: dict[str, object]) -> MetricAccumulator:
         expected = {
             "samples",
-            "eval_eligible",
+            "score_eligible",
             "composite_sum",
-            "eval_sum",
+            "score_sum",
             "result_sum",
-            "prediction_sum",
+            "prediction_loss_sum",
+            "prediction_draw_sum",
+            "prediction_win_sum",
         }
         _require(set(state) == expected, "checkpoint metric state is incomplete")
         return cls(
             samples=int(state["samples"]),
-            eval_eligible=int(state["eval_eligible"]),
+            score_eligible=int(state["score_eligible"]),
             composite_sum=float(state["composite_sum"]),
-            eval_sum=float(state["eval_sum"]),
+            score_sum=float(state["score_sum"]),
             result_sum=float(state["result_sum"]),
-            prediction_sum=float(state["prediction_sum"]),
+            prediction_loss_sum=float(state["prediction_loss_sum"]),
+            prediction_draw_sum=float(state["prediction_draw_sum"]),
+            prediction_win_sum=float(state["prediction_win_sum"]),
         )
 
     def state(self) -> dict[str, object]:
         return {
             "samples": self.samples,
-            "eval_eligible": self.eval_eligible,
+            "score_eligible": self.score_eligible,
             "composite_sum": self.composite_sum,
-            "eval_sum": self.eval_sum,
+            "score_sum": self.score_sum,
             "result_sum": self.result_sum,
-            "prediction_sum": self.prediction_sum,
+            "prediction_loss_sum": self.prediction_loss_sum,
+            "prediction_draw_sum": self.prediction_draw_sum,
+            "prediction_win_sum": self.prediction_win_sum,
         }
 
     def update(
         self,
         composite: Tensor,
-        eval_error: Tensor,
+        score_error: Tensor,
         result_error: Tensor,
         prediction: Tensor,
-        eval_eligible: Tensor,
+        score_eligible: Tensor,
     ) -> None:
-        eligible = eval_eligible.to(dtype=eval_error.dtype)
+        _require(
+            prediction.ndim == 2 and prediction.shape[1] == 3,
+            "WDL prediction tensor is not Nx3",
+        )
+        eligible = score_eligible.to(dtype=score_error.dtype)
         self.samples += int(composite.numel())
-        self.eval_eligible += int(eval_eligible.sum().detach().cpu().item())
+        self.score_eligible += int(score_eligible.sum().detach().cpu().item())
         self.composite_sum += float(composite.sum(dtype=torch.float64).detach().cpu().item())
-        self.eval_sum += float((eval_error * eligible).sum(dtype=torch.float64).detach().cpu().item())
+        self.score_sum += float(
+            (score_error * eligible).sum(dtype=torch.float64).detach().cpu().item()
+        )
         self.result_sum += float(result_error.sum(dtype=torch.float64).detach().cpu().item())
-        self.prediction_sum += float(prediction.sum(dtype=torch.float64).detach().cpu().item())
+        prediction_sums = prediction.sum(dim=0, dtype=torch.float64).detach().cpu().tolist()
+        self.prediction_loss_sum += float(prediction_sums[0])
+        self.prediction_draw_sum += float(prediction_sums[1])
+        self.prediction_win_sum += float(prediction_sums[2])
 
     def receipt(self) -> dict[str, object]:
         _require(self.samples > 0, "metric accumulator is empty")
         return {
             "samples": self.samples,
-            "eval_eligible": self.eval_eligible,
-            "mate_scores_masked": self.samples - self.eval_eligible,
+            "score_eligible": self.score_eligible,
+            "mate_scores_masked": self.samples - self.score_eligible,
             "composite_loss": self.composite_sum / self.samples,
-            "eval_mse_eligible": (
-                self.eval_sum / self.eval_eligible if self.eval_eligible else None
+            "score_half_brier_eligible": (
+                self.score_sum / self.score_eligible if self.score_eligible else None
             ),
-            "result_mse": self.result_sum / self.samples,
-            "prediction_mean": self.prediction_sum / self.samples,
+            "result_half_brier": self.result_sum / self.samples,
+            "prediction_mean_wdl": [
+                self.prediction_loss_sum / self.samples,
+                self.prediction_draw_sum / self.samples,
+                self.prediction_win_sum / self.samples,
+            ],
         }
 
 
@@ -298,11 +332,8 @@ def _torch_batch(sparse: SparseBatch, device: torch.device) -> LegacyBatch:
         piece_buckets=torch.tensor(piece_buckets, dtype=torch.long, device=device),
         rule50_count=torch.tensor(sparse.rule50_count, dtype=torch.long, device=device),
         scores=scores,
-        result_targets=(
-            torch.tensor(sparse.results, dtype=torch.float32, device=device) + 1.0
-        )
-        / 2.0,
-        eval_eligible=torch.abs(scores) < MATE_SCORE_THRESHOLD,
+        results=torch.tensor(sparse.results, dtype=torch.long, device=device),
+        score_eligible=torch.abs(scores) < MATE_SCORE_THRESHOLD,
     )
 
 
@@ -319,20 +350,61 @@ def _rule50_postprocess(output: Tensor, rule50_count: Tensor) -> Tensor:
     return torch.clamp(damped_ste, -31_506.0, 31_506.0)
 
 
+def _torch_calibration(
+    parameters: dict[str, tuple[float, float, float]],
+    device: torch.device,
+) -> DavidsonCalibration:
+    ordered = [parameters[WDL_SIDE_NAMES[side]] for side in (WHITE, BLACK)]
+    tensor = torch.tensor(ordered, dtype=torch.float32, device=device)
+    _require(tensor.shape == (2, 3), "WDL calibration tensor is not 2x3")
+    _require(bool(torch.isfinite(tensor).all().detach().cpu()), "WDL calibration is non-finite")
+    _require(
+        bool(torch.all(tensor[:, 0] > 0.0).detach().cpu()),
+        "WDL calibration slope is not positive",
+    )
+    return DavidsonCalibration(tensor)
+
+
+def _wdl_probabilities(
+    scores: Tensor,
+    side_to_move: Tensor,
+    calibration: DavidsonCalibration,
+) -> Tensor:
+    _require(scores.ndim == 1, "WDL score tensor is not one-dimensional")
+    _require(side_to_move.shape == scores.shape, "WDL side tensor shape mismatch")
+    selected = calibration.parameters.index_select(0, side_to_move)
+    eta = selected[:, 0] * (scores / NNUE_TO_SCORE) + selected[:, 1]
+    logits = torch.stack((-eta, selected[:, 2], eta), dim=1)
+    return torch.softmax(logits, dim=1)
+
+
 def loss_terms(
     output: Tensor,
     batch: LegacyBatch,
     lambda_value: float,
+    calibration: DavidsonCalibration,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     _require(0.0 <= lambda_value <= 1.0, "lambda is outside [0, 1]")
     postprocessed_score = _rule50_postprocess(output, batch.rule50_count)
-    prediction = torch.sigmoid(postprocessed_score / OUTPUT_SIGMOID_SCALE)
-    eval_target = torch.sigmoid(batch.scores / EVAL_SIGMOID_SCALE)
-    eval_error = torch.square(eval_target - prediction)
-    result_error = torch.square(batch.result_targets - prediction)
-    eligible = batch.eval_eligible.to(dtype=eval_error.dtype)
-    composite = lambda_value * eligible * eval_error + (1.0 - lambda_value) * result_error
-    return composite, eval_error, result_error, prediction
+    prediction = _wdl_probabilities(
+        postprocessed_score,
+        batch.side_to_move,
+        calibration,
+    )
+    teacher_scores = torch.where(
+        batch.score_eligible,
+        batch.scores,
+        torch.zeros_like(batch.scores),
+    )
+    teacher = _wdl_probabilities(teacher_scores, batch.side_to_move, calibration)
+    result_target = torch.nn.functional.one_hot(batch.results + 1, num_classes=3).to(
+        dtype=prediction.dtype
+    )
+    score_error = 0.5 * torch.sum(torch.square(teacher - prediction), dim=1)
+    result_error = 0.5 * torch.sum(torch.square(result_target - prediction), dim=1)
+    eligible = batch.score_eligible.to(dtype=score_error.dtype)
+    composite = lambda_value * eligible * score_error + (1.0 - lambda_value) * result_error
+    return composite, score_error, result_error, prediction
 
 
 def _state_sha256(model: nn.Module) -> str:
@@ -584,6 +656,7 @@ def _evaluate(
     batch_size: int,
     device: torch.device,
     lambda_value: float,
+    calibration: DavidsonCalibration,
 ) -> dict[str, object]:
     metrics = MetricAccumulator()
     model.eval()
@@ -591,11 +664,11 @@ def _evaluate(
         for begin in range(0, len(dataset), batch_size):
             indices = tuple(range(begin, min(begin + batch_size, len(dataset))))
             batch = _torch_batch(_load_sparse_batch(dataset, indices), device)
-            composite, eval_error, result_error, prediction = loss_terms(
-                model(batch), batch, lambda_value
+            composite, score_error, result_error, prediction = loss_terms(
+                model(batch), batch, lambda_value, calibration
             )
             metrics.update(
-                composite, eval_error, result_error, prediction, batch.eval_eligible
+                composite, score_error, result_error, prediction, batch.score_eligible
             )
     return metrics.receipt()
 
@@ -685,7 +758,11 @@ def _sample_chain(previous: bytes, payload_sha256: str, indices: Sequence[int]) 
     return digest.digest()
 
 
-def _training_settings(args: argparse.Namespace, device: torch.device) -> dict[str, object]:
+def _training_settings(
+    args: argparse.Namespace,
+    device: torch.device,
+    wdl_calibration_sha256: str,
+) -> dict[str, object]:
     return {
         "seed": args.seed,
         "epochs": args.epochs,
@@ -696,6 +773,7 @@ def _training_settings(args: argparse.Namespace, device: torch.device) -> dict[s
         "block_size": args.block_size,
         "device_type": device.type,
         "cpu_threads": args.cpu_threads,
+        "wdl_calibration_sha256": wdl_calibration_sha256,
         "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
     }
 
@@ -737,8 +815,13 @@ def train(args: argparse.Namespace) -> dict[str, object]:
     repo_root = Path(__file__).resolve().parents[1]
     source = _repository_identity(repo_root)
     _require(args.allow_dirty or not source["dirty"], "trainer source tree is dirty")
+    try:
+        wdl_payload, wdl_parameters, wdl_sha256 = load_wdl_artifact(args.wdl_calibration)
+    except CalibrationError as error:
+        raise TrainingError(f"WDL calibration is invalid: {error}") from error
     device = _configure_runtime(args.seed, args.device, args.cpu_threads)
-    settings = _training_settings(args, device)
+    calibration = _torch_calibration(wdl_parameters, device)
+    settings = _training_settings(args, device, wdl_sha256)
     environment = {
         "python": platform.python_version(),
         "pytorch": str(torch.__version__),
@@ -779,6 +862,30 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             or data_receipt["book_split"]["schema"] == "HORDE_TRAINING_BOOK_SPLIT_V2",
             "legacy V1 book split requires --allow-legacy-book-split-v1",
         )
+        wdl_source = wdl_payload["source"]
+        _require(isinstance(wdl_source, dict), "WDL calibration source identity is missing")
+        wdl_training_file = wdl_source["training_file"]
+        wdl_teacher = wdl_source["teacher"]
+        _require(
+            wdl_training_file["sha256"] == data_receipt["train_file"]["sha256"]
+            and wdl_training_file["payload_sha256"]
+            == data_receipt["train_file"]["payload_sha256"]
+            and wdl_training_file["manifest_sha256"] == train_dataset.manifest_sha256
+            and wdl_training_file["records"] == data_receipt["train_file"]["records"],
+            "WDL calibration was not fitted from the exact training dataset",
+        )
+        _require(
+            all(data_receipt["teacher"].get(key) == value for key, value in wdl_teacher.items()),
+            "WDL calibration teacher identity mismatch",
+        )
+        data_receipt["wdl_calibration"] = {
+            "name": args.wdl_calibration.expanduser().resolve().name,
+            "sha256": wdl_sha256,
+            "schema": wdl_payload["schema"],
+            "link_schema": wdl_payload["link"]["schema"],
+            "selection_sha256": wdl_payload["selection"]["selection_sha256"],
+            "eligible_records_sha256": wdl_payload["selection"]["eligible_records_sha256"],
+        }
 
         batches_per_epoch = (len(train_dataset) + args.batch_size - 1) // args.batch_size
         target_steps = args.epochs * batches_per_epoch
@@ -799,6 +906,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 args.batch_size,
                 device,
                 args.lambda_value,
+                calibration,
             )
             gradient_norms: dict[str, float] | None = None
             epoch_receipts: list[dict[str, object]] = []
@@ -928,8 +1036,8 @@ def train(args: argparse.Namespace) -> dict[str, object]:
 
                 batch = _torch_batch(_load_sparse_batch(train_dataset, indices), device)
                 optimizer.zero_grad(set_to_none=True)
-                composite, eval_error, result_error, prediction = loss_terms(
-                    model(batch), batch, args.lambda_value
+                composite, score_error, result_error, prediction = loss_terms(
+                    model(batch), batch, args.lambda_value, calibration
                 )
                 loss = composite.mean()
                 _require(bool(torch.isfinite(loss).detach().cpu()), "training loss is non-finite")
@@ -941,10 +1049,10 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 _require(_all_finite(model), "model parameters became non-finite")
                 train_metrics.update(
                     composite.detach(),
-                    eval_error.detach(),
+                    score_error.detach(),
                     result_error.detach(),
                     prediction.detach(),
-                    batch.eval_eligible,
+                    batch.score_eligible,
                 )
                 optimizer_steps += 1
                 samples_consumed += len(indices)
@@ -983,6 +1091,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 args.batch_size,
                 device,
                 args.lambda_value,
+                calibration,
             )
             epoch_receipt = {
                 "epoch": epoch + 1,
@@ -1013,6 +1122,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             args.batch_size,
             device,
             args.lambda_value,
+            calibration,
         )
 
         metrics_lines = [
@@ -1065,9 +1175,31 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             "environment": environment,
             "data": data_receipt,
             "labels": {
-                "score": "raw root-search Value from side-to-move perspective",
-                "result": "terminal game result from side-to-move perspective mapped to [0, 1]",
-                "result_objective": "provisional scalar MSE integration control",
+                "score": "exact stored root-search Value from side-to-move perspective",
+                "score_teacher_rule50": "already incorporated by search; never reapplied",
+                "result": (
+                    "terminal game result from side-to-move perspective as "
+                    "loss/draw/win one-hot"
+                ),
+                "objective": {
+                    "schema": "HORDE_WDL_HALF_BRIER_V1",
+                    "score_term": "0.5 * squared L2(predicted WDL, frozen teacher-score WDL)",
+                    "result_term": "0.5 * squared L2(predicted WDL, result one-hot)",
+                    "reduction": (
+                        "lambda * score_eligible * score_term + (1-lambda) * "
+                        "result_term; mean over all records"
+                    ),
+                    "class_weighting": "none",
+                    "resampling": "none",
+                },
+                "wdl_calibration": {
+                    "schema": wdl_payload["schema"],
+                    "link_schema": WDL_LINK_SCHEMA,
+                    "artifact_sha256": wdl_sha256,
+                    "parameter_storage": "IEEE-754 binary64 artifact; float32 training tensor",
+                    "side_specific": True,
+                    "frozen": True,
+                },
                 "mate_score_threshold": MATE_SCORE_THRESHOLD,
                 "mate_policy": MASK_POLICY,
                 "rule50": {
@@ -1081,9 +1213,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                     "gradient": "straight-through truncation estimator; exact integer forward",
                 },
                 "lambda": args.lambda_value,
-                "eval_sigmoid_scale": EVAL_SIGMOID_SCALE,
                 "network_to_score": NNUE_TO_SCORE,
-                "output_sigmoid_scale": OUTPUT_SIGMOID_SCALE,
             },
             "optimizer": {
                 "name": "torch.optim.RAdam",
@@ -1159,6 +1289,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("train", type=Path)
     parser.add_argument("validation", type=Path)
     parser.add_argument("--book-split-receipt", type=Path, required=True)
+    parser.add_argument("--wdl-calibration", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--epochs", type=int, default=1)

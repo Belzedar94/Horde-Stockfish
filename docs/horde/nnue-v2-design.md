@@ -456,8 +456,11 @@ measured separately.
 Horde's asymmetric WDL calibration is measured independently for White-to-move
 and Black-to-move samples. The initial result model is a three-class monotone
 link whose fitted parameters are frozen across architecture candidates. The
-scalar result MSE used by the small integration trainer is provisional and is
-not eligible for architecture selection or the 50-million-position ladder.
+reference trainer maps both network and non-mate teacher scores through that
+same frozen link, then combines their half-Brier distance with the half-Brier
+distance to the one-hot game result. Mate scores contribute only through the
+result term. The calibration artifact must identify the exact training split;
+its SHA-256 is part of every comparable training recipe and checkpoint.
 
 Every strength-comparable rung uses the same dataset split, labels, optimizer,
 schedule, loss, lambda policy, filters, and at least three seeds. The manifest
