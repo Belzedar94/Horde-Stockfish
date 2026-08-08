@@ -199,6 +199,7 @@ void Search::Worker::ensure_network_replicated() {
 void Search::Worker::start_searching() {
 
     accumulatorStack.reset();
+    hordeRoleTTMoveHistory = bool(options["HordeRoleTTMoveHistory"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -717,7 +718,8 @@ void Search::Worker::clear() {
     sharedHistory.correctionHistory.clear_range(-5, numaThreadIdx, numaTotal);
     sharedHistory.pawnHistory.clear_range(-1338, numaThreadIdx, numaTotal);
 
-    ttMoveHistory = 0;
+    for (auto& history : ttMoveHistory)
+        history = 0;
 
     for (auto& to : continuationCorrectionHistory)
         for (auto& h : to)
@@ -784,6 +786,7 @@ Value Search::Worker::search(
     ss->inCheck   = pos.checkers();
     priorCapture  = pos.captured_piece();
     Color us      = pos.side_to_move();
+    auto& ttMoveRoleHistory = ttMoveHistory[hordeRoleTTMoveHistory ? us : WHITE];
     const bool whitePawnNmpMaterial =
       us == WHITE && pos.count<PAWN>(WHITE) && HORDE_EXPERIMENT_ENABLED(HordeEnableWhitePawnNmp);
 
@@ -1428,7 +1431,8 @@ moves_loop:  // When in check, search starts here
             {
                 int corrValAdj   = std::abs(correctionValue) / 198368;
                 int doubleMargin = -2 + 204 * PvNode - 152 * !ttCapture - corrValAdj
-                                 - 1175 * ttMoveHistory / 114178 - (ss->ply > rootDepth) * 38;
+                                 - 1175 * ttMoveRoleHistory / 114178
+                                 - (ss->ply > rootDepth) * 38;
                 int tripleMargin = 70 + 279 * PvNode - 188 * !ttCapture + 81 * ss->ttPv - corrValAdj
                                  - (ss->ply > rootDepth) * 43;
 
@@ -1446,7 +1450,7 @@ moves_loop:  // When in check, search starts here
             // subtree by returning a softbound.
             else if (value >= beta && !is_decisive(value))
             {
-                ttMoveHistory << -421 - 110 * depth;
+                ttMoveRoleHistory << -421 - 110 * depth;
 
                 if (!ss->inCheck && value > ss->staticEval)
                 {
@@ -1779,7 +1783,7 @@ moves_loop:  // When in check, search starts here
         update_all_stats(pos, ss, *this, bestMove, prevSq, quietsSearched, capturesSearched, depth,
                          ttData.move, PvNode);
         if (!PvNode)
-            ttMoveHistory << (bestMove == ttData.move ? 918 : -747);
+            ttMoveRoleHistory << (bestMove == ttData.move ? 918 : -747);
     }
 
     // Bonus for prior quiet countermove that caused the fail low

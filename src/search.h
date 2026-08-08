@@ -345,7 +345,7 @@ class Worker {
     CapturePieceToHistory           captureHistory;
     CorrectionHistory<Continuation> continuationCorrectionHistory;
 
-    TTMoveHistory    ttMoveHistory;
+    std::array<TTMoveHistory, COLOR_NB> ttMoveHistory;
     SharedHistories& sharedHistory;
     ContinuationHistory (&continuationHistory)[2][2];
 
@@ -415,6 +415,8 @@ class Worker {
     // Used by NNUE
     Eval::NNUE::AccumulatorStack  accumulatorStack;
     Eval::NNUE::AccumulatorCaches refreshTable;
+
+    bool hordeRoleTTMoveHistory = false;
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;
