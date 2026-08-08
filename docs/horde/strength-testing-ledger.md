@@ -123,8 +123,7 @@ now isolated above. It may be rebuilt as a merge-confirmation test only after
 both orthogonal components pass independently.
 
 Second wave consists of zero-game structural candidates with green artifact
-CI: `test/white-legal-generation-fastpath`, `test/fixed-role-gives-check`,
-`test/fixed-role-do-move-checkers`, `test/qsearch-terminal-recheck`,
+CI: `test/white-legal-generation-fastpath`, `test/qsearch-terminal-recheck`,
 `test/horde-material-correction`, and `test/white-piece-count-see-guard`. The
 last branch now points to
 `dfa4746188baaaebad4fe675ed0f10f692293e74`; its previous CI failure was only a
@@ -431,6 +430,48 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
   commit, push, or OpenBench workload. The source change was reverted.
 - Learning: halving unused accumulator capacity improves memory footprint but
   does not remove enough hot-path work to justify STC by itself.
+
+### 2026-08-08 - Fixed-role `gives_check()` specialization
+
+- Branch: `test/fixed-role-gives-check`, commit
+  `84a1d621e4af870154863cc47b5a2f3db7b11faf`.
+- Hypothesis: exploit Horde's fixed roles inside `Position::gives_check()` by
+  rejecting Black immediately and using the fixed Black king and White
+  attacker sets for the remaining paths.
+- Scope: only check detection for candidate moves; move generation, legality,
+  rules, evaluation, ordering, and search policy remained unchanged.
+- Validation: Horde rules, the Run 6B contract, and three deterministic
+  315,576-node benches passed with the accepted best-move digest.
+- Local speed screen: 48 start-position pairs measured `0.980558` geometric,
+  `0.980038` trimmed geometric, and only 17/48 favorable. A separate 32-pair
+  ten-position bench measured `1.011674` geometric, `1.014311` trimmed
+  geometric, and 21/32 favorable.
+- Decision: rejected locally because the two suites disagree and the main
+  start-position screen regresses by about two percent; no OpenBench workload.
+- Learning: the generic path is already cheap for fixed Horde roles, while the
+  added early branch and specialized layout can cost more than they remove.
+
+### 2026-08-08 - Fixed-role `do_move()` checkers update
+
+- Branch: `test/fixed-role-do-move-checkers`, commit
+  `61a9a2d3c963975fce05288b7c6a698df35b319d`.
+- Hypothesis: replace generic king-presence and side expressions in the
+  post-move checkers update with Horde's fixed White-attacker/Black-king roles.
+- Scope: only the `st->checkersBB` assignment in `Position::do_move()`; no
+  move generation, legality, rules, evaluation, ordering, or search-policy
+  change.
+- Validation: a clean GCC 16 AVX2 build passed Horde rules, the Run 6B
+  contract, and three deterministic 315,576-node benches with the accepted
+  best-move digest.
+- Local speed screen: the raw geometric ratios were `0.993936` over 48
+  start-position pairs and `1.017472` over a separate 32-pair ten-position
+  bench, but each suite contained a large host pause. The robust trimmed ratios
+  were `1.000365` and `0.989420`; bench favored the candidate only 10/32 times.
+- Decision: rejected locally as neutral or negative after robust trimming; no
+  OpenBench workload.
+- Learning: specializing this single bookkeeping expression does not remove a
+  measurable hot-path cost and its layout perturbation is at least as large as
+  the saved generic tests.
 
 ### 2026-08-08 - Fixed-role White legality gate
 
