@@ -133,7 +133,58 @@ extract_full_refresh_features(const std::array<Piece, SQUARE_NB>& board) noexcep
 }
 
 inline FullRefreshFeatures extract_full_refresh_features(const Position& pos) noexcept {
-    return extract_full_refresh_features(pos.piece_array());
+    FullRefreshFeatures features{};
+
+    if (pos.count<KING>(WHITE) != 0)
+    {
+        features.error = FullRefreshError::WHITE_KING;
+        return features;
+    }
+    if (pos.count<KING>(BLACK) != 1)
+    {
+        features.error = FullRefreshError::BLACK_KING_COUNT;
+        return features;
+    }
+    if (pos.count<ALL_PIECES>(WHITE) > int(MaxHordeSidePieces))
+    {
+        features.error = FullRefreshError::TOO_MANY_WHITE_PIECES;
+        return features;
+    }
+    if (pos.count<ALL_PIECES>(BLACK) > int(MaxRoyalSidePieces))
+    {
+        features.error = FullRefreshError::TOO_MANY_BLACK_PIECES;
+        return features;
+    }
+
+    features.royalKey = royal_key(pos.square<KING>(BLACK));
+
+    Bitboard occupied = pos.pieces();
+    while (occupied)
+    {
+        const Square square = pop_lsb(occupied);
+        const Piece  piece  = pos.piece_on(square);
+
+        const IndexType globalIndex = fixed_role_piece_square_index(piece, square);
+        if (globalIndex == InvalidFeatureIndex)
+        {
+            features.error = FullRefreshError::INVALID_PIECE;
+            return features;
+        }
+        features.global[features.globalSize++] = globalIndex;
+
+        if (piece == B_KING)
+            continue;
+
+        const IndexType royalIndex = royal_piece_square_index(piece, square, features.royalKey);
+        if (royalIndex == InvalidRoyalFeatureIndex)
+        {
+            features.error = FullRefreshError::INVALID_PIECE;
+            return features;
+        }
+        features.royal[features.royalSize++] = royalIndex;
+    }
+
+    return features;
 }
 
 static_assert(MaxHordePieces == 52);

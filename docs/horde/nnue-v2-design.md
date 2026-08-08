@@ -180,9 +180,21 @@ The lean scalar checkpoint matches the trace oracle layer by layer at
 `256+256`, covers six dirty-piece transition forms, and proves identical
 `PERF_COMMON_V1` dense results for all four widths on both sides to move. It is
 paired with AVX2 row-update and dense kernels using the same frame and payload;
-the AVX2 path passes the same layer and transition receipts. It is not yet
-wired into production dispatch or search, so standalone timings alone are not
-width-selection evidence.
+the AVX2 path passes the same layer and transition receipts.
+
+The lean backend also has a production-layout `Position` stack. It allocates
+aligned frames once, stores no board copies or dense traces, and reuses the top
+frame across null moves. Ordinary children derive `RoyalKey` directly from the
+Black king and queue their sparse delta without enumerating the board. The
+pending same-key chain is materialized only when evaluation needs it. A
+Black-king key transition refreshes Royal while its target position is still
+available; Global remains incremental. The direct `Position` extractor
+preserves the A1-to-H8 trainer order without first copying or scanning a
+64-square array. Make/undo/null receipts compare every materialized frame with
+full refresh, include an unevaluated six-ply lazy batch, and require the same
+evaluation digest for all four `PERF_COMMON_V1` widths. The stack is not yet
+owned by `Thread` or selected by production evaluation dispatch, so standalone
+timings alone are not width-selection evidence.
 
 In an 80-game V3 opening-book probe, 876 of 5,303 Black mainline moves were king
 moves (16.5%, including 10 castlings). Search-node rates can differ materially,

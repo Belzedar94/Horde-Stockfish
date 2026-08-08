@@ -363,6 +363,21 @@ class LeanNetwork {
         refresh_global(frame.global, features);
     }
 
+    [[nodiscard]] bool materialize_child_same_key(Frame&            child,
+                                                  const Frame&      source,
+                                                  const DirtyPiece& dirty,
+                                                  RoyalKey          targetKey) const noexcept {
+        if (!is_valid_royal_key(targetKey) || targetKey != source.key)
+            return false;
+
+        child.global = source.global;
+        apply_global_deltas(child.global, dirty);
+        child.royal = source.royal;
+        apply_royal_deltas(child.royal, dirty, targetKey);
+        child.key = targetKey;
+        return true;
+    }
+
     void materialize_child(Frame&                     child,
                            const Frame&               source,
                            const DirtyPiece&          dirty,
@@ -370,20 +385,47 @@ class LeanNetwork {
         assert(&child != &source);
         assert(target.valid());
 
+        if (target.royalKey == source.key)
+        {
+            const bool materialized =
+              materialize_child_same_key(child, source, dirty, target.royalKey);
+            assert(materialized);
+            return;
+        }
+
         child.global = source.global;
         apply_global_deltas(child.global, dirty);
-        child.key = target.royalKey;
+        child.key   = target.royalKey;
+        child.royal = parameters_.royalBias;
+        refresh_royal(child.royal, target);
+    }
 
-        if (child.key == source.key)
-        {
-            child.royal = source.royal;
-            apply_royal_deltas(child.royal, dirty, child.key);
-        }
-        else
-        {
-            child.royal = parameters_.royalBias;
-            refresh_royal(child.royal, target);
-        }
+    // Production-position overload. Ordinary moves derive the Royal key in
+    // O(1) and never enumerate the board. Only a Black-king bucket or mirror
+    // transition extracts sparse Royal rows for a refresh; Global remains a
+    // delta update in both cases.
+    [[nodiscard]] bool materialize_child(Frame&            child,
+                                         const Frame&      source,
+                                         const DirtyPiece& dirty,
+                                         const Position&   target) const noexcept {
+        if (target.count<KING>(WHITE) != 0 || target.count<KING>(BLACK) != 1)
+            return false;
+
+        const RoyalKey targetKey = royal_key(target.square<KING>(BLACK));
+
+        if (targetKey == source.key)
+            return materialize_child_same_key(child, source, dirty, targetKey);
+
+        const FullRefreshFeatures features = extract_full_refresh_features(target);
+        if (!features.valid() || features.royalKey != targetKey)
+            return false;
+
+        child.global = source.global;
+        apply_global_deltas(child.global, dirty);
+        child.key   = targetKey;
+        child.royal = parameters_.royalBias;
+        refresh_royal(child.royal, features);
+        return true;
     }
 
     [[nodiscard]] LeanEvalResult propagate(const Frame& frame,

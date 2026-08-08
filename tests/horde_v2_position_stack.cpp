@@ -1,11 +1,12 @@
 /*
   Real Position/StateInfo integration checks for the experimental Horde V2
-  scalar accumulator stack.
+  scalar reference and lean accumulator stacks.
 */
 
 #include <array>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <iostream>
 #include <random>
@@ -59,6 +60,43 @@ void assert_dirty_equals(const DirtyPiece& actual, const DirtyPiece& expected) {
         assert(actual.remove_pc == expected.remove_pc);
     if (actual.add_sq != SQ_NONE)
         assert(actual.add_pc == expected.add_pc);
+}
+
+void assert_same_lean_result(const LeanEvalResult& actual, const LeanEvalResult& expected) {
+    assert(actual.outputAffine == expected.outputAffine);
+    assert(actual.preRule50Value == expected.preRule50Value);
+    assert(actual.value == expected.value);
+}
+
+template<typename Width>
+void assert_lean_current(const LeanNetwork<Width>&    network,
+                         LeanAccumulatorStack<Width>& stack,
+                         const Position&              pos) {
+    const FullRefreshFeatures positionFeatures = extract_full_refresh_features(pos);
+    const FullRefreshFeatures boardFeatures    = extract_full_refresh_features(pos.piece_array());
+    assert(positionFeatures.valid());
+    assert(positionFeatures.global == boardFeatures.global);
+    assert(positionFeatures.royal == boardFeatures.royal);
+    assert(positionFeatures.globalSize == boardFeatures.globalSize);
+    assert(positionFeatures.royalSize == boardFeatures.royalSize);
+    assert(positionFeatures.royalKey == boardFeatures.royalKey);
+
+    LeanAccumulatorFrame<Width> refreshed{};
+    network.full_refresh(refreshed, positionFeatures);
+
+    LeanDenseScratch<Width> scratch{};
+    const LeanEvalResult    expected =
+      network.propagate(refreshed, scratch, pos.side_to_move(), pos.rule50_count());
+    const LeanStackEvaluation actual = stack.evaluate(pos);
+    assert(actual.valid());
+
+    const LeanAccumulatorFrame<Width>* current = stack.latest();
+    assert(current != nullptr);
+    assert(reinterpret_cast<std::uintptr_t>(current) % 64 == 0);
+    assert(current->royal == refreshed.royal);
+    assert(current->global == refreshed.global);
+    assert(current->key == refreshed.key);
+    assert_same_lean_result(actual.result, expected);
 }
 
 DirtyPiece expected_dirty(Piece  piece,
@@ -136,6 +174,114 @@ void exercise_special_moves(const ScalarNetwork& network) {
 
     exercise_move(network, "4k2r/8/8/8/8/8/P7/8 b k - 0 1", Move::make<CASTLING>(SQ_E8, SQ_H8),
                   expected_dirty(B_KING, SQ_E8, SQ_G8, B_ROOK, SQ_H8, B_ROOK, SQ_F8), true);
+}
+
+template<typename Width>
+void exercise_lean_move(const LeanNetwork<Width>& network,
+                        const std::string&        fen,
+                        Move                      move,
+                        const DirtyPiece&         expectedDirty,
+                        bool                      expectRoyalRefresh) {
+    Position  pos;
+    StateInfo root{};
+    StateInfo child{};
+    set_position(pos, root, fen);
+
+    LeanAccumulatorStack<Width> stack(network);
+    assert(stack.reset(pos) == LeanStackError::NONE);
+    assert(stack.size() == 1);
+    assert(stack.counters().fullRefreshes == 1);
+    assert_lean_current(network, stack, pos);
+
+    assert_legal(pos, move);
+    Dirties dirties{};
+    pos.do_move(move, child, pos.gives_check(move), dirties, nullptr, nullptr);
+    assert_dirty_equals(dirties.dirtyPiece, expectedDirty);
+    assert(stack.push(dirties, pos) == LeanStackError::NONE);
+    assert(stack.size() == 2);
+    assert(stack.counters().pushed == 1);
+    assert(stack.counters().materialized == std::size_t(expectRoyalRefresh));
+    assert(stack.counters().royalRefreshes == std::size_t(expectRoyalRefresh));
+    assert_lean_current(network, stack, pos);
+    assert(stack.counters().materialized == 1);
+
+    pos.undo_move(move);
+    assert(stack.pop());
+    assert(stack.size() == 1);
+    assert_lean_current(network, stack, pos);
+    assert(!stack.pop());
+}
+
+template<typename Width>
+void exercise_lean_lazy_batch(const LeanNetwork<Width>& network) {
+    Position  pos;
+    StateInfo root{};
+    set_position(pos, root, "4k3/7p/8/8/8/8/P7/8 w - - 0 1");
+
+    LeanAccumulatorStack<Width> stack(network);
+    assert(stack.reset(pos) == LeanStackError::NONE);
+
+    const std::array<Move, 6> moves = {Move(SQ_A2, SQ_A3), Move(SQ_H7, SQ_H6), Move(SQ_A3, SQ_A4),
+                                       Move(SQ_H6, SQ_H5), Move(SQ_A4, SQ_A5), Move(SQ_H5, SQ_H4)};
+    std::deque<StateInfo>     states;
+    for (const Move move : moves)
+    {
+        assert_legal(pos, move);
+        states.emplace_back();
+        Dirties dirties{};
+        pos.do_move(move, states.back(), pos.gives_check(move), dirties, nullptr, nullptr);
+        assert(stack.push(dirties, pos) == LeanStackError::NONE);
+        assert(stack.latest() == nullptr);
+        assert(stack.counters().materialized == 0);
+    }
+
+    assert(stack.counters().pushed == moves.size());
+    assert(stack.counters().royalRefreshes == 0);
+    assert_lean_current(network, stack, pos);
+    assert(stack.counters().materialized == moves.size());
+
+    for (auto move = moves.rbegin(); move != moves.rend(); ++move)
+    {
+        pos.undo_move(*move);
+        assert(stack.pop());
+    }
+    assert(stack.size() == 1);
+    assert_lean_current(network, stack, pos);
+}
+
+void exercise_lean_special_moves() {
+    LeanNetwork<Width64x192> network(
+      make_lean_parameters<Width64x192>(ScalarFixtureSeed, FixturePayload::PERF_COMMON_V1));
+
+    exercise_lean_move(network, "4k3/8/8/8/8/8/P7/8 w - - 0 1", Move(SQ_A2, SQ_A3),
+                       expected_dirty(W_PAWN, SQ_A2, SQ_A3), false);
+    exercise_lean_move(network, "4k3/8/8/8/8/8/2pR4/P7 w - - 0 1", Move(SQ_D2, SQ_C2),
+                       expected_dirty(W_ROOK, SQ_D2, SQ_C2, B_PAWN, SQ_C2), false);
+    exercise_lean_move(network, "4k3/8/8/4Pp2/8/8/P7/8 w - f6 0 2",
+                       Move::make<EN_PASSANT>(SQ_E5, SQ_F6),
+                       expected_dirty(W_PAWN, SQ_E5, SQ_F6, B_PAWN, SQ_F5), false);
+    exercise_lean_move(
+      network, "r3k3/1P6/8/8/8/8/P7/8 w - - 0 1", Move::make<PROMOTION>(SQ_B7, SQ_A8, QUEEN),
+      expected_dirty(W_PAWN, SQ_B7, SQ_NONE, B_ROOK, SQ_A8, W_QUEEN, SQ_A8), false);
+    exercise_lean_move(network, "4k3/8/8/8/8/8/P7/8 b - - 0 1", Move(SQ_E8, SQ_D8),
+                       expected_dirty(B_KING, SQ_E8, SQ_D8), true);
+    exercise_lean_move(network, "4k2r/8/8/8/8/8/P7/8 b k - 0 1", Move::make<CASTLING>(SQ_E8, SQ_H8),
+                       expected_dirty(B_KING, SQ_E8, SQ_G8, B_ROOK, SQ_H8, B_ROOK, SQ_F8), true);
+
+    Position  pos;
+    StateInfo root{};
+    set_position(pos, root, "4k3/8/8/8/8/8/P7/8 w - - 0 1");
+    LeanAccumulatorStack<Width64x192> stack(network);
+    assert(stack.evaluate(pos).error == LeanStackError::STACK_UNINITIALIZED);
+    assert(stack.push(expected_dirty(W_PAWN, SQ_A2, SQ_A3), pos)
+           == LeanStackError::STACK_UNINITIALIZED);
+    assert(stack.reset(pos) == LeanStackError::NONE);
+    DirtyPiece invalid = expected_dirty(W_PAWN, SQ_A2, SQ_A3);
+    invalid.pc         = W_KING;
+    assert(stack.push(invalid, pos) == LeanStackError::INVALID_DIRTY_PIECE);
+    assert(stack.size() == 1);
+
+    exercise_lean_lazy_batch(network);
 }
 
 void exercise_null_move(const ScalarNetwork& network) {
@@ -273,6 +419,110 @@ RandomReceipt exercise_legal_sequences(const ScalarNetwork& network) {
     return receipt;
 }
 
+struct LeanPositionReceipt {
+    u64         digest           = 0x4C45414E5F563200ULL;
+    std::size_t moves            = 0;
+    std::size_t nullMoves        = 0;
+    std::size_t royalRefreshes   = 0;
+    std::size_t materializations = 0;
+};
+
+void mix_lean_receipt(LeanPositionReceipt& receipt, const LeanEvalResult& result) {
+    const auto mix = [&](u64 value) {
+        receipt.digest ^=
+          value + 0x9E3779B97F4A7C15ULL + (receipt.digest << 6) + (receipt.digest >> 2);
+    };
+    mix(u64(i64(result.outputAffine)));
+    mix(u64(i64(result.preRule50Value)));
+    mix(u64(i64(result.value)));
+}
+
+template<typename Width>
+LeanPositionReceipt exercise_lean_legal_sequences() {
+    LeanNetwork<Width> network(
+      make_lean_parameters<Width>(ScalarFixtureSeed, FixturePayload::PERF_COMMON_V1));
+
+    Position  pos;
+    StateInfo root{};
+    set_position(pos, root, HordeStartFen);
+
+    LeanAccumulatorStack<Width> stack(network);
+    assert(stack.reset(pos) == LeanStackError::NONE);
+    assert_lean_current(network, stack, pos);
+
+    std::mt19937        rng(0x504F5354);
+    LeanPositionReceipt receipt{};
+
+    for (int sequence = 0; sequence < 4; ++sequence)
+    {
+        std::deque<StateInfo> states;
+        std::vector<Move>     moves;
+
+        for (int ply = 0; ply < 48; ++ply)
+        {
+            const MoveList<LEGAL> legal(pos);
+            if (legal.size() == 0)
+                break;
+
+            const Move move = *(legal.begin() + (rng() % legal.size()));
+            states.emplace_back();
+            Dirties dirties{};
+            pos.do_move(move, states.back(), pos.gives_check(move), dirties, nullptr, nullptr);
+
+            assert(stack.push(dirties, pos) == LeanStackError::NONE);
+            assert_lean_current(network, stack, pos);
+            const LeanStackEvaluation evaluation = stack.evaluate(pos);
+            assert(evaluation.valid());
+            mix_lean_receipt(receipt, evaluation.result);
+            ++receipt.moves;
+            moves.push_back(move);
+
+            if ((ply % 11) == 5 && !pos.checkers())
+            {
+                StateInfo  nullState{};
+                const auto size = stack.size();
+                pos.do_null_move(nullState);
+                assert(stack.size() == size);
+                assert_lean_current(network, stack, pos);
+                const LeanStackEvaluation nullEvaluation = stack.evaluate(pos);
+                assert(nullEvaluation.valid());
+                mix_lean_receipt(receipt, nullEvaluation.result);
+                pos.undo_null_move();
+                assert(stack.size() == size);
+                assert_lean_current(network, stack, pos);
+                ++receipt.nullMoves;
+            }
+        }
+
+        while (!moves.empty())
+        {
+            pos.undo_move(moves.back());
+            moves.pop_back();
+            assert(stack.pop());
+            assert_lean_current(network, stack, pos);
+        }
+
+        assert(stack.size() == 1);
+        assert(pos.fen() == HordeStartFen);
+    }
+
+    receipt.royalRefreshes   = stack.counters().royalRefreshes;
+    receipt.materializations = stack.counters().materialized;
+    assert(stack.counters().pushed == receipt.moves);
+    assert(receipt.materializations == receipt.moves);
+    assert(receipt.royalRefreshes > 0);
+    return receipt;
+}
+
+void assert_same_lean_receipt(const LeanPositionReceipt& actual,
+                              const LeanPositionReceipt& expected) {
+    assert(actual.digest == expected.digest);
+    assert(actual.moves == expected.moves);
+    assert(actual.nullMoves == expected.nullMoves);
+    assert(actual.royalRefreshes == expected.royalRefreshes);
+    assert(actual.materializations == expected.materializations);
+}
+
 }  // namespace
 
 int main() {
@@ -285,7 +535,15 @@ int main() {
     exercise_fail_closed(network);
     const RandomReceipt random = exercise_legal_sequences(network);
 
+    exercise_lean_special_moves();
+    const LeanPositionReceipt lean256x256 = exercise_lean_legal_sequences<Width256x256>();
+    assert_same_lean_receipt(exercise_lean_legal_sequences<Width128x256>(), lean256x256);
+    assert_same_lean_receipt(exercise_lean_legal_sequences<Width128x128>(), lean256x256);
+    assert_same_lean_receipt(exercise_lean_legal_sequences<Width64x192>(), lean256x256);
+
     std::cout << "Horde V2 real Position stack passed: special=6, legal=" << random.moves
               << ", null=" << random.nullMoves << ", royal-refresh=" << random.royalRefreshes
-              << "\n";
+              << "; lean-special=6, lean-common=" << lean256x256.moves
+              << ", lean-null=" << lean256x256.nullMoves
+              << ", lean-royal-refresh=" << lean256x256.royalRefreshes << "\n";
 }

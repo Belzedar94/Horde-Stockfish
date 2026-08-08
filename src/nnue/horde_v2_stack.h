@@ -13,10 +13,11 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
-#include "horde_v2_scalar.h"
+#include "horde_v2_backend.h"
 
 namespace Stockfish::Eval::NNUE::HordeV2 {
 
@@ -146,6 +147,163 @@ class ScalarAccumulatorStack {
 
     const ScalarNetwork& network_;
     std::vector<Frame>   frames_;
+};
+
+enum class LeanStackError : std::uint8_t {
+    NONE,
+    INVALID_POSITION,
+    INVALID_DIRTY_PIECE,
+    STACK_UNINITIALIZED,
+    STACK_OVERFLOW,
+};
+
+struct LeanStackEvaluation {
+    LeanEvalResult result{};
+    LeanStackError error = LeanStackError::NONE;
+
+    [[nodiscard]] constexpr bool valid() const noexcept { return error == LeanStackError::NONE; }
+};
+
+struct LeanStackCounters {
+    u64 fullRefreshes  = 0;
+    u64 pushed         = 0;
+    u64 materialized   = 0;
+    u64 royalRefreshes = 0;
+};
+
+// Production-layout stack for the width-templated backend. Frames are
+// allocated and aligned once; push/pop never allocate, keep board copies or
+// retain dense intermediates. Ordinary deltas are materialized lazily, just as
+// in search. A Royal-key transition is rare and is materialized while its
+// target Position is available.
+template<typename Width, typename Kernels = DefaultLeanKernels>
+class LeanAccumulatorStack {
+   public:
+    static constexpr std::size_t MaxSize = MAX_PLY + 1;
+
+    using Network = LeanNetwork<Width, Kernels>;
+    using Frame   = typename Network::Frame;
+    using Scratch = typename Network::Scratch;
+
+   private:
+    struct Slot {
+        Frame      frame{};
+        DirtyPiece dirty{};
+        bool       computed = false;
+    };
+
+   public:
+    explicit LeanAccumulatorStack(const Network& network) :
+        network_(network),
+        slots_(MaxSize) {}
+
+    [[nodiscard]] LeanStackError reset(const Position& pos) noexcept {
+        size_     = 0;
+        counters_ = {};
+
+        const FullRefreshFeatures features = extract_full_refresh_features(pos);
+        if (!features.valid())
+            return LeanStackError::INVALID_POSITION;
+
+        network_.full_refresh(slots_[0].frame, features);
+        slots_[0].computed = true;
+        size_              = 1;
+        ++counters_.fullRefreshes;
+        return LeanStackError::NONE;
+    }
+
+    [[nodiscard]] LeanStackError push(const Dirties& dirties, const Position& target) noexcept {
+        return push(dirties.dirtyPiece, target);
+    }
+
+    [[nodiscard]] LeanStackError push(const DirtyPiece& dirty, const Position& target) noexcept {
+        if (size_ == 0)
+            return LeanStackError::STACK_UNINITIALIZED;
+        if (size_ >= MaxSize)
+            return LeanStackError::STACK_OVERFLOW;
+        if (!valid_scalar_dirty_piece(dirty))
+            return LeanStackError::INVALID_DIRTY_PIECE;
+        if (target.count<KING>(WHITE) != 0 || target.count<KING>(BLACK) != 1)
+            return LeanStackError::INVALID_POSITION;
+
+        Slot&          child     = slots_[size_];
+        const RoyalKey sourceKey = slots_[size_ - 1].frame.key;
+        const RoyalKey targetKey = royal_key(target.square<KING>(BLACK));
+        child.dirty              = dirty;
+        child.frame.key          = targetKey;
+        child.computed           = false;
+
+        if (targetKey != sourceKey)
+        {
+            if (!materialize_through(size_ - 1)
+                || !network_.materialize_child(child.frame, slots_[size_ - 1].frame, dirty, target))
+                return LeanStackError::INVALID_POSITION;
+
+            child.computed = true;
+            ++counters_.materialized;
+            ++counters_.royalRefreshes;
+        }
+
+        ++size_;
+        ++counters_.pushed;
+        return LeanStackError::NONE;
+    }
+
+    // Null moves reuse the latest frame and only change STM/rule50 inputs.
+    [[nodiscard]] LeanStackEvaluation evaluate(const Position& pos) noexcept {
+        if (size_ == 0)
+            return {{}, LeanStackError::STACK_UNINITIALIZED};
+        if (!materialize_through(size_ - 1))
+            return {{}, LeanStackError::INVALID_POSITION};
+
+        return {network_.propagate(slots_[size_ - 1].frame, scratch_, pos.side_to_move(),
+                                   pos.rule50_count()),
+                LeanStackError::NONE};
+    }
+
+    [[nodiscard]] bool pop() noexcept {
+        if (size_ <= 1)
+            return false;
+        --size_;
+        return true;
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept { return size_; }
+
+    [[nodiscard]] const Frame* latest() const noexcept {
+        return size_ == 0 || !slots_[size_ - 1].computed ? nullptr : &slots_[size_ - 1].frame;
+    }
+
+    [[nodiscard]] const LeanStackCounters& counters() const noexcept { return counters_; }
+
+   private:
+    [[nodiscard]] bool materialize_through(std::size_t target) noexcept {
+        if (slots_[target].computed)
+            return true;
+
+        std::size_t source = target;
+        while (source > 0 && !slots_[source].computed)
+            --source;
+        if (!slots_[source].computed)
+            return false;
+
+        for (std::size_t next = source + 1; next <= target; ++next)
+        {
+            Slot& child = slots_[next];
+            if (!network_.materialize_child_same_key(child.frame, slots_[next - 1].frame,
+                                                     child.dirty, child.frame.key))
+                return false;
+            child.computed = true;
+            ++counters_.materialized;
+        }
+        return true;
+    }
+
+    const Network&    network_;
+    std::vector<Slot> slots_;
+    Scratch           scratch_{};
+    std::size_t       size_ = 0;
+    LeanStackCounters counters_{};
 };
 
 }  // namespace Stockfish::Eval::NNUE::HordeV2
