@@ -259,6 +259,34 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
 - Decision: registered for STC `[1.00, 6.00]` with a 10,000-game neutral
   cutoff and a 20,000-game absolute ceiling.
 
+### 2026-08-09 - Scale White child-node futility margin to 90%
+
+- Branch: `test/white-node-futility-margin-90`
+- Commit: `00bee8e995aa104728552e7dd7d856d1ee053401`
+- OpenBench: [test 332](https://belzedar.duckdns.org/test/332/)
+- Hypothesis: the severe loss from disabling White child-node futility does
+  not establish that the orthodox final margin is optimal for Horde. A small
+  increase in White-side pruning may recover depth while preserving the
+  structurally valuable pruning stage.
+- Scope: one default-off UCI scale applied only to the fully assembled
+  child-node futility margin when White is to move. Value 100 is bit-identical
+  to the accepted baseline; Black, the margin terms themselves, and every
+  other pruning stage remain unchanged. The experiment enables value 90.
+- Validation: Horde rules, the Run 6B contract, and three deterministic
+  default-mode benches passed exactly at 315,576 nodes with best-move digest
+  `fe9a5001c1997125ce34bf0ef119eab44570f5f363227bd4bab8e0db1f4e8592`.
+  Enabled mode was deterministic across three 324,893-node benches with
+  best-move digest
+  `89c8009d315c0872f7bd2216e2841be21788c650c7f3c21c0e3a0e8573570d70`.
+- Local screen: two independent 256-position V3 depth-7 shards were nearly
+  neutral in aggregate against deeper references, 48-46, while a separate
+  128-position depth-9/depth-12 shard favored value 90 by 25-21 and used
+  10.4% fewer nodes. These screens justify an exploratory STC only.
+- CI: all four OpenBench artifact jobs passed on Windows and Linux for AVX2
+  pext and popcnt.
+- Decision: registered at priority 301 for STC `[1.00, 6.00]`, with a
+  10,000-game neutral cutoff and a 20,000-game absolute ceiling.
+
 ## OpenBench outcomes
 
 ### 2026-08-09 - Legacy dirty-piece tracking only passes STC
