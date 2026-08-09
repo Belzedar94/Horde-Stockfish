@@ -812,14 +812,27 @@ The production comparison is registered in
 `schemas/horde-v2-c1-campaign-v1.json`. The planner
 `tools/horde_v2_c1_campaign.py` accepts no CLI override for record counts,
 architectures, seeds, epochs, optimizer, device, or selection margins. Its
-`plan` command authenticates both `HORDE_BIN_V1` roles, the reflection-safe V2
-book split, zero physical and legacy-input cross-role overlap, the exact WDL
+`plan` command authenticates the direct training and validation-candidate
+`HORDE_BIN_V1` files, the derived selected validation role, the reflection-safe
+V2 book split, zero physical and legacy-input cross-role overlap, the exact WDL
 calibration, Run 6B, the Rank-8 receipt, a clean trainer commit, all 32 Royal
 buckets, STM-by-Horde-material slices, side-specific WDL support, and a below
 0.1% unseen Royal-row activation rate before writing nine explicit
 train/export commands. Seed one is designated for any later playing gate
 before training metrics exist. The plan remains a preflight artifact and makes
 no training or strength claim.
+
+The first direct 250,000-record validation generation correctly failed that
+preflight: despite a reflection-safe opening partition, later game
+transpositions produced 128 physical cross-role matches and 64 legacy-input
+matches. No training was started from that split. The hash-pinned
+`schemas/horde-v2-c1-data-repair-v1.json` addendum preserves the immutable
+training role and every C1 training setting. It freezes one 254,096-record
+direct validation candidate and a label-blind first-eligible selector that
+rejects training-key collisions and within-validation duplicates under both
+key definitions. The resulting 250,000-record role has explicit derived
+provenance and is independently reconstructed by the campaign planner and
+final verifier.
 
 After all nine runs and integer exports exist, the `verify` command checks the
 complete training receipts, checkpoint and metrics hashes, quantized container
@@ -854,15 +867,23 @@ Royal-32 can proceed only after clearing both controls and is then compared
 directly with absolute.
 
 ```console
-python tools/horde_v2_c1_campaign.py plan TRAIN.bin VALIDATION.bin \
+python tools/horde_training_selected_role.py create TRAIN.bin CANDIDATE.bin \
+  --output SELECTED-VALIDATION
+
+python tools/horde_v2_c1_campaign.py plan TRAIN.bin SELECTED-VALIDATION/receipt.json \
+  --validation-candidate CANDIDATE.bin \
   --book-split-receipt BOOK-SPLIT.json \
   --wdl-calibration WDL-CALIBRATION.json --output C1-PLAN.json
 
 python tools/horde_v2_c1_campaign.py verify C1-PLAN.json RUNS-DIRECTORY \
+  --train-file TRAIN.bin --validation-candidate CANDIDATE.bin \
+  --validation-role SELECTED-VALIDATION/receipt.json \
   --output C1-VERIFICATION.json
 
 python tools/horde_v2_c1_screen.py C1-PLAN.json RUNS-DIRECTORY \
-  --validation VALIDATION.bin --wdl-calibration WDL-CALIBRATION.json \
+  --train-file TRAIN.bin --validation-candidate CANDIDATE.bin \
+  --validation SELECTED-VALIDATION/receipt.json \
+  --wdl-calibration WDL-CALIBRATION.json \
   --output C1-QUANTIZED-SCREEN.json
 ```
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import math
@@ -20,6 +21,7 @@ try:
     from . import horde_bin_v1 as wire
     from . import horde_v2_c1_campaign as campaign
     from .horde_training_decoder import BLACK, HordeBinV1Dataset, WHITE
+    from .horde_training_selected_role import SelectedRoleDataset, SelectedRoleError
     from .horde_v2_container import CONTAINER_SCHEMA, ContainerError, sha256_file
     from .horde_v2_integer_eval import (
         IntegerEvaluationError,
@@ -32,6 +34,7 @@ except ImportError:
     import horde_bin_v1 as wire
     import horde_v2_c1_campaign as campaign
     from horde_training_decoder import BLACK, HordeBinV1Dataset, WHITE
+    from horde_training_selected_role import SelectedRoleDataset, SelectedRoleError
     from horde_v2_container import CONTAINER_SCHEMA, ContainerError, sha256_file
     from horde_v2_integer_eval import (
         IntegerEvaluationError,
@@ -489,6 +492,8 @@ def screen_campaign(
     validation_path: Path,
     wdl_path: Path,
     *,
+    train_path: Path | None = None,
+    validation_candidate_path: Path | None = None,
     contract_path: Path | None = None,
     campaign_contract_path: Path | None = None,
     _allow_fixture: bool = False,
@@ -519,6 +524,9 @@ def screen_campaign(
     verification = campaign.verify_campaign(
         plan_path,
         runs_root,
+        train_path=train_path,
+        validation_candidate_path=validation_candidate_path,
+        validation_role_path=validation_path,
         contract_path=campaign_contract_path,
         _allow_fixture=_allow_fixture,
     )
@@ -622,16 +630,30 @@ def screen_campaign(
         "campaign validation identity",
     )
     validation_resolved = validation_path.expanduser().resolve()
-    with HordeBinV1Dataset(validation_resolved) as validation:
+    validation_stability: list[tuple[Path, str]] = []
+    with ExitStack() as stack:
+        if fixture_mode:
+            validation = stack.enter_context(HordeBinV1Dataset(validation_resolved))
+            validation_identity = {
+                "name": validation_resolved.name,
+                "sha256": validation.file_sha256,
+                "payload_sha256": validation.manifest["payload_sha256"],
+                "records": len(validation),
+                "book_sha256": validation.manifest["book_sha256"],
+                "seed": validation.manifest["generation"]["seed"],
+            }
+            validation_stability.append((validation_resolved, validation.file_sha256))
+        else:
+            validation = stack.enter_context(SelectedRoleDataset(validation_resolved))
+            validation_identity = validation.identity()
+            validation_stability.extend(
+                (
+                    (validation.receipt_path, validation.receipt_sha256),
+                    (validation.index_path, sha256_file(validation.index_path)),
+                    (validation.path, validation.file_sha256),
+                )
+            )
         _require(len(validation) == expected_records, "screen validation record count drifted")
-        validation_identity = {
-            "name": validation_resolved.name,
-            "sha256": validation.file_sha256,
-            "payload_sha256": validation.manifest["payload_sha256"],
-            "records": len(validation),
-            "book_sha256": validation.manifest["book_sha256"],
-            "seed": validation.manifest["generation"]["seed"],
-        }
         _validate_file_identity(validation_identity, expected_validation, "validation file")
         for batch in validation.batches(batch_size):
             teacher_scores = np.asarray(batch.scores, dtype=np.int32)
@@ -657,10 +679,11 @@ def screen_campaign(
                     metrics["white_piece_bins"][label].update(
                         terms, white_counts == count
                     )
-    _require(
-        sha256_file(validation_resolved) == validation_identity["sha256"],
-        "validation file changed during integer screening",
-    )
+    for artifact_path, expected_sha256 in validation_stability:
+        _require(
+            sha256_file(artifact_path) == expected_sha256,
+            "validation artifact changed during integer screening",
+        )
     _require(
         sha256_file(wdl_path.expanduser().resolve()) == wdl_sha,
         "WDL artifact changed during integer screening",
@@ -758,7 +781,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plan", type=Path)
     parser.add_argument("runs_root", type=Path)
-    parser.add_argument("--validation", type=Path, required=True)
+    parser.add_argument("--train-file", type=Path)
+    parser.add_argument("--validation-candidate", type=Path)
+    parser.add_argument(
+        "--validation",
+        type=Path,
+        required=True,
+        help="selected validation-role receipt",
+    )
     parser.add_argument("--wdl-calibration", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--contract", type=Path)
@@ -773,6 +803,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.runs_root,
         args.validation,
         args.wdl_calibration,
+        train_path=args.train_file,
+        validation_candidate_path=args.validation_candidate,
         contract_path=args.contract,
         campaign_contract_path=args.campaign_contract,
     )
@@ -792,6 +824,7 @@ if __name__ == "__main__":
         IntegerEvaluationError,
         OSError,
         ScreenError,
+        SelectedRoleError,
         subprocess.SubprocessError,
         wire.FormatError,
     ) as error:

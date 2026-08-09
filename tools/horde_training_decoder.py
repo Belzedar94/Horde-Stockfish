@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 import struct
 import sys
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 try:
     from . import horde_bin_v1 as wire
@@ -431,11 +431,16 @@ class HordeBinV1Dataset:
         if not self._file.closed:
             self._file.close()
 
-    def record(self, index: int) -> TrainingRecord:
+    def raw_record(self, index: int) -> bytes:
+        """Return the exact authenticated record bytes at ``index``."""
+
         _require(0 <= index < len(self), f"record index {index} is out of range")
         _require(self._mapping is not None, "dataset is closed")
         offset = wire.HEADER_SIZE + index * wire.RECORD_SIZE
-        raw = self._mapping[offset : offset + wire.RECORD_SIZE]
+        return bytes(self._mapping[offset : offset + wire.RECORD_SIZE])
+
+    def record(self, index: int) -> TrainingRecord:
+        raw = self.raw_record(index)
         record = decode_training_record(raw, index)
         return TrainingRecord(
             index=record.index,
@@ -457,10 +462,7 @@ class HordeBinV1Dataset:
     def label(self, index: int) -> tuple[int, int, int, int]:
         """Fully validate one record and return its calibration label fields."""
 
-        _require(0 <= index < len(self), f"record index {index} is out of range")
-        _require(self._mapping is not None, "dataset is closed")
-        offset = wire.HEADER_SIZE + index * wire.RECORD_SIZE
-        raw = self._mapping[offset : offset + wire.RECORD_SIZE]
+        raw = self.raw_record(index)
         decoded = wire.validate_record(raw, index)
         return decoded["side"], decoded["score"], decoded["result"], decoded["reason"]
 
@@ -477,7 +479,12 @@ def _update_index_list(digest: Any, indices: Sequence[int]) -> None:
         digest.update(struct.pack("<I", index))
 
 
-def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
+def dataset_receipt(
+    path: Path,
+    batch_size: int,
+    *,
+    dataset_factory: Callable[[Path], Any] = HordeBinV1Dataset,
+) -> dict[str, object]:
     digest = hashlib.sha256()
     legacy_stream_digest = hashlib.sha256()
     global_g0_stream_digest = hashlib.sha256()
@@ -496,7 +503,7 @@ def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
     global_contextual_rows = 0
     global_complete_rows = 0
     royal_rows = 0
-    with HordeBinV1Dataset(path) as dataset:
+    with dataset_factory(path) as dataset:
         for batch in dataset.batches(batch_size):
             batches += 1
             for row in range(len(batch)):

@@ -35,6 +35,9 @@ Horde-Stockfish without losing rule, source or network provenance.
 - [NNUE V2 C1 campaign contract](../../schemas/horde-v2-c1-campaign-v1.json) -
   authenticated 250k/250k split, coverage audit, paired-seed training matrix
   and fail-closed pre-selection evidence for ABS, Rank-8 and Royal-32.
+- [NNUE V2 C1 data-repair addendum](../../schemas/horde-v2-c1-data-repair-v1.json) -
+  frozen overproduction and label-blind first-eligible selection of the exact
+  250,000-record validation role after the direct split exposed transpositions.
 - [NNUE V2 C1 quantized screen](../../schemas/horde-v2-c1-quantized-screen-v1.json) -
   exact integer validation, paired three-seed stability gates and deterministic
   nomination of at most one subsequent fixed-node comparison.

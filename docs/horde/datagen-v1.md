@@ -104,6 +104,19 @@ Every sample is globally identified by `(payload_sha256, local_record_index)`;
 the full file, header, manifest, payload, producer, book, and network identities
 are retained in decoder and trainer receipts.
 
+Opening-book separation is necessary but does not prove generated-record
+separation: independently generated games may later transpose. The C1
+production campaign therefore uses the hash-pinned
+`HORDE_V2_C1_DATA_REPAIR_V1` addendum. A direct validation candidate is
+overproduced once, then
+[`tools/horde_training_selected_role.py`](../../tools/horde_training_selected_role.py)
+selects the first 250,000 records that match neither training key and duplicate
+neither previously selected validation key. The selector is blind to labels,
+terminal reasons, coverage and model output. Its canonical receipt binds the
+direct candidate, selected source indices, decision chain and materialized
+record bytes; the materialized output is never represented as a direct
+generator run.
+
 [`tools/horde_training_models.py`](../../tools/horde_training_models.py) is the
 single model implementation used by both the engineering micro-fit and the
 full reference trainer. [`tools/horde_training_control.py`](../../tools/horde_training_control.py)

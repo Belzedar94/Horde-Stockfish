@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from contextlib import ExitStack
 import hashlib
 import json
 import math
@@ -25,9 +26,19 @@ try:
         V2_ARCHITECTURES,
         sample_order_chain_sha256,
         validate_dataset_pair,
+        validate_selected_dataset_pair,
     )
     from .horde_training_decoder import HordeBinV1Dataset
     from .horde_training_split_audit import AuditError, audit_pair
+    from .horde_training_selected_role import (
+        CONTRACT_RELATIVE_PATH as DATA_REPAIR_CONTRACT_RELATIVE_PATH,
+        CONTRACT_SCHEMA as DATA_REPAIR_CONTRACT_SCHEMA,
+        CONTRACT_SHA256 as DATA_REPAIR_CONTRACT_SHA256,
+        SelectedRoleDataset,
+        SelectedRoleError,
+        load_contract as load_data_repair_contract,
+        verify_selected_role,
+    )
     from .horde_v2_container import (
         ContainerError,
         SPECS_BY_ARCHITECTURE,
@@ -46,9 +57,19 @@ except ImportError:
         V2_ARCHITECTURES,
         sample_order_chain_sha256,
         validate_dataset_pair,
+        validate_selected_dataset_pair,
     )
     from horde_training_decoder import HordeBinV1Dataset
     from horde_training_split_audit import AuditError, audit_pair
+    from horde_training_selected_role import (
+        CONTRACT_RELATIVE_PATH as DATA_REPAIR_CONTRACT_RELATIVE_PATH,
+        CONTRACT_SCHEMA as DATA_REPAIR_CONTRACT_SCHEMA,
+        CONTRACT_SHA256 as DATA_REPAIR_CONTRACT_SHA256,
+        SelectedRoleDataset,
+        SelectedRoleError,
+        load_contract as load_data_repair_contract,
+        verify_selected_role,
+    )
     from horde_v2_container import (
         ContainerError,
         SPECS_BY_ARCHITECTURE,
@@ -356,7 +377,7 @@ def _sorted_counter(counter: Counter[object]) -> dict[str, int]:
 
 
 def _dataset_coverage(
-    dataset: HordeBinV1Dataset,
+    dataset: Any,
 ) -> tuple[dict[str, object], Counter[int]]:
     side_to_move: Counter[str] = Counter()
     results: dict[str, Counter[int]] = {"white": Counter(), "black": Counter()}
@@ -440,8 +461,8 @@ def _dataset_coverage(
 
 
 def _coverage_receipt(
-    train: HordeBinV1Dataset,
-    validation: HordeBinV1Dataset,
+    train: Any,
+    validation: Any,
 ) -> dict[str, object]:
     train_summary, train_rows = _dataset_coverage(train)
     validation_summary, validation_rows = _dataset_coverage(validation)
@@ -645,27 +666,60 @@ def _validate_data(
     expected_records: tuple[int, int],
     *,
     require_production_coverage: bool,
+    validation_candidate_path: Path | None,
 ) -> dict[str, Any]:
     train_resolved = train_path.expanduser().resolve()
     validation_resolved = validation_path.expanduser().resolve()
-    with HordeBinV1Dataset(train_resolved) as train, HordeBinV1Dataset(
-        validation_resolved
-    ) as validation:
+    _require(
+        not require_production_coverage or validation_candidate_path is not None,
+        "production C1 requires an authenticated selected validation role",
+    )
+    with ExitStack() as stack:
+        train = stack.enter_context(HordeBinV1Dataset(train_resolved))
+        selection_verification: dict[str, object] | None = None
+        if validation_candidate_path is None:
+            validation = stack.enter_context(HordeBinV1Dataset(validation_resolved))
+            validation_factory = HordeBinV1Dataset
+            try:
+                data = validate_dataset_pair(
+                    train_resolved,
+                    validation_resolved,
+                    train.manifest,
+                    validation.manifest,
+                    split_receipt_path,
+                )
+            except (TrainingError, wire.FormatError) as error:
+                raise CampaignError(f"C1 dataset pair is invalid: {error}") from error
+        else:
+            candidate_resolved = validation_candidate_path.expanduser().resolve()
+            candidate = stack.enter_context(HordeBinV1Dataset(candidate_resolved))
+            validation = stack.enter_context(SelectedRoleDataset(validation_resolved))
+            validation_factory = SelectedRoleDataset
+            try:
+                selection_verification = verify_selected_role(
+                    train_resolved,
+                    candidate_resolved,
+                    validation_resolved,
+                )
+                data = validate_selected_dataset_pair(
+                    train_resolved,
+                    candidate_resolved,
+                    train,
+                    candidate,
+                    validation,
+                    split_receipt_path,
+                )
+            except (SelectedRoleError, TrainingError, wire.FormatError) as error:
+                raise CampaignError(f"C1 selected validation role is invalid: {error}") from error
         _require(len(train) == expected_records[0], "training record count violates C1")
         _require(len(validation) == expected_records[1], "validation record count violates C1")
         try:
-            data = validate_dataset_pair(
-                train_resolved,
-                validation_resolved,
-                train.manifest,
-                validation.manifest,
-                split_receipt_path,
-            )
             overlap = audit_pair(
                 train_resolved,
                 validation_resolved,
                 example_limit=8,
                 require_zero=True,
+                validation_factory=validation_factory,
             )
         except (TrainingError, AuditError, wire.FormatError) as error:
             raise CampaignError(f"C1 dataset pair is invalid: {error}") from error
@@ -682,12 +736,23 @@ def _validate_data(
             overlap["legacy_model_input"]["cross_role_overlap_samples"] == 0,
             "legacy evaluator inputs overlap between C1 roles",
         )
+        if validation_candidate_path is not None:
+            _require(
+                overlap["physical"]["validation_duplicate_samples"] == 0,
+                "selected validation contains duplicate physical positions",
+            )
+            _require(
+                overlap["legacy_model_input"]["validation_duplicate_samples"] == 0,
+                "selected validation contains duplicate legacy inputs",
+            )
         coverage = _coverage_receipt(train, validation)
         _validate_coverage_receipt(coverage, expected_records)
         if require_production_coverage:
             _require_production_coverage(coverage)
         data["overlap_audit"] = overlap
         data["coverage"] = coverage
+        if selection_verification is not None:
+            data["validation_selection_verification"] = selection_verification
         data["wdl_calibration"] = _validate_wdl(
             wdl_path,
             data,
@@ -708,7 +773,10 @@ def _run_plan(
         "python",
         "tools/horde_training_control.py",
         "{TRAIN_FILE}",
-        "{VALIDATION_FILE}",
+        "{VALIDATION_ROLE}",
+        "--validation-selected-role",
+        "--validation-candidate",
+        "{VALIDATION_CANDIDATE}",
         "--architecture",
         name,
         "--book-split-receipt",
@@ -771,6 +839,8 @@ def _campaign_identity(plan: Mapping[str, Any]) -> str:
         "source": plan.get("source"),
         "train_file": data.get("train_file"),
         "validation_file": data.get("validation_file"),
+        "validation_candidate": data.get("validation_candidate"),
+        "validation_selection": data.get("validation_selection"),
         "book_split": data.get("book_split"),
         "wdl_calibration": data.get("wdl_calibration"),
     }
@@ -815,6 +885,15 @@ def _validate_plan_against_contract(
 
     dependencies = _mapping(plan.get("dependencies"), "plan dependencies")
     _require(
+        dependencies.get("data_repair")
+        == {
+            "path": DATA_REPAIR_CONTRACT_RELATIVE_PATH.as_posix(),
+            "schema": DATA_REPAIR_CONTRACT_SCHEMA,
+            "sha256": DATA_REPAIR_CONTRACT_SHA256,
+        },
+        "plan data-repair dependency drifted",
+    )
+    _require(
         dependencies.get("rank8_control") == _rank8_dependency(contract),
         "plan Rank-8 dependency drifted",
     )
@@ -857,6 +936,45 @@ def _validate_plan_against_contract(
         == 0,
         "plan legacy-input roles overlap",
     )
+    if not fixture_mode:
+        selected_identity = _mapping(
+            validation_file.get("selected_role"),
+            "plan selected validation identity",
+        )
+        _require(
+            selected_identity.get("schema") == "HORDE_TRAINING_SELECTED_ROLE_V1"
+            and selected_identity.get("contract_sha256") == DATA_REPAIR_CONTRACT_SHA256,
+            "plan validation role is not the registered selected role",
+        )
+        _mapping(data.get("validation_candidate"), "plan validation candidate")
+        _mapping(data.get("validation_selection"), "plan validation selection")
+        selection_verification = _mapping(
+            data.get("validation_selection_verification"),
+            "plan validation selection verification",
+        )
+        selection_claims = _mapping(
+            selection_verification.get("claims"),
+            "plan validation selection claims",
+        )
+        _require(
+            selection_claims.get("canonical_selection_recomputed") is True
+            and selection_claims.get("materialized_records_reconstructed") is True
+            and selection_claims.get("zero_cross_role_overlap") is True
+            and selection_claims.get("zero_validation_duplicates") is True
+            and selection_claims.get("training_eligible") is True,
+            "plan selected validation role lacks independent verification",
+        )
+        _require(
+            _mapping(overlap.get("physical"), "plan physical overlap").get(
+                "validation_duplicate_samples"
+            )
+            == 0
+            and _mapping(overlap.get("legacy_model_input"), "plan legacy overlap").get(
+                "validation_duplicate_samples"
+            )
+            == 0,
+            "plan selected validation role contains duplicate inputs",
+        )
     coverage = _mapping(data.get("coverage"), "plan coverage receipt")
     coverage_gates = _mapping(coverage.get("gates"), "plan coverage gates")
     coverage_contract = _mapping(contract.get("data"), "contract data")
@@ -974,12 +1092,23 @@ def plan_campaign(
     split_receipt_path: Path,
     wdl_path: Path,
     *,
+    validation_candidate_path: Path | None = None,
     contract_path: Path | None = None,
     _expected_records: tuple[int, int] | None = None,
     _allow_dirty: bool = False,
     _source_override: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     contract, contract_sha = load_contract(contract_path)
+    data_repair_contract, data_repair_sha = load_data_repair_contract()
+    repair_campaign = _mapping(
+        data_repair_contract.get("campaign_contract"),
+        "data-repair campaign dependency",
+    )
+    _require(
+        repair_campaign.get("schema") == CONTRACT_SCHEMA
+        and repair_campaign.get("sha256") == contract_sha,
+        "data-repair addendum targets another campaign contract",
+    )
     data_contract = _mapping(contract.get("data"), "contract data section")
     production_records = (
         int(data_contract["training_records"]),
@@ -1008,6 +1137,7 @@ def plan_campaign(
         wdl_path,
         expected_records,
         require_production_coverage=not fixture_mode,
+        validation_candidate_path=validation_candidate_path,
     )
     training = _mapping(contract.get("training"), "contract training section")
     architectures = training["architectures"]
@@ -1035,6 +1165,11 @@ def plan_campaign(
         },
         "source": source,
         "dependencies": {
+            "data_repair": {
+                "path": DATA_REPAIR_CONTRACT_RELATIVE_PATH.as_posix(),
+                "schema": DATA_REPAIR_CONTRACT_SCHEMA,
+                "sha256": data_repair_sha,
+            },
             "rank8_control": _rank8_dependency(contract),
             "run6b_sha256": wire.RUN6B_SHA256,
         },
@@ -1109,6 +1244,13 @@ def _verify_training_receipt(
             _mapping(expected_data.get(key), f"planned data {key}"),
             key,
         )
+    for key in ("validation_candidate", "validation_selection"):
+        if key in expected_data:
+            _same_identity(
+                _mapping(data.get(key), f"training data {key}"),
+                _mapping(expected_data.get(key), f"planned data {key}"),
+                key,
+            )
     book_split = _mapping(data.get("book_split"), "training book split")
     expected_split = _mapping(expected_data.get("book_split"), "planned book split")
     for key in (
@@ -1300,6 +1442,9 @@ def verify_campaign(
     plan_path: Path,
     runs_root: Path,
     *,
+    train_path: Path | None = None,
+    validation_candidate_path: Path | None = None,
+    validation_role_path: Path | None = None,
     contract_path: Path | None = None,
     _allow_fixture: bool = False,
 ) -> dict[str, Any]:
@@ -1321,6 +1466,30 @@ def verify_campaign(
     )
     source = _mapping(plan.get("source"), "plan source")
     _require(fixture_mode or source.get("dirty") is False, "campaign source is dirty")
+    selected_role_verification: dict[str, object] | None = None
+    if not fixture_mode:
+        _require(
+            train_path is not None
+            and validation_candidate_path is not None
+            and validation_role_path is not None,
+            "production verification requires train, candidate and selected-role inputs",
+        )
+        try:
+            selected_role_verification = verify_selected_role(
+                train_path,
+                validation_candidate_path,
+                validation_role_path,
+            )
+        except SelectedRoleError as error:
+            raise CampaignError(f"selected validation role failed final verification: {error}") from error
+        expected_validation = _mapping(
+            _mapping(plan.get("data"), "plan data").get("validation_file"),
+            "plan selected validation file",
+        )
+        _require(
+            selected_role_verification.get("selected_role") == expected_validation,
+            "final selected-role identity differs from the campaign plan",
+        )
     root = runs_root.expanduser().resolve()
     _require(root.is_dir(), f"runs root does not exist: {root}")
     runs = plan.get("runs")
@@ -1420,6 +1589,7 @@ def verify_campaign(
         "plan_sha256": _sha256_bytes(plan_payload),
         "campaign_identity_sha256": plan.get("campaign_identity_sha256"),
         "source": source,
+        "selected_role_verification": selected_role_verification,
         "environment": environment,
         "runs": evidence,
         "paired_sample_order": {
@@ -1445,7 +1615,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     plan = subparsers.add_parser("plan", help="validate inputs and write the nine-run plan")
     plan.add_argument("train", type=Path)
-    plan.add_argument("validation", type=Path)
+    plan.add_argument("validation", type=Path, help="selected validation-role receipt")
+    plan.add_argument(
+        "--validation-candidate",
+        type=Path,
+        help="direct HORDE_BIN_V1 parent of the selected validation role",
+    )
     plan.add_argument("--book-split-receipt", type=Path, required=True)
     plan.add_argument("--wdl-calibration", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
@@ -1454,6 +1629,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     verify = subparsers.add_parser("verify", help="verify all trained and quantized runs")
     verify.add_argument("plan", type=Path)
     verify.add_argument("runs_root", type=Path)
+    verify.add_argument("--train-file", type=Path)
+    verify.add_argument("--validation-candidate", type=Path)
+    verify.add_argument("--validation-role", type=Path)
     verify.add_argument("--output", type=Path, required=True)
     verify.add_argument("--contract", type=Path)
     return parser.parse_args(argv)
@@ -1467,12 +1645,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.validation,
             args.book_split_receipt,
             args.wdl_calibration,
+            validation_candidate_path=args.validation_candidate,
             contract_path=args.contract,
         )
     else:
         result = verify_campaign(
             args.plan,
             args.runs_root,
+            train_path=args.train_file,
+            validation_candidate_path=args.validation_candidate,
+            validation_role_path=args.validation_role,
             contract_path=args.contract,
         )
     payload = _canonical_json(result)
@@ -1491,6 +1673,7 @@ if __name__ == "__main__":
         ContainerError,
         OSError,
         RuntimeError,
+        SelectedRoleError,
         subprocess.SubprocessError,
         TrainingError,
         wire.FormatError,

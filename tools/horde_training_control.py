@@ -11,6 +11,7 @@ survivors so architecture comparisons do not receive hidden training changes.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import dataclass
 import hashlib
 import json
@@ -22,7 +23,7 @@ import platform
 import struct
 import subprocess
 import sys
-from typing import Any, Iterator, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 
 # Required by PyTorch for deterministic CUDA matrix multiplications.  It must
 # be present before the first cuBLAS handle is created.
@@ -58,6 +59,11 @@ try:
         V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
     from .horde_training_split_audit import audit_pair
+    from .horde_training_selected_role import (
+        SelectedRoleDataset,
+        SelectedRoleError,
+        validate_selected_role_binding,
+    )
     from .horde_wdl import (
         CalibrationError,
         LINK_SCHEMA as WDL_LINK_SCHEMA,
@@ -88,6 +94,11 @@ except ImportError:
         V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
     from horde_training_split_audit import audit_pair
+    from horde_training_selected_role import (
+        SelectedRoleDataset,
+        SelectedRoleError,
+        validate_selected_role_binding,
+    )
     from horde_wdl import (
         CalibrationError,
         LINK_SCHEMA as WDL_LINK_SCHEMA,
@@ -783,6 +794,40 @@ def validate_dataset_pair(
     }
 
 
+def validate_selected_dataset_pair(
+    train_path: Path,
+    candidate_path: Path,
+    train_dataset: HordeBinV1Dataset,
+    candidate_dataset: HordeBinV1Dataset,
+    validation_dataset: SelectedRoleDataset,
+    split_receipt_path: Path,
+    *,
+    allow_fixture: bool = False,
+    source_override: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Bind an effective selected validation role to its two direct parents."""
+
+    data = validate_dataset_pair(
+        train_path,
+        candidate_path,
+        train_dataset.manifest,
+        candidate_dataset.manifest,
+        split_receipt_path,
+    )
+    candidate_identity = data.pop("validation_file")
+    selected_identity = validate_selected_role_binding(
+        train_dataset,
+        candidate_dataset,
+        validation_dataset,
+        _allow_fixture=allow_fixture,
+        _source_override=source_override,
+    )
+    data["validation_file"] = selected_identity
+    data["validation_candidate"] = candidate_identity
+    data["validation_selection"] = selected_identity["selected_role"]
+    return data
+
+
 def _repository_identity(repo_root: Path) -> dict[str, object]:
     def git(*arguments: str) -> str:
         result = subprocess.run(
@@ -1109,25 +1154,58 @@ def train(args: argparse.Namespace) -> dict[str, object]:
 
     train_path = args.train.expanduser().resolve()
     validation_path = args.validation.expanduser().resolve()
-    with HordeBinV1Dataset(train_path) as train_dataset, HordeBinV1Dataset(
-        validation_path
-    ) as validation_dataset:
-        data_receipt = validate_dataset_pair(
-            train_path,
-            validation_path,
-            train_dataset.manifest,
-            validation_dataset.manifest,
-            args.book_split_receipt,
-        )
+    selected_validation = bool(getattr(args, "validation_selected_role", False))
+    candidate_argument = getattr(args, "validation_candidate", None)
+    selected_fixture = bool(getattr(args, "selected_role_fixture", False))
+    _require(
+        selected_validation or candidate_argument is None,
+        "--validation-candidate requires --validation-selected-role",
+    )
+    _require(
+        not selected_validation or candidate_argument is not None,
+        "selected validation requires --validation-candidate",
+    )
+    with ExitStack() as stack:
+        train_dataset = stack.enter_context(HordeBinV1Dataset(train_path))
+        if selected_validation:
+            candidate_path = candidate_argument.expanduser().resolve()
+            candidate_dataset = stack.enter_context(HordeBinV1Dataset(candidate_path))
+            validation_dataset = stack.enter_context(SelectedRoleDataset(validation_path))
+            data_receipt = validate_selected_dataset_pair(
+                train_path,
+                candidate_path,
+                train_dataset,
+                candidate_dataset,
+                validation_dataset,
+                args.book_split_receipt,
+                allow_fixture=selected_fixture,
+                source_override=getattr(args, "selected_role_source_override", source),
+            )
+            validation_factory = SelectedRoleDataset
+        else:
+            validation_dataset = stack.enter_context(HordeBinV1Dataset(validation_path))
+            data_receipt = validate_dataset_pair(
+                train_path,
+                validation_path,
+                train_dataset.manifest,
+                validation_dataset.manifest,
+                args.book_split_receipt,
+            )
+            validation_factory = HordeBinV1Dataset
         data_receipt["decoder"] = {
             "train": dataset_receipt(train_path, args.batch_size),
-            "validation": dataset_receipt(validation_path, args.batch_size),
+            "validation": dataset_receipt(
+                validation_path,
+                args.batch_size,
+                dataset_factory=validation_factory,
+            ),
         }
         data_receipt["overlap_audit"] = audit_pair(
             train_path,
             validation_path,
             example_limit=8,
             require_zero=True,
+            validation_factory=validation_factory,
         )
         _require(
             args.allow_legacy_book_split_v1
@@ -1583,6 +1661,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("train", type=Path)
     parser.add_argument("validation", type=Path)
     parser.add_argument(
+        "--validation-selected-role",
+        action="store_true",
+        help="interpret validation as a HORDE_TRAINING_SELECTED_ROLE_V1 receipt",
+    )
+    parser.add_argument(
+        "--validation-candidate",
+        type=Path,
+        help="direct HORDE_BIN_V1 parent of a selected validation role",
+    )
+    parser.add_argument(
         "--architecture",
         choices=ARCHITECTURE_CHOICES,
         default=LEGACY_ARCHITECTURE,
@@ -1617,6 +1705,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, RuntimeError, subprocess.SubprocessError, TrainingError) as error:
+    except (
+        OSError,
+        RuntimeError,
+        SelectedRoleError,
+        subprocess.SubprocessError,
+        TrainingError,
+    ) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         raise SystemExit(1) from error
