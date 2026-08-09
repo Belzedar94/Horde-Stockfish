@@ -20,12 +20,15 @@ collapse:
 | --- | --- | ---: | ---: | ---: | ---: |
 | `v2-c1-abs64x192` | `7B7A6BFB826161EE711BBDBBE4B8EB2A9D5B464164929487E0850ABE14D9FC16` | 32/32 | 32/32 | 1 | 0 |
 | `v2-c1-rank8-64x192` | `19F435D8F3F17507E4DFE8584B21E96E2C035016631244BBA5DADEAB46BD25A9` | 32/32 | 32/32 | 1 | 0 |
+| `v2-64x192` | `0EE35534175CB968EAF1A365401A8388CCDE4D3458340AC28194C4ADE088635B` | 32/32 | 32/32 | 1 | 0 |
 
 Both first-domain accumulators remained position-dependent and unsaturated.
-The rank-8 and absolute activations differed materially, but hidden0 mapped
-every validation probe position to the same 0/1 vector. Hidden1 was likewise
-constant. The surviving evaluator was therefore one constant per side to move,
-with rule-50 damping applied afterward.
+The rank-8, absolute, and full Royal activations differed materially, but
+hidden0 mapped every validation probe position to the same 0/1 vector. Hidden1
+was likewise constant. The surviving evaluator was therefore one constant per
+side to move, with rule-50 damping applied afterward. All three architectures
+finished at the exact same validation composite loss,
+`0.16662875441138447`, despite distinct parameter and state hashes.
 
 The exact equality of aggregate validation metrics is a consequence of the
 integer-forward training objective: float outputs differing by less than one
