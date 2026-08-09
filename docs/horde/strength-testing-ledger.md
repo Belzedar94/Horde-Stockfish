@@ -519,17 +519,24 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
 - Hypothesis: reduce the inherited generic NNUE accumulator from 1,024 to 512
   lanes, matching the only supported Run 6B evaluator and saving 2,048 bytes
   per ply (about 506 KiB per thread across the accumulator stack).
-- Scope: one constant and its explanatory comment in
-  `src/nnue/nnue_architecture.h`.
+- Scope: one constant in `src/nnue/nnue_architecture.h`; no other NNUE,
+  evaluation, or search change is included.
+- Branch: `test/legacy-accumulator-width-512`, commit
+  `5f81b966ad45db255e47c2897a8aa44f352f921b`.
 - Validation: BMI2 release build, Horde rules, Run 6B network contract, and
-  three deterministic 315,576-node benches all passed exactly.
+  three deterministic 315,576-node benches all passed exactly. All four
+  Linux/Windows PEXT/POPCNT artifact jobs passed in GitHub Actions run
+  `31314383079`.
 - Local speed screen: +0.81% geometric mean, +0.29% median, and 7/12 positive
   alternating depth-16 pairs. Per-pair noise ranged from -12.15% to +17.77%
   under the live worker load.
-- Decision: rejected locally as insufficiently clear low-hanging fruit; no
-  commit, push, or OpenBench workload. The source change was reverted.
+- Decision: the local screen was inconclusive, so the isolated candidate was
+  promoted to distributed STC as
+  [OpenBench #333](https://belzedar.duckdns.org/test/333/) at priority 301.
+  The workload is pending; no strength result is claimed yet.
 - Learning: halving unused accumulator capacity improves memory footprint but
-  does not remove enough hot-path work to justify STC by itself.
+  needs distributed testing because the expected speed signal is smaller than
+  the noise of the local screen.
 
 ### 2026-08-08 - Fixed-role `gives_check()` specialization
 
