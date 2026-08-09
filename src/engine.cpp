@@ -127,6 +127,8 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
 
     options.add("UCI_ShowWDL", Option(false));
 
+    options.add("HordeWhiteNodeFutilityMarginScale", Option(100, 50, 150));
+
 #if defined(HORDE_SEARCH_TELEMETRY)
     options.add("HordeSearchTelemetry", Option(false));
     options.add("HordeSearchExperimentMask", Option(0, 0, Search::HordeExperimentMaskMax));
