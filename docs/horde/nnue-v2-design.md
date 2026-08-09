@@ -798,6 +798,30 @@ authenticates the evidence but deliberately leaves architecture selection and
 playing-gate eligibility false. A later training-screen artifact plus
 fixed-node and equal-time evidence remain mandatory.
 
+That next artifact is registered as
+`schemas/horde-v2-c1-quantized-screen-v1.json`. It evaluates every authenticated
+container over the complete 250,000-position validation role using the exact
+integer forward path. The receipt reports the frozen half-Brier objective
+overall, by side to move and by all six White-piece-count bins. It also rejects
+weight sections with less than 1% non-zero parameters or more than 5% values at
+their storage-type boundaries.
+
+Each larger topology is compared with its nearest cheaper control and, for
+Royal-32, also with the absolute control. Advancement requires all three paired
+seeds to improve after quantization, a paired 95% lower bound above zero, an
+improvement for both sides to move in every seed, the same ordering in each of
+the last two floating-point epochs, no float-to-integer ranking reversal, and
+parameter health on both models. The paired interval uses the pre-registered
+Student critical value `t(0.975, 2) = 4.3026527297`. A tie therefore cannot
+promote the larger model.
+
+The screen may nominate at most one predesignated-seed fixed-node pairing. It
+does not select an architecture or provide strength evidence. Royal-32 must
+clear both Rank-8 and absolute before it can be nominated against Rank-8;
+otherwise a passing Rank-8 is compared with absolute. If Rank-8 fails absolute,
+Royal-32 can proceed only after clearing both controls and is then compared
+directly with absolute.
+
 ```console
 python tools/horde_v2_c1_campaign.py plan TRAIN.bin VALIDATION.bin \
   --book-split-receipt BOOK-SPLIT.json \
@@ -805,6 +829,10 @@ python tools/horde_v2_c1_campaign.py plan TRAIN.bin VALIDATION.bin \
 
 python tools/horde_v2_c1_campaign.py verify C1-PLAN.json RUNS-DIRECTORY \
   --output C1-VERIFICATION.json
+
+python tools/horde_v2_c1_screen.py C1-PLAN.json RUNS-DIRECTORY \
+  --validation VALIDATION.bin --wdl-calibration WDL-CALIBRATION.json \
+  --output C1-QUANTIZED-SCREEN.json
 ```
 
 The existing real-data C1 plumbing canary is frozen in

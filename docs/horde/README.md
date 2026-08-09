@@ -35,6 +35,9 @@ Horde-Stockfish without losing rule, source or network provenance.
 - [NNUE V2 C1 campaign contract](../../schemas/horde-v2-c1-campaign-v1.json) -
   authenticated 250k/250k split, coverage audit, paired-seed training matrix
   and fail-closed pre-selection evidence for ABS, Rank-8 and Royal-32.
+- [NNUE V2 C1 quantized screen](../../schemas/horde-v2-c1-quantized-screen-v1.json) -
+  exact integer validation, paired three-seed stability gates and deterministic
+  nomination of at most one subsequent fixed-node comparison.
 - [Training-data contract V1](datagen-v1.md) — the isolated generator,
   physical-position wire format and G0 audit boundary.
 - [Horde WDL calibration V1](wdl-calibration-v1.md) defines the frozen

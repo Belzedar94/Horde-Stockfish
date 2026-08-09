@@ -112,7 +112,47 @@ def _write_completed_runs(root: Path, plan: dict[str, object]) -> None:
         checkpoint = run_root / "checkpoint.pt"
         metrics = run_root / "metrics.jsonl"
         checkpoint.write_bytes(f"checkpoint:{run['id']}".encode("ascii"))
-        metrics.write_bytes(f"metrics:{run['id']}\n".encode("ascii"))
+        architecture_loss = {
+            "v2-c1-abs64x192": 0.30,
+            "v2-c1-rank8-64x192": 0.20,
+            "v2-64x192": 0.10,
+        }[run["architecture"]["name"]]
+        final_loss = architecture_loss + 0.001 * run["pair_index"]
+        initial_validation = {
+            "samples": configuration["validation_records"],
+            "composite_loss": final_loss + 0.01,
+        }
+        epoch_receipts = [
+            {
+                "epoch": epoch + 1,
+                "train": {
+                    "samples": configuration["training_records"],
+                    "composite_loss": final_loss + 0.02 - epoch * 0.001,
+                },
+                "validation": {
+                    "samples": configuration["validation_records"],
+                    "composite_loss": final_loss
+                    + (configuration["epochs"] - epoch - 1) * 0.001,
+                },
+            }
+            for epoch in range(configuration["epochs"])
+        ]
+        metric_objects = [
+            {"epoch": 0, "validation": initial_validation},
+            *epoch_receipts,
+        ]
+        metrics.write_bytes(
+            b"\n".join(
+                json.dumps(
+                    metric,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("ascii")
+                for metric in metric_objects
+            )
+            + b"\n"
+        )
         checkpoint_sha = container.sha256_file(checkpoint)
         metrics_sha = container.sha256_file(metrics)
         sample_order = campaign.sample_order_chain_sha256(
@@ -162,14 +202,9 @@ def _write_completed_runs(root: Path, plan: dict[str, object]) -> None:
                 "samples_consumed": configuration["exposures_per_model"],
                 "batch_size": configuration["batch_size"],
                 "shuffle": {"block_size": configuration["block_size"]},
-                "epochs_receipt": [
-                    {
-                        "epoch": epoch + 1,
-                        "train": {"samples": configuration["training_records"]},
-                        "validation": {"samples": configuration["validation_records"]},
-                    }
-                    for epoch in range(configuration["epochs"])
-                ],
+                "initial_validation": initial_validation,
+                "stop_validation": epoch_receipts[-1]["validation"],
+                "epochs_receipt": epoch_receipts,
                 "sample_order_chain_sha256": sample_order,
             },
             "artifacts": {
