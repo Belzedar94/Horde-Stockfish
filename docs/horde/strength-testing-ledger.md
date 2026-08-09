@@ -295,6 +295,30 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
 - Decision: registered at priority 301 for STC `[1.00, 6.00]`, with a
   10,000-game neutral cutoff and a 20,000-game absolute ceiling.
 
+### 2026-08-08 - Preserve White-pawn parent-node quiet futility
+
+- Branch: `test/white-pawn-quiet-futility`, commit
+  `8d9900f9d759bd6ed97b8d45f410f965a099f14e`.
+- OpenBench: [test 323](https://belzedar.duckdns.org/test/323/).
+- Hypothesis: strategically important Horde pawn pushes may be discarded by
+  orthodox parent-node quiet futility before the search can see a breakthrough.
+- Scope: one default-off UCI switch exempts only physical White-pawn quiet
+  moves from parent-node futility. It does not change Black moves, captures,
+  checks, history pruning, SEE pruning, qsearch, margins, evaluation, or rules.
+- Reproducibility: candidate and baseline use the same Run 6B network,
+  `HORDE_openings_v3.epd`, `8.0+0.08`, Threads=1, and Hash=32. The candidate
+  declares the unchanged 315,576-node bench, and its four-platform OpenBench
+  artifact workflow passed in GitHub Actions run 31181874327.
+- Live evidence at 1,920 games: 877-987-56, pentanomial
+  `[109, 30, 741, 22, 58]`, raw Elo `-19.93 +/- 9.48`, and LLR `-2.86` for
+  SPRT `[1.00, 6.00]`. The reporting machine has zero time losses and zero
+  crashes, and there is no Horde error event.
+- Provisional interpretation: the blanket exemption appears to spend more
+  effective depth on low-value pawn pushes than it recovers from false
+  futility prunes. The test remains active until a terminal bound; if it turns
+  red, any follow-up must target a measured tactical subset such as advanced
+  promotion threats rather than exempting every White pawn push.
+
 ## OpenBench outcomes
 
 ### 2026-08-09 - Legacy dirty-piece tracking only passes STC
