@@ -391,15 +391,8 @@ Main-search selectivity experiments:
   `HORDE_openings_v3.epd`, `8.0+0.08`, Threads=1, and Hash=32. The candidate
   declares the unchanged 315,576-node bench, and its four-platform OpenBench
   artifact workflow passed in GitHub Actions run 31181874327.
-- Live evidence at 1,920 games: 877-987-56, pentanomial
-  `[109, 30, 741, 22, 58]`, raw Elo `-19.93 +/- 9.48`, and LLR `-2.86` for
-  SPRT `[1.00, 6.00]`. The reporting machine has zero time losses and zero
-  crashes, and there is no Horde error event.
-- Provisional interpretation: the blanket exemption appears to spend more
-  effective depth on low-value pawn pushes than it recovers from false
-  futility prunes. The test remains active until a terminal bound; if it turns
-  red, any follow-up must target a measured tactical subset such as advanced
-  promotion threats rather than exempting every White pawn push.
+- Final result: red at 2,038 games. The complete receipt and post-mortem are
+  recorded under OpenBench outcomes below.
 
 ## OpenBench outcomes
 
@@ -417,6 +410,31 @@ Main-search selectivity experiments:
 - Decision: advance the identical single change to LTC at `40.0+0.40`,
   Threads=1 and Hash=128. It is not accepted into development until LTC also
   passes and the exact build and correctness receipts are rechecked.
+
+### 2026-08-10 - Reject blanket White-pawn parent-node futility exemption
+
+- Branch: `test/white-pawn-quiet-futility`, commit
+  `8d9900f9d759bd6ed97b8d45f410f965a099f14e`.
+- OpenBench: [test 323](https://belzedar.duckdns.org/test/323/).
+- Result: red at 2,038 games, 931-1,050-57, pentanomial
+  `[114, 31, 793, 22, 59]`, raw Elo `-20.31 +/- 9.08`, and LLR `-3.12` for
+  SPRT `[1.00, 6.00]`.
+- Infrastructure audit: both sides used Run 6B and
+  `HORDE_openings_v3.epd`; the sole reporting machine recorded zero time
+  losses and zero crashes, and the OpenBench error registry contains no Horde
+  event for the workload.
+- Deterministic tree audit: enabling the switch in the exact candidate binary
+  expanded the frozen depth-13 bench from 315,576 to 436,728 nodes, a
+  `+38.39%` increase. This is a search-tree change, not a timing artifact.
+- Post-mortem: Horde can expose many simultaneous pawn pushes, so exempting
+  every physical White-pawn quiet from parent-node futility preserves a much
+  larger move class than the analogous orthodox intuition suggests. The
+  additional breadth loses effective depth faster than it recovers tactical
+  breakthroughs.
+- Decision: rejected. Do not weaken parent-node futility for all White pawn
+  pushes. A future test must isolate a measured tactical subset, such as an
+  immediate promotion threat or a high-rank push with concrete king pressure,
+  and must first pass a node-growth screen.
 
 ### 2026-08-09 - Reject White-wide child-node futility disable
 
