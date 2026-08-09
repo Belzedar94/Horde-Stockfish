@@ -23,8 +23,17 @@ EXPECTED = {
 }
 
 
-def _platform_invariant(receipt: dict[str, object]) -> dict[str, object]:
+def _without_shared_model_hash(receipt: dict[str, object]) -> dict[str, object]:
     projected = json.loads(json.dumps(receipt))
+    # The shared model module deliberately gains later architecture rungs.
+    # C0 remains frozen by its control implementation and exact semantic
+    # outputs, not by unrelated classes appended to that module.
+    del projected["implementation"]["models_sha256"]
+    return projected
+
+
+def _platform_invariant(receipt: dict[str, object]) -> dict[str, object]:
+    projected = _without_shared_model_hash(receipt)
     del projected["runtime"]
     for field in (
         "initial_parameter_sha256",
@@ -64,10 +73,16 @@ def main() -> int:
             "C0 platform-invariant receipt changed:\n"
             + _difference(_platform_invariant(frozen), _platform_invariant(first))
         )
-    if first["runtime"] == frozen["runtime"] and first != frozen:
+    if (
+        first["runtime"] == frozen["runtime"]
+        and _without_shared_model_hash(first) != _without_shared_model_hash(frozen)
+    ):
         raise AssertionError(
             "C0 frozen receipt changed on its canonical runtime:\n"
-            + _difference(frozen, first)
+            + _difference(
+                _without_shared_model_hash(frozen),
+                _without_shared_model_hash(first),
+            )
         )
     if (
         first["schema"] != c0.SCHEMA
