@@ -229,9 +229,15 @@ class LazyAccumulatorStack {
         network_(network),
         slots_(MaxSize) {}
 
-    [[nodiscard]] LeanStackError reset(const Position& pos) noexcept {
+    void clear() noexcept {
         size_     = 0;
         counters_ = {};
+        if constexpr (ValidateExactBoard)
+            board_.fill(NO_PIECE);
+    }
+
+    [[nodiscard]] LeanStackError reset(const Position& pos) noexcept {
+        clear();
 
         if (!network_.valid())
             return LeanStackError::INVALID_POSITION;

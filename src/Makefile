@@ -83,6 +83,32 @@ PYTHON ?= python3
 ### Built-in benchmark for pgo-builds
 PGOBENCH = $(RUN_PREFIX) ./$(EXE) bench
 
+### An OpenBench-assigned integer Horde V2 container selects the isolated
+### candidate evaluator at build time. Legacy .nnue builds remain unchanged.
+HORDE_V2_CANDIDATE ?= auto
+ifeq ($(HORDE_V2_CANDIDATE),auto)
+  ifneq ($(filter %.hsv2 %.HSV2,$(strip $(EVALFILE))),)
+    override HORDE_V2_CANDIDATE := yes
+  else
+    override HORDE_V2_CANDIDATE := no
+  endif
+endif
+ifneq ($(HORDE_V2_CANDIDATE),$(filter $(HORDE_V2_CANDIDATE),yes no))
+  $(error HORDE_V2_CANDIDATE must be auto, yes, or no)
+endif
+ifeq ($(HORDE_V2_CANDIDATE),yes)
+  ifeq ($(strip $(EVALFILE)),)
+    $(error HORDE_V2_CANDIDATE=yes requires EVALFILE=<registered .hsv2 container>)
+  endif
+  ifeq ($(filter %.hsv2 %.HSV2,$(strip $(EVALFILE))),)
+    $(error HORDE_V2_CANDIDATE=yes requires a .hsv2 EVALFILE)
+  endif
+else
+  ifneq ($(filter %.hsv2 %.HSV2,$(strip $(EVALFILE))),)
+    $(error A .hsv2 EVALFILE cannot be built with HORDE_V2_CANDIDATE=no)
+  endif
+endif
+
 ### Source and object files
 SRCS = attacks.cpp benchmark.cpp bitboard.cpp evaluate.cpp genfens.cpp main.cpp \
 	misc.cpp movegen.cpp movepick.cpp position.cpp \
@@ -90,6 +116,10 @@ SRCS = attacks.cpp benchmark.cpp bitboard.cpp evaluate.cpp genfens.cpp main.cpp 
 	nnue/nnue_accumulator.cpp nnue/nnue_misc.cpp nnue/network.cpp nnue/horde_legacy_network.cpp \
 	nnue/features/half_ka_v2_hm.cpp nnue/features/full_threats.cpp nnue/features/pp_3wide.cpp \
 	engine.cpp score.cpp memory.cpp
+
+ifeq ($(HORDE_V2_CANDIDATE),yes)
+SRCS += nnue/horde_v2_container.cpp data/sha256.cpp
+endif
 
 OTHER_SRCS = universal/entry_x86.cpp universal/entry_arm64.cpp universal/entry_riscv64.cpp universal/nnue_embed.cpp
 
@@ -117,7 +147,7 @@ HORDE_BIN_V1_TEST_EXE = horde-bin-v1-tests$(if $(filter yes,$(target_windows)),.
 HORDE_BIN_V1_TEST_OBJS = $(filter-out main.o,$(OBJS)) horde_data_generator_sha256.o \
 	horde_data_generator_horde_bin_v1.o horde_bin_v1_tests.o
 
-VPATH = syzygy:nnue:nnue/features
+VPATH = syzygy:nnue:nnue/features:data
 
 ### ==========================================================================
 ### Section 2. High-level Configuration
@@ -521,6 +551,10 @@ ifeq ($(MAKELEVEL),0)
 endif
 
 CXXFLAGS = $(ENV_CXXFLAGS) -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRACXXFLAGS)
+
+ifeq ($(HORDE_V2_CANDIDATE),yes)
+CXXFLAGS += -DHORDE_V2_CANDIDATE -DHORDE_V2_EVALFILE='"$(EVALFILE)"'
+endif
 DEPENDFLAGS = $(ENV_DEPENDFLAGS) -std=c++17
 LDFLAGS = $(ENV_LDFLAGS) $(EXTRALDFLAGS)
 

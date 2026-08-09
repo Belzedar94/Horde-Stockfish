@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <filesystem>
 #include <deque>
 #include <iosfwd>
@@ -34,6 +35,9 @@
 #include "misc.h"
 #include "nnue/network.h"
 #include "nnue/nnue_common.h"
+#if defined(HORDE_V2_CANDIDATE)
+#include "nnue/horde_v2_container.h"
+#endif
 #if defined(HORDE_V2_PERF)
 #include "nnue/horde_v2_performance.h"
 #endif
@@ -51,6 +55,15 @@ namespace Stockfish {
 
 namespace NN = Eval::NNUE;
 
+#if defined(HORDE_V2_CANDIDATE)
+#ifndef HORDE_V2_EVALFILE
+#error HORDE_V2_CANDIDATE requires HORDE_V2_EVALFILE
+#endif
+constexpr const char* EngineEvalFileDefaultName = HORDE_V2_EVALFILE;
+#else
+constexpr const char* EngineEvalFileDefaultName = EvalFileDefaultName;
+#endif
+
 constexpr int MaxHashMB  = Is64Bit ? 33554432 : 2048;
 int           MaxThreads = std::max(1024, 4 * int(get_hardware_concurrency()));
 
@@ -66,7 +79,12 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
     states(new std::deque<StateInfo>(1)),
     threads(),
     networkFile{std::nullopt, ""},
-    network(numaContext, get_default_network()) {
+    network(numaContext, get_default_network())
+#if defined(HORDE_V2_CANDIDATE)
+    , candidateNetworkParameters(),
+    candidateNetwork(candidateNetworkParameters)
+#endif
+{
 
     pos.set(StartFEN, false, &states->back());
 
@@ -147,14 +165,19 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
     options.add("SyzygyProbeLimit", Option(0, 0, 0));
 
     options.add(  //
-      "EvalFile", Option(EvalFileDefaultName, [this](const Option& o) {
+      "EvalFile", Option(EngineEvalFileDefaultName, [this](const Option& o) {
           load_network(path_from_utf8(std::string(o)));
           return std::nullopt;
       }));
 
     threads.clear();
+#if defined(HORDE_V2_CANDIDATE)
+    resize_threads();
+    load_network(path_from_utf8(EngineEvalFileDefaultName));
+#else
     threads.ensure_network_replicated();
     resize_threads();
+#endif
 }
 
 std::variant<u64, PositionSetError>
@@ -261,8 +284,13 @@ bool Engine::set_numa_config_from_option(const std::string& o) {
 
 void Engine::resize_threads() {
     threads.wait_for_search_finished();
+#if defined(HORDE_V2_CANDIDATE)
+    threads.set(numaContext.get_numa_config(),
+                {options, threads, tt, sharedHists, candidateNetwork}, updateContext);
+#else
     threads.set(numaContext.get_numa_config(), {options, threads, tt, sharedHists, network},
                 updateContext);
+#endif
 
     // Reallocate the hash with the new threadpool size
     set_tt_size(options["Hash"]);
@@ -280,6 +308,29 @@ void Engine::set_ponderhit(bool b) { threads.main_manager()->ponder = b; }
 
 void Engine::verify_network() const {
     const auto file = path_from_utf8(std::string(options["EvalFile"]));
+#if defined(HORDE_V2_CANDIDATE)
+    if (candidateNetworkFile != file || !candidateNetwork.valid())
+    {
+        if (onVerifyNetwork)
+        {
+            std::string message =
+              "ERROR: A registered Horde V2 integer container must be available.\n"
+              "ERROR: The network file "
+              + file.string() + " was not loaded successfully.\n";
+            if (!candidateNetworkLoadError.empty())
+                message += "ERROR: " + candidateNetworkLoadError + "\n";
+            message += "ERROR: Search was not started.\n";
+            onVerifyNetwork(message);
+        }
+        std::exit(EXIT_FAILURE);
+    }
+
+    if (onVerifyNetwork)
+        onVerifyNetwork("NNUE evaluation using " + file.string() + " ["
+                        + candidateNetworkParameters.schemaName + ", SHA-256 "
+                        + candidateNetworkParameters.fileSha256 + ", parameter SHA-256 "
+                        + candidateNetworkParameters.parameterSha256 + ", (64, 192, 32, 32, 2)]");
+#else
     network->verify(onVerifyNetwork, networkFile, file);
 
     auto statuses = network.get_status_and_errors();
@@ -311,6 +362,7 @@ void Engine::verify_network() const {
 
         onVerifyNetwork(message);
     }
+#endif
 }
 
 std::unique_ptr<Eval::NNUE::Network> Engine::get_default_network() {
@@ -323,6 +375,30 @@ std::unique_ptr<Eval::NNUE::Network> Engine::get_default_network() {
 }
 
 void Engine::load_network(const std::filesystem::path& file) {
+#if defined(HORDE_V2_CANDIDATE)
+    wait_for_search_finished();
+    auto loaded = NN::HordeV2::load_integer_container(file);
+
+    candidateNetworkFile = file;
+    if (loaded)
+    {
+        candidateNetworkParameters = std::move(loaded.parameters);
+        candidateNetworkLoadError.clear();
+    }
+    else
+    {
+        candidateNetworkParameters = NN::HordeV2::ContainerParameters{};
+        candidateNetworkLoadError =
+          std::string(NN::HordeV2::container_load_error_name(loaded.error));
+        if (!loaded.message.empty())
+            candidateNetworkLoadError += ": " + loaded.message;
+    }
+
+    // Never retain evaluations or accumulator frames across an artifact or
+    // schema transition, including a failed transition.
+    tt.clear(threads);
+    threads.clear();
+#else
     network.modify_and_replicate(
       [this, &file](NN::Network& network_) { network_.load(binaryDirectory, file, networkFile); });
 
@@ -331,17 +407,37 @@ void Engine::load_network(const std::filesystem::path& file) {
     tt.clear(threads);
     threads.clear();
     threads.ensure_network_replicated();
+#endif
 }
 
 void Engine::save_network(const std::optional<std::filesystem::path>& file) {
+#if defined(HORDE_V2_CANDIDATE)
+    (void) file;
+    sync_cout << "Exporting authenticated Horde V2 candidate containers is disabled." << sync_endl;
+#else
     network.modify_and_replicate(
       [&file, this](NN::Network& network_) { network_.save(networkFile, file); });
+#endif
 }
 
 // utility functions
 
 void Engine::trace_eval() const {
-#if defined(HORDE_V2_PERF)
+#if defined(HORDE_V2_CANDIDATE)
+    verify_network();
+    const auto trace = candidateNetwork.evaluate_full_refresh(pos.piece_array(), pos.side_to_move(),
+                                                              pos.rule50_count());
+    if (!trace.valid())
+    {
+        sync_cout << "horde-v2-candidate-eval invalid" << sync_endl;
+        return;
+    }
+    sync_cout << "horde-v2-candidate-eval schema=" << candidateNetworkParameters.schemaName
+              << " file_sha256=" << candidateNetworkParameters.fileSha256
+              << " parameter_sha256=" << candidateNetworkParameters.parameterSha256
+              << " output_affine=" << trace.outputAffine << " pre_rule50=" << trace.preRule50Value
+              << " value=" << int(trace.value) << sync_endl;
+#elif defined(HORDE_V2_PERF)
     const auto features = Eval::NNUE::HordeV2::extract_full_refresh_features(pos);
     if (!features.valid())
     {
@@ -369,19 +465,37 @@ void Engine::trace_eval() const {
 }
 
 Eval::NNUE::RawNetworkOutput Engine::raw_evaluation() const {
+#if defined(HORDE_V2_CANDIDATE)
+    verify_network();
+    const auto trace = candidateNetwork.evaluate_full_refresh(pos.piece_array(), pos.side_to_move(),
+                                                              pos.rule50_count());
+    if (!trace.valid())
+        std::exit(EXIT_FAILURE);
+    return {0, trace.outputAffine};
+#else
     auto accumulators = std::make_unique<Eval::NNUE::AccumulatorStack>();
     auto caches       = std::make_unique<Eval::NNUE::AccumulatorCaches>(*network);
 
     verify_network();
     return network->evaluate_raw(pos, *accumulators, *caches);
+#endif
 }
 
 Value Engine::static_evaluation() const {
+#if defined(HORDE_V2_CANDIDATE)
+    verify_network();
+    const auto trace = candidateNetwork.evaluate_full_refresh(pos.piece_array(), pos.side_to_move(),
+                                                              pos.rule50_count());
+    if (!trace.valid())
+        std::exit(EXIT_FAILURE);
+    return trace.value;
+#else
     auto accumulators = std::make_unique<Eval::NNUE::AccumulatorStack>();
     auto caches       = std::make_unique<Eval::NNUE::AccumulatorCaches>(*network);
 
     verify_network();
     return Eval::evaluate(*network, pos, *accumulators, *caches, VALUE_ZERO);
+#endif
 }
 
 const OptionsMap& Engine::get_options() const { return options; }

@@ -91,8 +91,10 @@ and 51 Royal rows, rejects a White king, requires exactly one Black king, and
 enforces the 36/16 side capacities. The integer path exercises non-zero bounded
 weights, both sparse transforms, the shared dense trunk, the two STM output
 rows, and the external rule-50 postprocessor. It still has no production UCI
-dispatch or strength-qualified trained weights and therefore cannot replace
-the production evaluator.
+default or strength-qualified trained weights and therefore cannot replace the
+production evaluator. An isolated build-time candidate dispatch now exists for
+authenticated `.hsv2` containers; it is an engineering and future OpenBench
+measurement path, not a promotion decision.
 
 ## Dual refresh domains
 
@@ -202,8 +204,8 @@ policies: the production policy covers special moves, lazy batches, null moves
 and generated legal sequences; the validating policy covers poisoned inactive
 fields and malformed or contradictory transitions. Make/undo/null receipts
 compare every materialized frame with full refresh and require the same integer
-layers under scalar and AVX2. The stack is not yet selected by production
-evaluation dispatch, so its engineering timings make no playing-strength claim.
+layers under scalar and AVX2. The stack is selected only by the isolated V2
+candidate build, so its engineering timings make no playing-strength claim.
 
 In an 80-game V3 opening-book probe, 876 of 5,303 Black mainline moves were king
 moves (16.5%, including 10 castlings). Search-node rates can differ materially,
@@ -581,9 +583,10 @@ shared lazy stack and dense propagation path. `tests/horde_v2_container_parity.p
 independently reconstructs sparse rows and every integer layer, compares Python
 with scalar and AVX2 C++, invokes scalar and AVX2 real-`Position` stack oracles,
 and verifies adversarial header, provenance, directory, payload, truncation,
-and parameter-range failures on Linux and Windows. This path has no UCI
-dispatch and cannot replace Run 6B; it is an engineering gate for trained V2
-checkpoints only.
+and parameter-range failures on Linux and Windows. A separate build-time
+candidate dispatch connects these authenticated parameters to real search, but
+cannot replace Run 6B; it is an engineering gate for trained V2 checkpoints
+only.
 
 The accepted implementation and the two exported canary checkpoints are frozen
 in `docs/horde/nnue-v2-integer-container-receipt.json` at source commit
@@ -598,20 +601,42 @@ The subsequent lazy incremental stack is frozen separately in
 delta materialization, Royal-only refreshes after king-bucket changes, both
 schemas registered at that source commit, scalar/AVX2 parity, and ASan/UBSan.
 The older full-refresh receipt remains immutable and therefore retains its
-historical `incremental_eligible: false` field. Neither receipt enables
-production UCI dispatch or makes a playing-strength claim.
+historical `incremental_eligible: false` field. Neither receipt promotes a
+production evaluator or makes a playing-strength claim.
 
-The engine dispatch order is explicit:
+The engine dispatch boundary is explicit and fail-closed:
 
-1. a complete SHA-256 match selects registered Run 6B and
-   `HORDETEST_HP_LEGACY_V1`;
-2. a V2 signature selects the V2 parser, which validates every structural and
-   integrity field;
-3. every other file is rejected.
+1. a normal build remains the registered Run 6B
+   `HORDETEST_HP_LEGACY_V1` engine and accepts no V2 container;
+2. an OpenBench-style build whose `EVALFILE` ends in `.hsv2` selects the
+   isolated `HORDE_V2_CANDIDATE` binary; explicit build flags that contradict
+   the extension are rejected;
+3. the extension selects only the parser at the build boundary. The parser
+   independently validates magic, schema ID and name, structural and training
+   hashes, clean source provenance, section directory, complete file and
+   section SHA-256 identities, dimensions, and parameter bounds;
+4. a candidate binary accepts only one of the registered V2 schemas. Any
+   missing, corrupted, unknown, or contradictory artifact invalidates the
+   active parameters and the next evaluation or search exits unsuccessfully;
+   it never falls back to Run 6B, zero evaluation, or the previously loaded
+   V2 network.
 
 Network replacement clears the transposition table, accumulator stacks,
 contextual feature frames, and evaluation caches. The fresh H/P control uses a
 separate experimental identity and cannot be mistaken for production Run 6B.
+
+The candidate workers own only the V2 lazy accumulator stack used by search;
+they do not allocate or update the legacy per-worker accumulator and refresh
+cache. Every real `Position::do_move()` supplies the same `Dirties` object to
+the V2 stack, undo pops the corresponding frame, and null moves reuse the top
+frame. `HORDE_V2_CANDIDATE_SHADOW` replaces the production-layout stack with
+its exact-board validating policy and compares every search evaluation with a
+fresh full refresh. `tests/horde_v2_candidate_engine.py` independently checks
+integer outputs, a deterministic depth-1 benchmark containing en passant,
+castling and promotion positions, corrupted-container rejection, and exact
+search-stack/full-refresh agreement on Linux and Windows. The normal CI path
+continues to require the frozen Run 6B bench, so enabling this candidate route
+does not alter V1 behaviour.
 
 ## Correctness and performance gates
 

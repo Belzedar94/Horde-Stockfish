@@ -107,6 +107,7 @@ jobs:
           tests/horde_v2_trainer_parity.py
           tests/horde_v2_engine_widths.py
           tests/horde_v2_container_parity.py
+          tests/horde_v2_candidate_engine.py
           tests/horde_v2_c1_campaign.py
           tests/horde_v2_c1_screen.py
           tests/horde_v2_integer_eval.py
@@ -350,6 +351,85 @@ jobs:
           python tests/horde_network_contract.py src/stockfish.exe
           python tests/horde_bench.py src/stockfish.exe
           python tests/horde_genfens.py src/stockfish.exe
+
+  v2-candidate-linux:
+    name: Linux Horde V2 candidate dispatch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Create an authenticated Rank8 fixture
+        run: >-
+          python3 tests/horde_v2_candidate_engine.py fixture
+          /tmp/horde-v2-rank8.hsv2
+          --architecture v2-c1-rank8-64x192
+      - name: Reject contradictory build dispatch
+        shell: bash
+        run: |
+          if make -s -C src help HORDE_V2_CANDIDATE=no EVALFILE=/tmp/horde-v2-rank8.hsv2; then
+            echo "A .hsv2 container bypassed the candidate dispatch" >&2
+            exit 1
+          fi
+          if make -s -C src help HORDE_V2_CANDIDATE=yes EVALFILE=/tmp/not-a-container.nnue; then
+            echo "Candidate dispatch accepted a non-.hsv2 artifact" >&2
+            exit 1
+          fi
+      - name: Build the validating AVX2 candidate
+        run: >-
+          make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no
+          EVALFILE=/tmp/horde-v2-rank8.hsv2
+          EXTRACXXFLAGS=-DHORDE_V2_CANDIDATE_SHADOW build
+      - name: Verify integer parity, search stack, determinism, and fail-closed loading
+        run: >-
+          python3 tests/horde_v2_candidate_engine.py verify
+          src/stockfish /tmp/horde-v2-rank8.hsv2
+
+  v2-candidate-windows:
+    name: Windows Horde V2 candidate dispatch
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c # v2.31.1
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-python
+      - name: Create an authenticated Rank8 fixture
+        shell: msys2 {0}
+        run: >-
+          python tests/horde_v2_candidate_engine.py fixture
+          "$PWD/horde-v2-rank8.hsv2"
+          --architecture v2-c1-rank8-64x192
+      - name: Reject contradictory build dispatch
+        shell: msys2 {0}
+        run: |
+          if make -s -C src help HORDE_V2_CANDIDATE=no EVALFILE="$PWD/horde-v2-rank8.hsv2"; then
+            echo "A .hsv2 container bypassed the candidate dispatch" >&2
+            exit 1
+          fi
+          if make -s -C src help HORDE_V2_CANDIDATE=yes EVALFILE="$PWD/not-a-container.nnue"; then
+            echo "Candidate dispatch accepted a non-.hsv2 artifact" >&2
+            exit 1
+          fi
+      - name: Build the validating AVX2 candidate
+        shell: msys2 {0}
+        run: >-
+          make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no
+          EVALFILE="$PWD/horde-v2-rank8.hsv2"
+          EXTRACXXFLAGS=-DHORDE_V2_CANDIDATE_SHADOW build
+      - name: Verify integer parity, search stack, determinism, and fail-closed loading
+        shell: msys2 {0}
+        run: >-
+          python tests/horde_v2_candidate_engine.py verify
+          src/stockfish.exe "$PWD/horde-v2-rank8.hsv2"
 
   v2-width-benchmark:
     name: Paired AVX2 Horde V2 width benchmark
