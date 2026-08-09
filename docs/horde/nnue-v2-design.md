@@ -591,6 +591,15 @@ layer traces, scalar/AVX2/Python parity, malformed-container cases, and the gree
 Linux/Windows CI runs. It carries no playing-strength or production-dispatch
 claim.
 
+The subsequent lazy incremental stack is frozen separately in
+`docs/horde/nnue-v2-incremental-container-receipt.json` at source commit
+`a1b318ae`. It verifies real-`Position` make/undo/null transitions, ordinary
+delta materialization, Royal-only refreshes after king-bucket changes, both
+registered container schemas, scalar/AVX2 parity, and ASan/UBSan. The older
+full-refresh receipt remains immutable and therefore retains its historical
+`incremental_eligible: false` field. Neither receipt enables production UCI
+dispatch or makes a playing-strength claim.
+
 The engine dispatch order is explicit:
 
 1. a complete SHA-256 match selects registered Run 6B and

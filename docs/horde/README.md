@@ -26,6 +26,9 @@ Horde-Stockfish without losing rule, source or network provenance.
 - [NNUE V2 integer-container receipt](nnue-v2-integer-container-receipt.json) -
   authenticated checkpoint export, C++ full refresh and scalar/AVX2/Python
   parity for the first two registered experimental schemas.
+- [NNUE V2 incremental-container receipt](nnue-v2-incremental-container-receipt.json) -
+  lazy real-`Position` make/undo/null integration, domain-specific delta and
+  refresh parity, sanitizer coverage and exact-source width evidence.
 - [Training-data contract V1](datagen-v1.md) — the isolated generator,
   physical-position wire format and G0 audit boundary.
 - [Horde WDL calibration V1](wdl-calibration-v1.md) defines the frozen
