@@ -1,0 +1,224 @@
+{
+  "schema": "HORDE_V2_RANK8_CONTROL_RECEIPT_V1",
+  "source": {
+    "branch": "feature/horde-v2-rank8-control",
+    "base_commit": "ad5c2b929b4eb1a805b77a7074c80404096a6031",
+    "commit": "ca414fea5b36795b0226f4ae90f9d78a2ed7e9f7",
+    "dirty": false,
+    "implementation_commits": [
+      "04b5d042d47a0f0cecff295a8da707a8d604b8a1",
+      "ca414fea5b36795b0226f4ae90f9d78a2ed7e9f7"
+    ]
+  },
+  "dependencies": {
+    "incremental_container_receipt": {
+      "path": "docs/horde/nnue-v2-incremental-container-receipt.json",
+      "sha256": "42334CCCBB678030C0CF2E516A80FA4C486F3034E413645193963B718F645074",
+      "source_commit": "a1b318aeffc9c5b367f35540e44fb2783e3604d7"
+    },
+    "run6b": {
+      "path": "networks/hordetest_run6b_e37_l06.nnue",
+      "sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+    }
+  },
+  "network_contract": {
+    "container_schema": "HORDE_V2_INTEGER_NETWORK_V1",
+    "network_schema": "V2_C1_ROYAL_RANK8_64X192",
+    "network_schema_id": 65539,
+    "training_architecture": "v2-c1-rank8-64x192",
+    "training_structural_sha256": "53A82F734EBCAD97508AD91D54027ADD10772A1DC85A612F5D395AEE08567083",
+    "container_structural_sha256": "D99A6CBE80F94ED45DA5888193474C590FDDFBD2A458D9F3516CE1EFCC0B135F",
+    "first_domain": "ROYAL_RANK8",
+    "first_rows": 5120,
+    "first_lanes": 64,
+    "global_rows": 704,
+    "global_lanes": 192,
+    "serialized_parameter_bytes": 936264
+  },
+  "topology_control": {
+    "roles": [
+      "HP",
+      "HN",
+      "HB",
+      "HR",
+      "HQ",
+      "RP",
+      "RN",
+      "RB",
+      "RR",
+      "RQ"
+    ],
+    "black_king_buckets": 8,
+    "bucket_map": "Black king rank",
+    "orientation": "horizontal reflection canonicalizes the Black king to files E-H",
+    "refresh_key": "Black king rank plus horizontal mirror bit",
+    "same_key_transition": "ordinary first-domain and Global deltas",
+    "changed_key_transition": "refresh first domain and retain delta-updated Global domain",
+    "black_king_in_first_domain": false,
+    "contextual_pawn_feature": false,
+    "comparison": {
+      "absolute_parameter_bytes": 362824,
+      "rank8_parameter_bytes": 936264,
+      "royal32_parameter_bytes": 2902344,
+      "rank8_bytes_saved_against_royal32": 1966080
+    }
+  },
+  "implementation": {
+    "features_sha256": "D6E90D6129207B21B86E2CE6373002E5E3AF0AEF172BAB2CBFD7AFDE7C463CFE",
+    "container_header_sha256": "2AFDE6D497D3E7D1500AD75E3A0208A5AC85AB239F8C883C06C8E831499EBE8B",
+    "container_reader_sha256": "6F04A7E950A53B532DAF06B11DA83AF4A7E96FB14811F9B30A4CE31EA8026A9A",
+    "training_decoder_sha256": "65B073F6D8AFD91B22F652B5B77EFB574EC9D3768C6EDBC62282A2F7A7F10CE3",
+    "training_models_sha256": "2D9856BDD1828D8D63C2EF95F1CD224F66264816336892E95A03813BF8F0BB9D",
+    "training_control_sha256": "BF15567C5353D522DFEDE63CB9983D50FDCE9107D1DE806D1849D7FC7DE2F462",
+    "container_codec_sha256": "A40A8943FE873201F0A54B7869A4D0D9D1908B6DB494C738E374AB08D36AB963",
+    "feature_oracle_sha256": "47278BF8BB690A06B8B62B5C409EF7D8B63BA48A1A92512A116EF6FC38D47874",
+    "container_oracle_sha256": "118B0F9D0F8C97902F8743148842F030C18C1A263B02C3EAB0DB48C5E48A817C",
+    "container_parity_sha256": "4A12F297EDF2737504DE890A89E1147A427D3338D34470734908098CF80CE685",
+    "position_stack_oracle_sha256": "FDE802D3DAB4F5E22A4CFF9AE942FCDCA9DB0F6FF6F280E77142E1DC1796B2D2",
+    "training_control_test_sha256": "30E0341257BF077766BE257C7D4B0796168F19ED016BC9B824EE184FD2D65BEE",
+    "training_resume_test_sha256": "262E2DF6B8FFBD770E739745715D3A8807A154C2D42884EF37CD3A09A232BFA7",
+    "c0_test_sha256": "796F093E09F59DD403DAD88E79736CE70899BF4CEA69BF99D363B0F88DE8EA73",
+    "export_test_sha256": "F040E7998E75FD70539A282F0AE221979CD4C4F3719E9D1E7043FDFD9F01B498",
+    "correctness_workflow_sha256": "9CCFDFC87634135500B2328F1B5F1D14F395B80FFF6C4D87E4CD4AD4A010D5ED",
+    "openbench_workflow_sha256": "3C2292C06ACE8751E3EB5B5F1F69DE41398EC5452F267C1B444DF074566999DF"
+  },
+  "verification": {
+    "feature_contract": {
+      "global_indices": 704,
+      "royal32_indices": 20480,
+      "royal_rank8_indices": 5120,
+      "rank8_table_coverage": "exhaustive",
+      "mirror_equivalence": true,
+      "same_rank_key_reuse": true,
+      "invalid_king_rejected": true,
+      "incremental_transitions": {
+        "actual": 263,
+        "expected": 263
+      }
+    },
+    "trainer_cpp_integer_parity": {
+      "fields": 15,
+      "sparse_positions": 5,
+      "result": "success"
+    },
+    "checkpoint_export": {
+      "V2_BASE_P0_64X192": "85BD336C0F50",
+      "V2_C1_ABS_NONKING_64X192": "83D18ED55FBA",
+      "V2_C1_ROYAL_RANK8_64X192": "4D091EDEC161"
+    },
+    "integer_container": {
+      "schemas": {
+        "V2_BASE_P0_64X192": "A65BE53AA6B0",
+        "V2_C1_ABS_NONKING_64X192": "C0F1DFEDD376",
+        "V2_C1_ROYAL_RANK8_64X192": "3A9FCE01B8C8"
+      },
+      "cpp_oracles": 2,
+      "position_oracles": 1,
+      "malformed_container_cases": 12,
+      "scalar_avx2_python_parity": true
+    },
+    "real_position_stack": {
+      "focused_special_moves": 10,
+      "legal_moves": 192,
+      "null_moves": 15,
+      "royal_refreshes": 17,
+      "make_undo": true,
+      "same_rank_castling_avoids_rank8_refresh": true,
+      "rank_change_refreshes_rank8": true
+    },
+    "training": {
+      "gradient_groups_nonzero": true,
+      "checkpoint_export": true,
+      "interrupted_resume_path": true,
+      "architecture_selection": false
+    },
+    "historical_c0": {
+      "payload_sha256": "0D3DA00CC9E441030DE2BFD9D1B7EE4FA7DB82926BD30EAA3316D3B1F3C58461",
+      "trace_sha256": "4E45E11904A624CFB5099B385E79BAED522423293ABB98FA72C20558056CCC69",
+      "shared_model_module_hash_is_provenance_only": true,
+      "semantic_equality_unchanged": true
+    }
+  },
+  "ci": {
+    "superseded_correctness": {
+      "run_id": 31287125343,
+      "head_sha": "04b5d042d47a0f0cecff295a8da707a8d604b8a1",
+      "conclusion": "failure",
+      "failure_scope": "the historical C0 receipt compared the whole shared model-module hash after an unrelated C1 class was appended",
+      "semantic_c0_payload_changed": false,
+      "fixed_by": "ca414fea5b36795b0226f4ae90f9d78a2ed7e9f7",
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31287125343"
+    },
+    "exact_correctness": {
+      "run_id": 31287356747,
+      "head_sha": "ca414fea5b36795b0226f4ae90f9d78a2ed7e9f7",
+      "conclusion": "success",
+      "linux_release": "success",
+      "linux_assertions": "success",
+      "linux_shadow_refresh": "success",
+      "linux_asan_ubsan": "success",
+      "linux_trainer_reference": "success",
+      "windows_release": "success",
+      "windows_trainer_reference": "success",
+      "run6b_differential_and_determinism": "success",
+      "search_telemetry": "success",
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31287356747"
+    },
+    "exact_openbench_artifacts": {
+      "run_id": 31287350221,
+      "head_sha": "ca414fea5b36795b0226f4ae90f9d78a2ed7e9f7",
+      "conclusion": "success",
+      "linux_avx2_pext": "success",
+      "linux_avx2_popcnt": "success",
+      "windows_avx2_pext": "success",
+      "windows_avx2_popcnt": "success",
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31287350221"
+    }
+  },
+  "frozen_c1_gate": {
+    "status": "not_run",
+    "architectures": [
+      "v2-c1-abs64x192",
+      "v2-c1-rank8-64x192",
+      "v2-64x192"
+    ],
+    "training_positions": 250000,
+    "validation_positions": 250000,
+    "disjoint_opening_groups": true,
+    "disjoint_physical_and_legacy_input_keys": true,
+    "paired_seeds": 3,
+    "training_example_exposures_per_model": 2000000,
+    "shared_variables": [
+      "dataset",
+      "labels",
+      "WDL calibration",
+      "optimizer",
+      "schedule",
+      "lambda policy",
+      "widths",
+      "shared initialization streams",
+      "export quantization"
+    ],
+    "tie_break": "select the cheaper model",
+    "royal32_requirements": [
+      "beat Rank-8 after quantized training",
+      "fixed-node 95% lower confidence bound above +2 Elo",
+      "positive equal-time 95% lower confidence bound"
+    ],
+    "validation_loss_alone_selects_architecture": false
+  },
+  "claims": {
+    "registered_experimental_schema": true,
+    "authenticated_integer_container": true,
+    "incremental_full_refresh_parity": true,
+    "real_position_stack_verified": true,
+    "scalar_avx2_python_parity": true,
+    "sanitizer_clean": true,
+    "fail_closed_validation": true,
+    "production_dispatch": false,
+    "run6b_production_path_changed": false,
+    "speed_gate_complete": false,
+    "training_gate_complete": false,
+    "strength_evidence": false
+  }
+}

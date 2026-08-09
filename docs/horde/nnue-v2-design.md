@@ -772,6 +772,11 @@ after quantized training, establishes a fixed-node 95% lower bound above
 `+2 Elo`, and then establishes a positive equal-time 95% lower bound. No larger
 map advances on floating-point validation loss alone.
 
+The exact Rank-8 implementation and its cross-platform engineering evidence
+are frozen in `docs/horde/nnue-v2-rank8-control-receipt.json`. That receipt does
+not claim a speed result, completed training gate, playing strength, or
+production dispatch.
+
 The existing real-data C1 plumbing canary is frozen in
 `docs/horde/nnue-v2-c1-real-canary-receipt.json`. Both architectures completed
 two byte-identical three-epoch CPU runs on the same authenticated 4,096/1,024

@@ -29,6 +29,9 @@ Horde-Stockfish without losing rule, source or network provenance.
 - [NNUE V2 incremental-container receipt](nnue-v2-incremental-container-receipt.json) -
   lazy real-`Position` make/undo/null integration, domain-specific delta and
   refresh parity, sanitizer coverage and exact-source width evidence.
+- [NNUE V2 Rank-8 control receipt](nnue-v2-rank8-control-receipt.json) -
+  compact Royal topology, three-schema container parity and the frozen
+  ABS/Rank-8/Royal-32 comparison gate.
 - [Training-data contract V1](datagen-v1.md) — the isolated generator,
   physical-position wire format and G0 audit boundary.
 - [Horde WDL calibration V1](wdl-calibration-v1.md) defines the frozen
