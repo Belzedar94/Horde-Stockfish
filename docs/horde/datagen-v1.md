@@ -117,6 +117,14 @@ direct candidate, selected source indices, decision chain and materialized
 record bytes; the materialized output is never represented as a direct
 generator run.
 
+The exact repaired role is additionally scoped by the hash-pinned
+`HORDE_V2_C1_COVERAGE_ADDENDUM_V1`. The original V1 coverage failure remains
+part of the campaign evidence. The effective pre-training gate requires every
+ABS, Rank-8 and Royal-32 topology key, every fixed non-king role, an exact
+train/validation row intersection for every key, and at least 99% seen
+validation activation mass for each topology. It does not resample, reweight,
+augment or mask any record for a particular architecture.
+
 [`tools/horde_training_models.py`](../../tools/horde_training_models.py) is the
 single model implementation used by both the engineering micro-fit and the
 full reference trainer. [`tools/horde_training_control.py`](../../tools/horde_training_control.py)

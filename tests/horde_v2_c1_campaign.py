@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import horde_training_resume as fixtures  # noqa: E402
+import horde_training_control as training  # noqa: E402
 import horde_v2_c1_campaign as campaign  # noqa: E402
 import horde_v2_container as container  # noqa: E402
 
@@ -175,6 +177,19 @@ def _write_completed_runs(root: Path, plan: dict[str, object]) -> None:
             },
             "source": plan["source"],
             "data": plan["data"],
+            "campaign": {
+                "schema": "HORDE_V2_C1_TRAINER_BINDING_V1",
+                "campaign_plan_sha256": campaign._sha256_bytes(
+                    campaign._canonical_json(plan)
+                ),
+                "parent_contract_sha256": plan["contract"]["sha256"],
+                "coverage_addendum_sha256": plan["contract"][
+                    "coverage_addendum"
+                ]["sha256"],
+                "effective_contract_sha256": plan["contract"]["effective_sha256"],
+                "campaign_identity_sha256": plan["campaign_identity_sha256"],
+                "campaign_run_id": run["id"],
+            },
             "environment": _environment(),
             "labels": {"lambda": configuration["lambda"]},
             "optimizer": {
@@ -255,6 +270,17 @@ def main() -> int:
         raise AssertionError("campaign contract schema was not loaded")
     if contract_sha != campaign.CONTRACT_SHA256:
         raise AssertionError("campaign contract hash was not frozen")
+    addendum, addendum_sha = campaign.load_coverage_addendum()
+    if addendum["schema_name"] != campaign.COVERAGE_ADDENDUM_SCHEMA:
+        raise AssertionError("coverage addendum schema was not loaded")
+    if addendum_sha != campaign.COVERAGE_ADDENDUM_SHA256:
+        raise AssertionError("coverage addendum hash was not frozen")
+    if campaign.SEED_NAMESPACE != campaign.CONTRACT_SCHEMA:
+        raise AssertionError("coverage amendment changed the paired-seed namespace")
+    if not campaign._seen_mass_gate(1, 100):
+        raise AssertionError("exactly one percent unseen activation should pass")
+    if campaign._seen_mass_gate(2, 100):
+        raise AssertionError("one activation beyond one percent should fail")
 
     with tempfile.TemporaryDirectory(prefix="horde-v2-c1-campaign-") as temporary:
         root = Path(temporary)
@@ -286,10 +312,17 @@ def main() -> int:
             raise AssertionError("campaign coverage receipt is missing")
         _expect_failure(
             lambda: campaign._require_production_coverage(plan["data"]["coverage"]),
-            "Royal buckets lack coverage",
+            "role counts drifted",
         )
         if any("--allow-dirty" in run["training_command"] for run in plan["runs"]):
             raise AssertionError("campaign command permits a dirty source")
+        for run in plan["runs"]:
+            command = run["training_command"]
+            if "--campaign-plan" not in command or "--campaign-run-id" not in command:
+                raise AssertionError("campaign run is not bound before epoch-zero validation")
+            run_id_index = command.index("--campaign-run-id") + 1
+            if command[run_id_index] != run["id"]:
+                raise AssertionError("campaign command binds another run id")
 
         _expect_failure(
             lambda: campaign.plan_campaign(
@@ -347,8 +380,66 @@ def main() -> int:
             "contract SHA-256",
         )
 
+        changed_addendum = root / "changed-addendum.json"
+        changed_addendum.write_bytes(
+            (ROOT / campaign.COVERAGE_ADDENDUM_RELATIVE_PATH).read_bytes() + b"\n"
+        )
+        _expect_failure(
+            lambda: campaign.load_coverage_addendum(changed_addendum),
+            "addendum SHA-256",
+        )
+
         plan_path = root / "plan.json"
         plan_path.write_bytes(campaign._canonical_json(plan))
+
+        trainer_plan = copy.deepcopy(plan)
+        trainer_plan["claims"]["fixture_mode"] = False
+        trainer_plan["claims"]["campaign_inputs_eligible"] = True
+        trainer_plan_path = root / "trainer-plan.json"
+        trainer_plan_path.write_bytes(campaign._canonical_json(trainer_plan))
+        first_run = trainer_plan["runs"][0]
+        trainer_args = argparse.Namespace(
+            campaign_plan=trainer_plan_path,
+            campaign_run_id=first_run["id"],
+            seed=first_run["seed"],
+            epochs=trainer_plan["configuration"]["epochs"],
+            batch_size=trainer_plan["configuration"]["batch_size"],
+            block_size=trainer_plan["configuration"]["block_size"],
+            lambda_value=trainer_plan["configuration"]["lambda"],
+            learning_rate=trainer_plan["configuration"]["learning_rate"],
+            scheduler_gamma=trainer_plan["configuration"]["scheduler_gamma"],
+            device=trainer_plan["configuration"]["device"]["type"],
+            cpu_threads=trainer_plan["configuration"]["device"]["cpu_threads"],
+        )
+        bundle = training._load_campaign_plan(
+            trainer_args,
+            first_run["architecture"]["name"],
+            SOURCE,
+        )
+        binding = training._finalize_campaign_binding(
+            bundle,
+            trainer_args,
+            first_run["architecture"]["name"],
+            trainer_plan["data"],
+            TRAIN_RECORDS,
+            VALIDATION_RECORDS,
+        )
+        if binding is None or binding["campaign_run_id"] != first_run["id"]:
+            raise AssertionError("trainer did not authenticate its exact campaign run")
+        changed_trainer_args = copy.copy(trainer_args)
+        changed_trainer_args.seed += 1
+        try:
+            training._load_campaign_plan(
+                changed_trainer_args,
+                first_run["architecture"]["name"],
+                SOURCE,
+            )
+        except training.TrainingError as error:
+            if "architecture or seed" not in str(error):
+                raise AssertionError(f"unexpected trainer binding error: {error}") from error
+        else:
+            raise AssertionError("trainer accepted a seed outside its campaign run")
+
         runs_root = root / "runs"
         runs_root.mkdir()
         changed_plan = copy.deepcopy(plan)

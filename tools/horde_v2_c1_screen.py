@@ -47,7 +47,7 @@ except ImportError:
 
 CONTRACT_SCHEMA = "HORDE_V2_C1_QUANTIZED_SCREEN_V1"
 CONTRACT_RELATIVE_PATH = Path("schemas/horde-v2-c1-quantized-screen-v1.json")
-CONTRACT_SHA256 = "D7F2A68A19435807FAADE0180968A04ED8C4BDC8D1F2E8AF05FADE989CC4D9DA"
+CONTRACT_SHA256 = "53FE36477112D689635EFEE652BCFB1E0B40A45F95F125625C0413592E53A916"
 RECEIPT_SCHEMA = "HORDE_V2_C1_QUANTIZED_SCREEN_RECEIPT_V1"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -153,6 +153,18 @@ def load_contract(path: Path | None = None) -> tuple[dict[str, Any], str]:
         campaign_dependency.get("schema") == campaign.CONTRACT_SCHEMA
         and campaign_dependency.get("sha256") == campaign.CONTRACT_SHA256,
         "screen campaign-contract dependency drifted",
+    )
+    coverage_dependency = _mapping(
+        dependencies.get("coverage_addendum"), "coverage addendum dependency"
+    )
+    _require(
+        coverage_dependency.get("schema") == campaign.COVERAGE_ADDENDUM_SCHEMA
+        and coverage_dependency.get("sha256") == campaign.COVERAGE_ADDENDUM_SHA256
+        and dependencies.get("effective_campaign_contract_sha256")
+        == campaign._effective_contract_sha256(
+            campaign.CONTRACT_SHA256, campaign.COVERAGE_ADDENDUM_SHA256
+        ),
+        "screen effective campaign dependency drifted",
     )
     _require(
         dependencies.get("campaign_plan_schema") == campaign.PLAN_SCHEMA
@@ -494,6 +506,7 @@ def screen_campaign(
     *,
     train_path: Path | None = None,
     validation_candidate_path: Path | None = None,
+    split_receipt_path: Path | None = None,
     contract_path: Path | None = None,
     campaign_contract_path: Path | None = None,
     _allow_fixture: bool = False,
@@ -527,10 +540,23 @@ def screen_campaign(
         train_path=train_path,
         validation_candidate_path=validation_candidate_path,
         validation_role_path=validation_path,
+        split_receipt_path=split_receipt_path,
+        wdl_path=wdl_path,
         contract_path=campaign_contract_path,
         _allow_fixture=_allow_fixture,
     )
     verification_claims = _mapping(verification.get("claims"), "campaign verification claims")
+    _require(
+        verification.get("schema") == campaign.VERIFICATION_SCHEMA
+        and verification.get("contract_sha256") == campaign.CONTRACT_SHA256
+        and verification.get("coverage_addendum_sha256")
+        == campaign.COVERAGE_ADDENDUM_SHA256
+        and verification.get("effective_contract_sha256")
+        == campaign._effective_contract_sha256(
+            campaign.CONTRACT_SHA256, campaign.COVERAGE_ADDENDUM_SHA256
+        ),
+        "campaign verification effective contract drifted",
+    )
     _require(verification_claims.get("nine_runs_complete") is True, "nine C1 runs are incomplete")
     _require(
         verification_claims.get("quantized_containers_authenticated") is True,
@@ -736,6 +762,8 @@ def screen_campaign(
         },
         "campaign": {
             "contract_sha256": campaign.CONTRACT_SHA256,
+            "coverage_addendum_sha256": campaign.COVERAGE_ADDENDUM_SHA256,
+            "effective_contract_sha256": plan["contract"]["effective_sha256"],
             "plan_sha256": _sha256_bytes(plan_payload),
             "verification_sha256": _sha256_bytes(verification_payload),
             "identity_sha256": plan.get("campaign_identity_sha256"),
@@ -783,6 +811,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("runs_root", type=Path)
     parser.add_argument("--train-file", type=Path)
     parser.add_argument("--validation-candidate", type=Path)
+    parser.add_argument("--book-split-receipt", type=Path)
     parser.add_argument(
         "--validation",
         type=Path,
@@ -805,6 +834,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.wdl_calibration,
         train_path=args.train_file,
         validation_candidate_path=args.validation_candidate,
+        split_receipt_path=args.book_split_receipt,
         contract_path=args.contract,
         campaign_contract_path=args.campaign_contract,
     )

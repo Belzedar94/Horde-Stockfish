@@ -114,6 +114,16 @@ LEGACY_ARCHITECTURE = "fresh-legacy-hp"
 V2_TRAINING_SCHEMA = "HORDE_V2_BASE_TRAINING_V1"
 V2_CHECKPOINT_SCHEMA = "HORDE_V2_BASE_CHECKPOINT_V1"
 V2_FEATURE_SCHEMA = "V2_BASE_P0"
+C1_PLAN_SCHEMA = "HORDE_V2_C1_CAMPAIGN_PLAN_V2"
+C1_BINDING_SCHEMA = "HORDE_V2_C1_TRAINER_BINDING_V1"
+C1_PARENT_CONTRACT_SCHEMA = "HORDE_V2_C1_CAMPAIGN_V1"
+C1_PARENT_CONTRACT_SHA256 = (
+    "7B5BDA9DC20AB7CF55DE2964085D2ADBBED83137A3071B418439A5CF7DD939DA"
+)
+C1_COVERAGE_ADDENDUM_SCHEMA = "HORDE_V2_C1_COVERAGE_ADDENDUM_V1"
+C1_COVERAGE_ADDENDUM_SHA256 = (
+    "3103951AB8522238C23DBF83A3DEB0073D671024B0054ACBB75E1DC0C7C7D91B"
+)
 V2_ARCHITECTURES = {
     "v2-64x192": {
         "schema": "V2_BASE_P0_64X192",
@@ -847,6 +857,167 @@ def _repository_identity(repo_root: Path) -> dict[str, object]:
     return {"commit": commit, "dirty": dirty}
 
 
+def _campaign_identity(plan: Mapping[str, Any]) -> str:
+    data = plan.get("data")
+    _require(isinstance(data, dict), "campaign plan data is missing")
+    payload = {
+        "contract": plan.get("contract"),
+        "dependencies": plan.get("dependencies"),
+        "source": plan.get("source"),
+        "train_file": data.get("train_file"),
+        "validation_file": data.get("validation_file"),
+        "validation_candidate": data.get("validation_candidate"),
+        "validation_selection": data.get("validation_selection"),
+        "book_split": data.get("book_split"),
+        "wdl_calibration": data.get("wdl_calibration"),
+    }
+    return _sha256_bytes(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")
+    )
+
+
+def _load_campaign_plan(
+    args: argparse.Namespace,
+    architecture: str,
+    source: Mapping[str, object],
+) -> tuple[dict[str, Any], dict[str, Any], str] | None:
+    plan_argument = getattr(args, "campaign_plan", None)
+    run_id = getattr(args, "campaign_run_id", None)
+    _require(
+        (plan_argument is None) == (run_id is None),
+        "--campaign-plan and --campaign-run-id must be supplied together",
+    )
+    if plan_argument is None:
+        return None
+    resolved = plan_argument.expanduser().resolve()
+    _require(resolved.is_file(), f"campaign plan does not exist: {resolved}")
+    payload = resolved.read_bytes()
+    try:
+        plan = json.loads(payload.decode("ascii"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise TrainingError(f"campaign plan is invalid JSON: {error}") from error
+    _require(isinstance(plan, dict), "campaign plan root is not an object")
+    _require(payload == _canonical_json(plan), "campaign plan is not canonical JSON")
+    _require(plan.get("schema") == C1_PLAN_SCHEMA, "campaign plan schema mismatch")
+    _require(plan.get("source") == source, "campaign plan source differs from trainer source")
+    claims = plan.get("claims")
+    _require(
+        isinstance(claims, dict)
+        and claims.get("fixture_mode") is False
+        and claims.get("campaign_inputs_eligible") is True
+        and claims.get("training_started") is False,
+        "campaign plan is not eligible for a production trainer",
+    )
+    contract = plan.get("contract")
+    _require(isinstance(contract, dict), "campaign contract identity is missing")
+    addendum = contract.get("coverage_addendum")
+    _require(
+        contract.get("schema") == C1_PARENT_CONTRACT_SCHEMA
+        and contract.get("sha256") == C1_PARENT_CONTRACT_SHA256
+        and isinstance(addendum, dict)
+        and addendum.get("schema") == C1_COVERAGE_ADDENDUM_SCHEMA
+        and addendum.get("sha256") == C1_COVERAGE_ADDENDUM_SHA256,
+        "campaign effective contract identity drifted",
+    )
+    effective_sha256 = _sha256_bytes(
+        json.dumps(
+            {
+                "coverage_addendum_sha256": C1_COVERAGE_ADDENDUM_SHA256,
+                "parent_contract_sha256": C1_PARENT_CONTRACT_SHA256,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+    )
+    _require(
+        contract.get("effective_sha256") == effective_sha256,
+        "campaign effective contract hash drifted",
+    )
+    _require(
+        plan.get("campaign_identity_sha256") == _campaign_identity(plan),
+        "campaign identity hash drifted",
+    )
+    runs = plan.get("runs")
+    _require(isinstance(runs, list), "campaign run matrix is missing")
+    selected = [run for run in runs if isinstance(run, dict) and run.get("id") == run_id]
+    _require(len(selected) == 1, "campaign run id is absent or ambiguous")
+    run = selected[0]
+    run_architecture = run.get("architecture")
+    _require(
+        isinstance(run_architecture, dict)
+        and run_architecture.get("name") == architecture
+        and run.get("seed") == args.seed,
+        "campaign run architecture or seed drifted",
+    )
+    return plan, run, _sha256_bytes(payload)
+
+
+def _finalize_campaign_binding(
+    bundle: tuple[dict[str, Any], dict[str, Any], str] | None,
+    args: argparse.Namespace,
+    architecture: str,
+    data_receipt: Mapping[str, Any],
+    train_records: int,
+    validation_records: int,
+) -> dict[str, object] | None:
+    if bundle is None:
+        return None
+    plan, run, plan_sha256 = bundle
+    planned_data = plan.get("data")
+    configuration = plan.get("configuration")
+    _require(
+        isinstance(planned_data, dict) and isinstance(configuration, dict),
+        "campaign plan sections are missing",
+    )
+    for key in (
+        "train_file",
+        "validation_file",
+        "validation_candidate",
+        "validation_selection",
+        "teacher",
+        "book_split",
+        "wdl_calibration",
+    ):
+        _require(
+            data_receipt.get(key) == planned_data.get(key),
+            f"campaign trainer data field {key} differs from the plan",
+        )
+    _require(
+        configuration.get("training_records") == train_records
+        and configuration.get("validation_records") == validation_records
+        and configuration.get("epochs") == args.epochs
+        and configuration.get("batch_size") == args.batch_size
+        and configuration.get("block_size") == args.block_size
+        and configuration.get("lambda") == args.lambda_value
+        and configuration.get("learning_rate") == args.learning_rate
+        and configuration.get("scheduler_gamma") == args.scheduler_gamma,
+        "campaign trainer recipe differs from the plan",
+    )
+    device = configuration.get("device")
+    _require(
+        isinstance(device, dict)
+        and device.get("type") == args.device
+        and device.get("cpu_threads") == args.cpu_threads,
+        "campaign trainer device differs from the plan",
+    )
+    architecture_receipt = run.get("architecture")
+    _require(
+        isinstance(architecture_receipt, dict)
+        and architecture_receipt.get("name") == architecture,
+        "campaign run architecture identity drifted",
+    )
+    contract = plan["contract"]
+    return {
+        "schema": C1_BINDING_SCHEMA,
+        "campaign_plan_sha256": plan_sha256,
+        "parent_contract_sha256": C1_PARENT_CONTRACT_SHA256,
+        "coverage_addendum_sha256": C1_COVERAGE_ADDENDUM_SHA256,
+        "effective_contract_sha256": contract["effective_sha256"],
+        "campaign_identity_sha256": plan["campaign_identity_sha256"],
+        "campaign_run_id": run["id"],
+    }
+
+
 def _device_receipt(device: torch.device, cpu_threads: int) -> dict[str, object]:
     receipt: dict[str, object] = {
         "type": device.type,
@@ -1128,6 +1299,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
     repo_root = Path(__file__).resolve().parents[1]
     source = _repository_identity(repo_root)
     _require(args.allow_dirty or not source["dirty"], "trainer source tree is dirty")
+    campaign_bundle = _load_campaign_plan(args, architecture, source)
     try:
         wdl_payload, wdl_parameters, wdl_sha256 = load_wdl_artifact(args.wdl_calibration)
     except CalibrationError as error:
@@ -1171,6 +1343,19 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             candidate_path = candidate_argument.expanduser().resolve()
             candidate_dataset = stack.enter_context(HordeBinV1Dataset(candidate_path))
             validation_dataset = stack.enter_context(SelectedRoleDataset(validation_path))
+            selected_source_override = getattr(args, "selected_role_source_override", source)
+            if campaign_bundle is not None:
+                selector_source = validation_dataset.receipt.get("selector_source")
+                _require(
+                    isinstance(selector_source, dict)
+                    and isinstance(selector_source.get("commit"), str)
+                    and selector_source.get("dirty") is False,
+                    "campaign selected-role source identity is invalid",
+                )
+                selected_source_override = {
+                    "commit": selector_source["commit"],
+                    "dirty": False,
+                }
             data_receipt = validate_selected_dataset_pair(
                 train_path,
                 candidate_path,
@@ -1179,7 +1364,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 validation_dataset,
                 args.book_split_receipt,
                 allow_fixture=selected_fixture,
-                source_override=getattr(args, "selected_role_source_override", source),
+                source_override=selected_source_override,
             )
             validation_factory = SelectedRoleDataset
         else:
@@ -1237,6 +1422,15 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             "eligible_records_sha256": wdl_payload["selection"]["eligible_records_sha256"],
         }
 
+        campaign_binding = _finalize_campaign_binding(
+            campaign_bundle,
+            args,
+            architecture,
+            data_receipt,
+            len(train_dataset),
+            len(validation_dataset),
+        )
+
         batches_per_epoch = (len(train_dataset) + args.batch_size - 1) // args.batch_size
         target_steps = args.epochs * batches_per_epoch
         stop_at_step = args.stop_after_steps or target_steps
@@ -1275,6 +1469,10 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             )
             _require(resume_checkpoint.get("settings") == settings, "resume settings mismatch")
             _require(resume_checkpoint.get("data") == data_receipt, "resume data identity mismatch")
+            _require(
+                resume_checkpoint.get("campaign") == campaign_binding,
+                "resume campaign binding mismatch",
+            )
             model_state = resume_checkpoint.get("model_state")
             optimizer_state = resume_checkpoint.get("optimizer_state")
             scheduler_state = resume_checkpoint.get("scheduler_state")
@@ -1513,6 +1711,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             "rng_state": _cpu_tree(_rng_state(device)),
             "settings": settings,
             "data": data_receipt,
+            "campaign": campaign_binding,
             "progress": progress,
         }
         checkpoint_path = output / "checkpoint.pt"
@@ -1545,6 +1744,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             "source": source,
             "environment": environment,
             "data": data_receipt,
+            "campaign": campaign_binding,
             "labels": {
                 "score": "exact stored root-search Value from side-to-move perspective",
                 "score_teacher_rule50": "already incorporated by search; never reapplied",
@@ -1678,6 +1878,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--book-split-receipt", type=Path, required=True)
     parser.add_argument("--wdl-calibration", type=Path, required=True)
+    parser.add_argument(
+        "--campaign-plan",
+        type=Path,
+        help="authenticated HORDE_V2_C1_CAMPAIGN_PLAN_V2 for a production C1 run",
+    )
+    parser.add_argument(
+        "--campaign-run-id",
+        help="exact run id selected from --campaign-plan",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--epochs", type=int, default=1)

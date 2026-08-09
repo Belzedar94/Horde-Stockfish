@@ -38,6 +38,9 @@ Horde-Stockfish without losing rule, source or network provenance.
 - [NNUE V2 C1 data-repair addendum](../../schemas/horde-v2-c1-data-repair-v1.json) -
   frozen overproduction and label-blind first-eligible selection of the exact
   250,000-record validation role after the direct split exposed transpositions.
+- [NNUE V2 C1 coverage addendum](../../schemas/horde-v2-c1-coverage-addendum-v1.json) -
+  pre-training, exact-data amendment that preserves the failed V1 preflight and
+  gates ABS, Rank-8 and Royal-32 on structural keys, roles and seen row mass.
 - [NNUE V2 C1 quantized screen](../../schemas/horde-v2-c1-quantized-screen-v1.json) -
   exact integer validation, paired three-seed stability gates and deterministic
   nomination of at most one subsequent fixed-node comparison.

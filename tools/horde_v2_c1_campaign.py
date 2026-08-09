@@ -82,13 +82,27 @@ except ImportError:
 CONTRACT_SCHEMA = "HORDE_V2_C1_CAMPAIGN_V1"
 CONTRACT_RELATIVE_PATH = Path("schemas/horde-v2-c1-campaign-v1.json")
 CONTRACT_SHA256 = "7B5BDA9DC20AB7CF55DE2964085D2ADBBED83137A3071B418439A5CF7DD939DA"
-PLAN_SCHEMA = "HORDE_V2_C1_CAMPAIGN_PLAN_V1"
-VERIFICATION_SCHEMA = "HORDE_V2_C1_CAMPAIGN_VERIFICATION_V1"
+SEED_NAMESPACE = "HORDE_V2_C1_CAMPAIGN_V1"
+COVERAGE_ADDENDUM_SCHEMA = "HORDE_V2_C1_COVERAGE_ADDENDUM_V1"
+COVERAGE_ADDENDUM_RELATIVE_PATH = Path(
+    "schemas/horde-v2-c1-coverage-addendum-v1.json"
+)
+COVERAGE_ADDENDUM_SHA256 = (
+    "3103951AB8522238C23DBF83A3DEB0073D671024B0054ACBB75E1DC0C7C7D91B"
+)
+PLAN_SCHEMA = "HORDE_V2_C1_CAMPAIGN_PLAN_V2"
+VERIFICATION_SCHEMA = "HORDE_V2_C1_CAMPAIGN_VERIFICATION_V2"
 TRAINING_RECEIPT_SCHEMA = "HORDE_V2_BASE_TRAINING_V1"
 EXPORT_RECEIPT_SCHEMA = "HORDE_V2_INTEGER_CHECKPOINT_EXPORT_V1"
-COVERAGE_SCHEMA = "HORDE_V2_C1_DATA_COVERAGE_V1"
+LEGACY_COVERAGE_SCHEMA = "HORDE_V2_C1_DATA_COVERAGE_V1"
+COVERAGE_SCHEMA = "HORDE_V2_C1_DATA_COVERAGE_V2"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 WHITE_PIECE_BINS = ((1, 4), (5, 8), (9, 16), (17, 24), (25, 30), (31, 36))
+TOPOLOGY_SPECS = {
+    "absolute_nonking": {"keys": 1, "dimensions": 640},
+    "royal_rank8": {"keys": 8, "dimensions": 5_120},
+    "royal32": {"keys": 32, "dimensions": 20_480},
+}
 
 
 class CampaignError(ValueError):
@@ -149,7 +163,7 @@ def _write_exclusive(path: Path, payload: bytes) -> None:
 
 
 def _seed(index: int) -> tuple[int, str]:
-    label = f"{CONTRACT_SCHEMA}:seed:{index}"
+    label = f"{SEED_NAMESPACE}:seed:{index}"
     digest = hashlib.sha256(label.encode("ascii")).digest()
     return int.from_bytes(digest[:8], "big"), digest.hex().upper()
 
@@ -182,6 +196,42 @@ def _repository_identity(root: Path) -> dict[str, object]:
     return {"commit": commit.lower(), "dirty": dirty}
 
 
+def _historical_selector_source(selected: SelectedRoleDataset) -> dict[str, object]:
+    source = _mapping(selected.receipt.get("selector_source"), "selector source")
+    commit = source.get("commit")
+    relative = source.get("path")
+    file_sha256 = source.get("file_sha256")
+    _require(
+        _valid_commit(commit)
+        and source.get("dirty") is False
+        and relative == "tools/horde_training_selected_role.py"
+        and isinstance(file_sha256, str)
+        and len(file_sha256) == 64,
+        "selected-role historical source identity is invalid",
+    )
+    ancestry = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", str(commit), "HEAD"],
+        cwd=REPOSITORY_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    _require(ancestry.returncode == 0, "selected-role source is not an ancestor of C1")
+    blob = subprocess.run(
+        ["git", "show", f"{commit}:{relative}"],
+        cwd=REPOSITORY_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    ).stdout
+    _require(
+        _sha256_bytes(blob) == file_sha256
+        and sha256_file(REPOSITORY_ROOT / str(relative)) == file_sha256,
+        "selected-role implementation differs from its authenticated source",
+    )
+    return {"commit": str(commit).lower(), "dirty": False}
+
+
 def load_contract(path: Path | None = None) -> tuple[dict[str, Any], str]:
     contract_path = (path or (REPOSITORY_ROOT / CONTRACT_RELATIVE_PATH)).expanduser().resolve()
     contract, payload = _read_json(contract_path, "C1 campaign contract")
@@ -212,7 +262,7 @@ def load_contract(path: Path | None = None) -> tuple[dict[str, Any], str]:
     _require(
         coverage_contract
         == {
-            "schema": COVERAGE_SCHEMA,
+            "schema": LEGACY_COVERAGE_SCHEMA,
             "royal_bucket_position_minimums": {"train": 500, "validation": 200},
             "unseen_validation_royal_activation_fraction_maximum_exclusive": 0.001,
             "validation_stm_white_piece_bin_minimum": 1_000,
@@ -308,6 +358,170 @@ def load_contract(path: Path | None = None) -> tuple[dict[str, Any], str]:
     return contract, digest
 
 
+def _effective_contract_sha256(parent_sha256: str, addendum_sha256: str) -> str:
+    return _sha256_bytes(
+        json.dumps(
+            {
+                "coverage_addendum_sha256": addendum_sha256,
+                "parent_contract_sha256": parent_sha256,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+    )
+
+
+def load_coverage_addendum(path: Path | None = None) -> tuple[dict[str, Any], str]:
+    resolved = (
+        path or (REPOSITORY_ROOT / COVERAGE_ADDENDUM_RELATIVE_PATH)
+    ).expanduser().resolve()
+    addendum, payload = _read_json(resolved, "C1 coverage addendum")
+    digest = _sha256_bytes(payload)
+    _require(
+        digest == COVERAGE_ADDENDUM_SHA256,
+        f"C1 coverage addendum SHA-256 mismatch: {digest}",
+    )
+    _require(
+        addendum.get("schema_name") == COVERAGE_ADDENDUM_SCHEMA,
+        "C1 coverage addendum schema mismatch",
+    )
+    _require(
+        addendum.get("status") == "registered_before_training",
+        "C1 coverage addendum was not registered before training",
+    )
+    _require(
+        addendum.get("parent_campaign")
+        == {"schema": CONTRACT_SCHEMA, "sha256": CONTRACT_SHA256},
+        "C1 coverage addendum targets another parent campaign",
+    )
+    _require(
+        addendum.get("data_repair")
+        == {
+            "schema": DATA_REPAIR_CONTRACT_SCHEMA,
+            "sha256": DATA_REPAIR_CONTRACT_SHA256,
+        },
+        "C1 coverage addendum targets another data repair",
+    )
+    _require(
+        addendum.get("replaces_only") == "data.coverage",
+        "C1 coverage addendum exceeds its registered scope",
+    )
+    timing = _mapping(addendum.get("amendment_timing"), "coverage amendment timing")
+    _require(
+        timing
+        == {
+            "original_preflight_receipt_preserved": True,
+            "trainer_invocations_before_registration": 0,
+            "epoch_zero_outputs_inspected": 0,
+            "model_losses_inspected": 0,
+            "quantized_outputs_inspected": 0,
+            "playing_results_inspected": 0,
+        },
+        "C1 coverage amendment timing drifted",
+    )
+    effective = _mapping(addendum.get("effective_coverage"), "effective coverage")
+    _require(
+        effective.get("schema") == COVERAGE_SCHEMA
+        and effective.get("exact_record_counts")
+        == {"train": 250_000, "validation": 250_000}
+        and effective.get("topologies") == TOPOLOGY_SPECS
+        and effective.get("minimum_seen_validation_activation_mass")
+        == {
+            "numerator": 99,
+            "denominator": 100,
+            "comparison": (
+                "unseen_validation_activations * 100 <= "
+                "total_validation_activations"
+            ),
+        }
+        and effective.get("validation_stm_white_piece_bin_minimum") == 1_000
+        and effective.get("white_piece_bins")
+        == [f"{minimum}-{maximum}" for minimum, maximum in WHITE_PIECE_BINS]
+        and effective.get("side_result_classes_required") == [-1, 0, 1],
+        "C1 effective coverage policy drifted",
+    )
+    for gate in (
+        "zero_physical_cross_role_overlap",
+        "zero_legacy_cross_role_overlap",
+        "zero_validation_physical_duplicates",
+        "zero_validation_legacy_duplicates",
+        "all_topology_keys_nonzero_in_both_roles",
+        "all_ten_fixed_roles_nonzero_in_both_roles",
+        "every_validation_key_has_an_exact_training_row_intersection",
+    ):
+        _require(effective.get(gate) is True, f"C1 effective gate {gate} drifted")
+    _require(
+        addendum.get("seed_namespace") == SEED_NAMESPACE,
+        "C1 seed namespace drifted",
+    )
+    return addendum, digest
+
+
+def _validate_addendum_data_scope(
+    data: Mapping[str, Any],
+    addendum: Mapping[str, Any],
+    *,
+    train_manifest_sha256: str,
+    candidate_manifest_sha256: str,
+) -> None:
+    scope = _mapping(addendum.get("applies_only_to"), "coverage addendum data scope")
+    expected_train = _mapping(scope.get("training"), "addendum training identity")
+    actual_train = _mapping(data.get("train_file"), "campaign training identity")
+    _require(
+        actual_train.get("sha256") == expected_train.get("file_sha256")
+        and actual_train.get("payload_sha256") == expected_train.get("payload_sha256")
+        and actual_train.get("records") == expected_train.get("records")
+        and train_manifest_sha256 == expected_train.get("manifest_sha256"),
+        "coverage addendum does not apply to this training dataset",
+    )
+    expected_candidate = _mapping(
+        scope.get("validation_candidate"), "addendum validation candidate"
+    )
+    actual_candidate = _mapping(
+        data.get("validation_candidate"), "campaign validation candidate"
+    )
+    _require(
+        actual_candidate.get("sha256") == expected_candidate.get("file_sha256")
+        and actual_candidate.get("payload_sha256")
+        == expected_candidate.get("payload_sha256")
+        and actual_candidate.get("records") == expected_candidate.get("records")
+        and candidate_manifest_sha256 == expected_candidate.get("manifest_sha256"),
+        "coverage addendum does not apply to this validation candidate",
+    )
+    expected_selected = _mapping(
+        scope.get("selected_validation"), "addendum selected validation"
+    )
+    actual_validation = _mapping(
+        data.get("validation_file"), "campaign selected validation"
+    )
+    actual_selection = _mapping(
+        actual_validation.get("selected_role"), "campaign selected-role receipt"
+    )
+    _require(
+        actual_validation.get("sha256") == expected_selected.get("materialized_sha256")
+        and actual_validation.get("records") == expected_selected.get("records")
+        and actual_selection.get("receipt_sha256")
+        == expected_selected.get("receipt_sha256")
+        and actual_selection.get("selected_index_sha256")
+        == expected_selected.get("selected_index_sha256")
+        and actual_selection.get("decision_chain_sha256")
+        == expected_selected.get("decision_chain_sha256")
+        and actual_selection.get("record_order_sha256")
+        == expected_selected.get("record_order_sha256"),
+        "coverage addendum does not apply to this selected validation role",
+    )
+    split = _mapping(data.get("book_split"), "campaign book split")
+    wdl = _mapping(data.get("wdl_calibration"), "campaign WDL calibration")
+    _require(
+        split.get("receipt_sha256") == scope.get("book_split_receipt_sha256"),
+        "coverage addendum book split identity drifted",
+    )
+    _require(
+        wdl.get("sha256") == scope.get("wdl_calibration_sha256"),
+        "coverage addendum WDL identity drifted",
+    )
+
+
 def _rank8_dependency(contract: Mapping[str, Any]) -> dict[str, object]:
     dependencies = _mapping(contract.get("dependencies"), "contract dependencies")
     frozen = _mapping(dependencies.get("rank8_receipt"), "Rank-8 dependency")
@@ -376,9 +590,48 @@ def _sorted_counter(counter: Counter[object]) -> dict[str, int]:
     return {str(key): counter[key] for key in sorted(counter, key=str)}
 
 
+def _feature_rows(record: Any, topology: str) -> tuple[tuple[int, ...], int]:
+    if topology == "absolute_nonking":
+        return tuple(row for row in record.features.v2_global if row < 640), 0
+    if topology == "royal_rank8":
+        key = record.features.royal_bucket // 4
+        return tuple(key * 640 + row % 640 for row in record.features.v2_royal), key
+    _require(topology == "royal32", f"unknown C1 coverage topology: {topology}")
+    return record.features.v2_royal, record.features.royal_bucket
+
+
+def _row_set_sha256(rows: Sequence[int]) -> str:
+    digest = hashlib.sha256()
+    for row in sorted(rows):
+        digest.update(int(row).to_bytes(4, "little"))
+    return digest.hexdigest().upper()
+
+
+def _position_count_summary(counts: Sequence[int]) -> dict[str, int | float]:
+    ordered = sorted(counts)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        median: int | float = ordered[middle]
+    else:
+        total = ordered[middle - 1] + ordered[middle]
+        median = total // 2 if total % 2 == 0 else total / 2
+    return {"minimum": ordered[0], "median": median, "maximum": ordered[-1]}
+
+
+def _seen_mass_gate(unseen_activations: int, total_activations: int) -> bool:
+    _require(
+        type(unseen_activations) is int
+        and type(total_activations) is int
+        and 0 <= unseen_activations <= total_activations
+        and total_activations > 0,
+        "C1 seen-mass inputs are invalid",
+    )
+    return unseen_activations * 100 <= total_activations
+
+
 def _dataset_coverage(
     dataset: Any,
-) -> tuple[dict[str, object], Counter[int]]:
+) -> tuple[dict[str, object], dict[str, dict[str, Any]]]:
     side_to_move: Counter[str] = Counter()
     results: dict[str, Counter[int]] = {"white": Counter(), "black": Counter()}
     reasons: Counter[str] = Counter()
@@ -389,7 +642,16 @@ def _dataset_coverage(
     king_buckets: Counter[int] = Counter()
     king_ranks: Counter[int] = Counter()
     king_files: Counter[int] = Counter()
-    royal_rows: Counter[int] = Counter()
+    topology_support: dict[str, dict[str, Any]] = {}
+    for topology, spec in TOPOLOGY_SPECS.items():
+        key_count = int(spec["keys"])
+        topology_support[topology] = {
+            "position_counts": [0] * key_count,
+            "row_counts": Counter(),
+            "row_counts_by_key": [Counter() for _ in range(key_count)],
+            "role_activations": [0] * 10,
+            "role_activations_by_key": [[0] * 10 for _ in range(key_count)],
+        }
     promoted_horde_positions = 0
     castling_positions = 0
     en_passant_positions = 0
@@ -415,7 +677,15 @@ def _dataset_coverage(
         king_buckets[record.features.royal_bucket] += 1
         king_ranks[king_square // 8] += 1
         king_files[king_square % 8] += 1
-        royal_rows.update(record.features.v2_royal)
+        for topology, support in topology_support.items():
+            rows, key = _feature_rows(record, topology)
+            support["position_counts"][key] += 1
+            support["row_counts"].update(rows)
+            support["row_counts_by_key"][key].update(rows)
+            for row in rows:
+                role = row % 640 // 64
+                support["role_activations"][role] += 1
+                support["role_activations_by_key"][key][role] += 1
         promoted_horde_positions += int(any(2 <= code <= 5 for code in record.board))
         castling_positions += int(record.castling_rights != 0)
         en_passant_positions += int(record.ep_square != 64)
@@ -426,6 +696,28 @@ def _dataset_coverage(
         score_sum += record.score
 
     record_count = len(dataset)
+    topology_summary: dict[str, object] = {}
+    for topology, support in topology_support.items():
+        row_counts = support["row_counts"]
+        rows_by_key = support["row_counts_by_key"]
+        position_counts = support["position_counts"]
+        topology_summary[topology] = {
+            "position_counts_by_key": position_counts,
+            "position_count_summary": _position_count_summary(position_counts),
+            "activation_counts_by_key": [sum(rows.values()) for rows in rows_by_key],
+            "activation_counts_by_fixed_role": support["role_activations"],
+            "activation_counts_by_key_and_fixed_role": support[
+                "role_activations_by_key"
+            ],
+            "total_activations": sum(row_counts.values()),
+            "unique_rows": len(row_counts),
+            "unique_rows_by_key": [len(rows) for rows in rows_by_key],
+            "row_set_sha256": _row_set_sha256(row_counts),
+            "row_set_sha256_by_key": [
+                _row_set_sha256(rows) for rows in rows_by_key
+            ],
+        }
+    royal_rows = topology_support["royal32"]["row_counts"]
     return (
         {
             "records": record_count,
@@ -445,6 +737,7 @@ def _dataset_coverage(
             "black_king_file_positions": [king_files[index] for index in range(8)],
             "royal_row_activations": sum(royal_rows.values()),
             "royal_unique_rows": len(royal_rows),
+            "topology_support": topology_summary,
             "promoted_horde_positions": promoted_horde_positions,
             "castling_positions": castling_positions,
             "en_passant_positions": en_passant_positions,
@@ -456,61 +749,218 @@ def _dataset_coverage(
                 "mean": score_sum / record_count,
             },
         },
-        royal_rows,
+        topology_support,
     )
 
 
-def _coverage_receipt(
-    train: Any,
-    validation: Any,
+def _legacy_coverage_receipt(
+    train_summary: Mapping[str, Any],
+    validation_summary: Mapping[str, Any],
+    train_support: Mapping[str, Mapping[str, Any]],
+    validation_support: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, object]:
-    train_summary, train_rows = _dataset_coverage(train)
-    validation_summary, validation_rows = _dataset_coverage(validation)
+    train_rows = train_support["royal32"]["row_counts"]
+    validation_rows = validation_support["royal32"]["row_counts"]
     unseen_activations = sum(
         count for row, count in validation_rows.items() if row not in train_rows
     )
-    validation_activations = int(validation_summary["royal_row_activations"])
-    unseen_fraction = unseen_activations / validation_activations
-    bucket_minimums = {"train": 500, "validation": 200}
-    stm_bin_minimum = 1_000
-    class_values = {-1, 0, 1}
+    total = int(validation_summary["royal_row_activations"])
+    fraction = unseen_activations / total
     bucket_gate = (
-        min(train_summary["royal_bucket_positions"]) >= bucket_minimums["train"]
-        and min(validation_summary["royal_bucket_positions"])
-        >= bucket_minimums["validation"]
+        min(train_summary["royal_bucket_positions"]) >= 500
+        and min(validation_summary["royal_bucket_positions"]) >= 200
     )
-    stm_bin_gate = all(
+    stm_gate = all(
         int(validation_summary["stm_white_piece_bins"].get(side, {}).get(label, 0))
-        >= stm_bin_minimum
+        >= 1_000
         for side in ("white", "black")
         for label in (f"{minimum}-{maximum}" for minimum, maximum in WHITE_PIECE_BINS)
     )
     result_gate = all(
         {int(value) for value in summary["side_result_classes"].get(side, {})}
-        == class_values
+        == {-1, 0, 1}
         for summary in (train_summary, validation_summary)
         for side in ("white", "black")
     )
-    unseen_gate = unseen_fraction < 0.001
+    unseen_gate = fraction < 0.001
     return {
-        "schema": COVERAGE_SCHEMA,
-        "train": train_summary,
-        "validation": validation_summary,
+        "schema": LEGACY_COVERAGE_SCHEMA,
+        "royal_bucket_position_minimums": {"train": 500, "validation": 200},
+        "observed_royal_bucket_position_minimums": {
+            "train": min(train_summary["royal_bucket_positions"]),
+            "validation": min(validation_summary["royal_bucket_positions"]),
+        },
         "unseen_validation_royal_activations": {
             "count": unseen_activations,
-            "total": validation_activations,
-            "fraction": unseen_fraction,
+            "total": total,
+            "fraction": fraction,
             "maximum_exclusive": 0.001,
         },
         "gates": {
-            "royal_bucket_position_minimums": bucket_minimums,
-            "validation_stm_white_piece_bin_minimum": stm_bin_minimum,
-            "side_result_classes_required": [-1, 0, 1],
             "royal_bucket_coverage": bucket_gate,
-            "validation_stm_white_piece_bins": stm_bin_gate,
+            "validation_stm_white_piece_bins": stm_gate,
             "side_result_classes": result_gate,
             "unseen_validation_royal_activations": unseen_gate,
-            "passed": bucket_gate and stm_bin_gate and result_gate and unseen_gate,
+            "passed": bucket_gate and stm_gate and result_gate and unseen_gate,
+        },
+    }
+
+
+def _coverage_receipt(
+    train: Any,
+    validation: Any,
+    overlap: Mapping[str, Any],
+) -> dict[str, object]:
+    train_summary, train_support = _dataset_coverage(train)
+    validation_summary, validation_support = _dataset_coverage(validation)
+    parent_preflight = _legacy_coverage_receipt(
+        train_summary,
+        validation_summary,
+        train_support,
+        validation_support,
+    )
+    stm_gate = all(
+        int(validation_summary["stm_white_piece_bins"].get(side, {}).get(label, 0))
+        >= 1_000
+        for side in ("white", "black")
+        for label in (f"{minimum}-{maximum}" for minimum, maximum in WHITE_PIECE_BINS)
+    )
+    result_gate = all(
+        {int(value) for value in summary["side_result_classes"].get(side, {})}
+        == {-1, 0, 1}
+        for summary in (train_summary, validation_summary)
+        for side in ("white", "black")
+    )
+    training_row_sets = {
+        topology: set(train_support[topology]["row_counts"])
+        for topology in TOPOLOGY_SPECS
+    }
+    positions_with_unseen = {topology: 0 for topology in TOPOLOGY_SPECS}
+    for index in range(len(validation)):
+        record = validation.record(index)
+        for topology in TOPOLOGY_SPECS:
+            rows, _key = _feature_rows(record, topology)
+            positions_with_unseen[topology] += int(
+                any(row not in training_row_sets[topology] for row in rows)
+            )
+
+    topology_receipts: dict[str, object] = {}
+    topology_key_gates: dict[str, bool] = {}
+    fixed_role_gates: dict[str, bool] = {}
+    intersection_gates: dict[str, bool] = {}
+    seen_mass_gates: dict[str, bool] = {}
+    for topology, spec in TOPOLOGY_SPECS.items():
+        train_topology = train_summary["topology_support"][topology]
+        validation_topology = validation_summary["topology_support"][topology]
+        train_rows_by_key = train_support[topology]["row_counts_by_key"]
+        validation_rows_by_key = validation_support[topology]["row_counts_by_key"]
+        keys: list[dict[str, object]] = []
+        unseen_activations = 0
+        unseen_unique_rows: set[int] = set()
+        for key, (train_rows, validation_rows) in enumerate(
+            zip(train_rows_by_key, validation_rows_by_key, strict=True)
+        ):
+            intersection = set(train_rows) & set(validation_rows)
+            unseen_rows = set(validation_rows) - set(train_rows)
+            key_unseen = sum(validation_rows[row] for row in unseen_rows)
+            unseen_activations += key_unseen
+            unseen_unique_rows.update(unseen_rows)
+            keys.append(
+                {
+                    "key": key,
+                    "train_positions": train_topology["position_counts_by_key"][key],
+                    "validation_positions": validation_topology[
+                        "position_counts_by_key"
+                    ][key],
+                    "train_activations": train_topology["activation_counts_by_key"][key],
+                    "validation_activations": validation_topology[
+                        "activation_counts_by_key"
+                    ][key],
+                    "train_unique_rows": len(train_rows),
+                    "validation_unique_rows": len(validation_rows),
+                    "intersection_unique_rows": len(intersection),
+                    "unseen_validation_unique_rows": len(unseen_rows),
+                    "unseen_validation_activations": key_unseen,
+                    "train_row_set_sha256": _row_set_sha256(train_rows),
+                    "validation_row_set_sha256": _row_set_sha256(validation_rows),
+                }
+            )
+        total = int(validation_topology["total_activations"])
+        topology_key_gates[topology] = all(
+            count > 0
+            for count in (
+                *train_topology["position_counts_by_key"],
+                *validation_topology["position_counts_by_key"],
+            )
+        )
+        fixed_role_gates[topology] = all(
+            count > 0
+            for count in (
+                *train_topology["activation_counts_by_fixed_role"],
+                *validation_topology["activation_counts_by_fixed_role"],
+            )
+        )
+        intersection_gates[topology] = all(
+            item["intersection_unique_rows"] > 0 for item in keys
+        )
+        seen_mass_gates[topology] = _seen_mass_gate(unseen_activations, total)
+        topology_receipts[topology] = {
+            "dimensions": spec["dimensions"],
+            "key_count": spec["keys"],
+            "train": train_topology,
+            "validation": validation_topology,
+            "keys": keys,
+            "unseen_validation": {
+                "activation_count": unseen_activations,
+                "activation_total": total,
+                "activation_fraction": unseen_activations / total,
+                "unique_rows": len(unseen_unique_rows),
+                "positions_with_any_unseen_row": positions_with_unseen[topology],
+                "seen_mass_minimum_numerator": 99,
+                "seen_mass_minimum_denominator": 100,
+            },
+            "gates": {
+                "all_keys_nonzero_in_both_roles": topology_key_gates[topology],
+                "all_fixed_roles_nonzero_in_both_roles": fixed_role_gates[topology],
+                "every_validation_key_has_training_row_intersection": (
+                    intersection_gates[topology]
+                ),
+                "seen_validation_activation_mass_at_least_99_over_100": (
+                    seen_mass_gates[topology]
+                ),
+            },
+        }
+
+    physical = _mapping(overlap.get("physical"), "physical overlap")
+    legacy = _mapping(overlap.get("legacy_model_input"), "legacy overlap")
+    boolean_gates = {
+        "exact_record_counts": len(train) == 250_000 and len(validation) == 250_000,
+        "zero_physical_cross_role_overlap": physical.get("cross_role_overlap_samples") == 0,
+        "zero_legacy_cross_role_overlap": legacy.get("cross_role_overlap_samples") == 0,
+        "zero_validation_physical_duplicates": physical.get("validation_duplicate_samples") == 0,
+        "zero_validation_legacy_duplicates": legacy.get("validation_duplicate_samples") == 0,
+        "all_topology_keys_nonzero_in_both_roles": all(topology_key_gates.values()),
+        "all_ten_fixed_roles_nonzero_in_both_roles": all(fixed_role_gates.values()),
+        "every_validation_key_has_training_row_intersection": all(
+            intersection_gates.values()
+        ),
+        "all_topologies_seen_validation_activation_mass_at_least_99_over_100": all(
+            seen_mass_gates.values()
+        ),
+        "validation_stm_white_piece_bins": stm_gate,
+        "side_result_classes": result_gate,
+    }
+    return {
+        "schema": COVERAGE_SCHEMA,
+        "parent_preflight": parent_preflight,
+        "train": train_summary,
+        "validation": validation_summary,
+        "topologies": topology_receipts,
+        "gates": {
+            **boolean_gates,
+            "validation_stm_white_piece_bin_minimum": 1_000,
+            "side_result_classes_required": [-1, 0, 1],
+            "passed": all(boolean_gates.values()),
         },
     }
 
@@ -578,39 +1028,171 @@ def _validate_coverage_receipt(
             and unique_rows <= activations,
             f"C1 {role} Royal-row coverage is invalid",
         )
+        support = _mapping(summary.get("topology_support"), f"C1 {role} topologies")
+        _require(
+            set(support) == set(TOPOLOGY_SPECS),
+            f"C1 {role} topology set drifted",
+        )
 
-    unseen = _mapping(
-        coverage.get("unseen_validation_royal_activations"),
-        "C1 unseen Royal coverage",
+    parent = _mapping(coverage.get("parent_preflight"), "C1 parent preflight")
+    _require(parent.get("schema") == LEGACY_COVERAGE_SCHEMA, "parent preflight schema drifted")
+    parent_gates = _mapping(parent.get("gates"), "parent preflight gates")
+    observed_minimums = _mapping(
+        parent.get("observed_royal_bucket_position_minimums"),
+        "parent observed bucket minimums",
     )
-    unseen_count = unseen.get("count")
-    unseen_total = unseen.get("total")
-    unseen_fraction = unseen.get("fraction")
+    parent_unseen = _mapping(
+        parent.get("unseen_validation_royal_activations"),
+        "parent unseen Royal rows",
+    )
+    expected_parent_bucket = (
+        min(summaries["train"]["royal_bucket_positions"]) >= 500
+        and min(summaries["validation"]["royal_bucket_positions"]) >= 200
+    )
+    expected_parent_unseen = (
+        int(parent_unseen.get("count", -1))
+        / int(parent_unseen.get("total", 0))
+        < 0.001
+    )
     _require(
-        type(unseen_count) is int
-        and type(unseen_total) is int
-        and 0 <= unseen_count <= unseen_total
-        and unseen_total == summaries["validation"]["royal_row_activations"]
-        and isinstance(unseen_fraction, (int, float))
-        and math.isfinite(float(unseen_fraction))
-        and float(unseen_fraction) == unseen_count / unseen_total
-        and unseen.get("maximum_exclusive") == 0.001,
-        "C1 unseen Royal-row receipt is inconsistent",
+        parent.get("royal_bucket_position_minimums")
+        == {"train": 500, "validation": 200}
+        and observed_minimums
+        == {
+            "train": min(summaries["train"]["royal_bucket_positions"]),
+            "validation": min(summaries["validation"]["royal_bucket_positions"]),
+        }
+        and parent_unseen.get("maximum_exclusive") == 0.001
+        and parent_unseen.get("total")
+        == summaries["validation"]["royal_row_activations"]
+        and parent_unseen.get("fraction")
+        == parent_unseen.get("count") / parent_unseen.get("total")
+        and parent_gates.get("royal_bucket_coverage") is expected_parent_bucket
+        and parent_gates.get("unseen_validation_royal_activations")
+        is expected_parent_unseen
+        and parent_gates.get("passed") is False,
+        "failed V1 coverage receipt was not preserved",
     )
+
+    topology_receipts = _mapping(coverage.get("topologies"), "C1 topology receipts")
+    _require(set(topology_receipts) == set(TOPOLOGY_SPECS), "C1 topology receipts drifted")
+    topology_key_gates: dict[str, bool] = {}
+    fixed_role_gates: dict[str, bool] = {}
+    intersection_gates: dict[str, bool] = {}
+    seen_mass_gates: dict[str, bool] = {}
+    for topology, spec in TOPOLOGY_SPECS.items():
+        receipt = _mapping(topology_receipts.get(topology), f"C1 {topology} receipt")
+        _require(
+            receipt.get("dimensions") == spec["dimensions"]
+            and receipt.get("key_count") == spec["keys"],
+            f"C1 {topology} dimensions drifted",
+        )
+        role_summaries = {
+            role: _mapping(receipt.get(role), f"C1 {topology} {role}")
+            for role in ("train", "validation")
+        }
+        key_count = int(spec["keys"])
+        for role, summary in role_summaries.items():
+            positions = summary.get("position_counts_by_key")
+            key_activations = summary.get("activation_counts_by_key")
+            roles = summary.get("activation_counts_by_fixed_role")
+            roles_by_key = summary.get("activation_counts_by_key_and_fixed_role")
+            expected = expected_records[0 if role == "train" else 1]
+            _require(
+                isinstance(positions, list)
+                and len(positions) == key_count
+                and all(type(count) is int and count >= 0 for count in positions)
+                and sum(positions) == expected,
+                f"C1 {topology} {role} key positions are invalid",
+            )
+            _require(
+                isinstance(key_activations, list)
+                and len(key_activations) == key_count
+                and all(type(count) is int and count >= 0 for count in key_activations)
+                and sum(key_activations) == summary.get("total_activations"),
+                f"C1 {topology} {role} key activations are invalid",
+            )
+            _require(
+                isinstance(roles, list)
+                and len(roles) == 10
+                and all(type(count) is int and count >= 0 for count in roles)
+                and sum(roles) == summary.get("total_activations"),
+                f"C1 {topology} {role} fixed-role activations are invalid",
+            )
+            _require(
+                isinstance(roles_by_key, list)
+                and len(roles_by_key) == key_count
+                and all(
+                    isinstance(row, list)
+                    and len(row) == 10
+                    and all(type(count) is int and count >= 0 for count in row)
+                    and sum(row) == key_activations[index]
+                    for index, row in enumerate(roles_by_key)
+                ),
+                f"C1 {topology} {role} key-role activations are invalid",
+            )
+        keys = receipt.get("keys")
+        _require(
+            isinstance(keys, list)
+            and len(keys) == key_count
+            and all(isinstance(item, dict) for item in keys)
+            and [item["key"] for item in keys] == list(range(key_count)),
+            f"C1 {topology} key diagnostics are invalid",
+        )
+        unseen = _mapping(receipt.get("unseen_validation"), f"C1 {topology} unseen rows")
+        unseen_count = unseen.get("activation_count")
+        unseen_total = unseen.get("activation_total")
+        unseen_fraction = unseen.get("activation_fraction")
+        _require(
+            type(unseen_count) is int
+            and type(unseen_total) is int
+            and 0 <= unseen_count <= unseen_total
+            and unseen_total == role_summaries["validation"].get("total_activations")
+            and isinstance(unseen_fraction, (int, float))
+            and math.isfinite(float(unseen_fraction))
+            and float(unseen_fraction) == unseen_count / unseen_total
+            and unseen.get("seen_mass_minimum_numerator") == 99
+            and unseen.get("seen_mass_minimum_denominator") == 100
+            and unseen_count
+            == sum(int(item["unseen_validation_activations"]) for item in keys),
+            f"C1 {topology} unseen-row receipt is inconsistent",
+        )
+        topology_key_gates[topology] = all(
+            count > 0
+            for summary in role_summaries.values()
+            for count in summary["position_counts_by_key"]
+        )
+        fixed_role_gates[topology] = all(
+            count > 0
+            for summary in role_summaries.values()
+            for count in summary["activation_counts_by_fixed_role"]
+        )
+        intersection_gates[topology] = all(
+            type(item.get("intersection_unique_rows")) is int
+            and item["intersection_unique_rows"] > 0
+            for item in keys
+        )
+        seen_mass_gates[topology] = _seen_mass_gate(unseen_count, unseen_total)
+        expected_topology_gates = {
+            "all_keys_nonzero_in_both_roles": topology_key_gates[topology],
+            "all_fixed_roles_nonzero_in_both_roles": fixed_role_gates[topology],
+            "every_validation_key_has_training_row_intersection": intersection_gates[
+                topology
+            ],
+            "seen_validation_activation_mass_at_least_99_over_100": seen_mass_gates[
+                topology
+            ],
+        }
+        _require(
+            receipt.get("gates") == expected_topology_gates,
+            f"C1 {topology} gates contradict their counts",
+        )
+
     gates = _mapping(coverage.get("gates"), "C1 coverage gates")
-    bucket_minimums = _mapping(
-        gates.get("royal_bucket_position_minimums"),
-        "C1 Royal-bucket minimums",
-    )
-    _require(bucket_minimums == {"train": 500, "validation": 200}, "C1 bucket thresholds drifted")
     _require(
         gates.get("validation_stm_white_piece_bin_minimum") == 1_000
         and gates.get("side_result_classes_required") == [-1, 0, 1],
         "C1 coverage thresholds drifted",
-    )
-    expected_bucket_gate = (
-        min(summaries["train"]["royal_bucket_positions"]) >= 500
-        and min(summaries["validation"]["royal_bucket_positions"]) >= 200
     )
     expected_stm_gate = all(
         int(summaries["validation"]["stm_white_piece_bins"].get(side, {}).get(label, 0))
@@ -623,26 +1205,66 @@ def _validate_coverage_receipt(
         for role in ("train", "validation")
         for side in ("white", "black")
     )
-    expected_unseen_gate = float(unseen_fraction) < 0.001
-    expected_passed = (
-        expected_bucket_gate
-        and expected_stm_gate
-        and expected_result_gate
-        and expected_unseen_gate
-    )
+    expected_booleans = {
+        "exact_record_counts": expected_records == (250_000, 250_000),
+        "all_topology_keys_nonzero_in_both_roles": all(topology_key_gates.values()),
+        "all_ten_fixed_roles_nonzero_in_both_roles": all(fixed_role_gates.values()),
+        "every_validation_key_has_training_row_intersection": all(
+            intersection_gates.values()
+        ),
+        "all_topologies_seen_validation_activation_mass_at_least_99_over_100": all(
+            seen_mass_gates.values()
+        ),
+        "validation_stm_white_piece_bins": expected_stm_gate,
+        "side_result_classes": expected_result_gate,
+    }
+    for name in (
+        "zero_physical_cross_role_overlap",
+        "zero_legacy_cross_role_overlap",
+        "zero_validation_physical_duplicates",
+        "zero_validation_legacy_duplicates",
+    ):
+        _require(type(gates.get(name)) is bool, f"C1 overlap gate {name} is invalid")
+        expected_booleans[name] = gates[name]
     _require(
-        gates.get("royal_bucket_coverage") is expected_bucket_gate
-        and gates.get("validation_stm_white_piece_bins") is expected_stm_gate
-        and gates.get("side_result_classes") is expected_result_gate
-        and gates.get("unseen_validation_royal_activations") is expected_unseen_gate
-        and gates.get("passed") is expected_passed,
+        all(gates.get(name) is value for name, value in expected_booleans.items())
+        and gates.get("passed") is all(expected_booleans.values()),
         "C1 coverage gate booleans contradict their counts",
     )
 
 
 def _require_production_coverage(coverage: Mapping[str, Any]) -> None:
     gates = _mapping(coverage.get("gates"), "C1 coverage gates")
-    _require(gates.get("royal_bucket_coverage") is True, "C1 Royal buckets lack coverage")
+    _require(gates.get("exact_record_counts") is True, "C1 role counts drifted")
+    _require(
+        gates.get("zero_physical_cross_role_overlap") is True
+        and gates.get("zero_legacy_cross_role_overlap") is True,
+        "C1 roles overlap",
+    )
+    _require(
+        gates.get("zero_validation_physical_duplicates") is True
+        and gates.get("zero_validation_legacy_duplicates") is True,
+        "C1 validation contains duplicate evaluator inputs",
+    )
+    _require(
+        gates.get("all_topology_keys_nonzero_in_both_roles") is True,
+        "C1 topology keys lack coverage",
+    )
+    _require(
+        gates.get("all_ten_fixed_roles_nonzero_in_both_roles") is True,
+        "C1 fixed roles lack coverage",
+    )
+    _require(
+        gates.get("every_validation_key_has_training_row_intersection") is True,
+        "C1 topology key lacks exact train/validation row support",
+    )
+    _require(
+        gates.get(
+            "all_topologies_seen_validation_activation_mass_at_least_99_over_100"
+        )
+        is True,
+        "C1 unseen first-domain activation rate is too high",
+    )
     _require(
         gates.get("validation_stm_white_piece_bins") is True,
         "C1 validation STM/piece bins lack coverage",
@@ -650,10 +1272,6 @@ def _require_production_coverage(coverage: Mapping[str, Any]) -> None:
     _require(
         gates.get("side_result_classes") is True,
         "C1 side-specific WDL classes lack coverage",
-    )
-    _require(
-        gates.get("unseen_validation_royal_activations") is True,
-        "C1 unseen Royal-row activation rate is too high",
     )
     _require(gates.get("passed") is True, "C1 data coverage gate failed")
 
@@ -665,6 +1283,7 @@ def _validate_data(
     wdl_path: Path,
     expected_records: tuple[int, int],
     *,
+    coverage_addendum: Mapping[str, Any],
     require_production_coverage: bool,
     validation_candidate_path: Path | None,
 ) -> dict[str, Any]:
@@ -676,6 +1295,7 @@ def _validate_data(
     )
     with ExitStack() as stack:
         train = stack.enter_context(HordeBinV1Dataset(train_resolved))
+        candidate_manifest_sha256: str | None = None
         selection_verification: dict[str, object] | None = None
         if validation_candidate_path is None:
             validation = stack.enter_context(HordeBinV1Dataset(validation_resolved))
@@ -693,13 +1313,16 @@ def _validate_data(
         else:
             candidate_resolved = validation_candidate_path.expanduser().resolve()
             candidate = stack.enter_context(HordeBinV1Dataset(candidate_resolved))
+            candidate_manifest_sha256 = candidate.manifest_sha256
             validation = stack.enter_context(SelectedRoleDataset(validation_resolved))
             validation_factory = SelectedRoleDataset
             try:
+                selector_source = _historical_selector_source(validation)
                 selection_verification = verify_selected_role(
                     train_resolved,
                     candidate_resolved,
                     validation_resolved,
+                    _source_override=selector_source,
                 )
                 data = validate_selected_dataset_pair(
                     train_resolved,
@@ -708,6 +1331,7 @@ def _validate_data(
                     candidate,
                     validation,
                     split_receipt_path,
+                    source_override=selector_source,
                 )
             except (SelectedRoleError, TrainingError, wire.FormatError) as error:
                 raise CampaignError(f"C1 selected validation role is invalid: {error}") from error
@@ -745,7 +1369,7 @@ def _validate_data(
                 overlap["legacy_model_input"]["validation_duplicate_samples"] == 0,
                 "selected validation contains duplicate legacy inputs",
             )
-        coverage = _coverage_receipt(train, validation)
+        coverage = _coverage_receipt(train, validation, overlap)
         _validate_coverage_receipt(coverage, expected_records)
         if require_production_coverage:
             _require_production_coverage(coverage)
@@ -758,6 +1382,17 @@ def _validate_data(
             data,
             train.manifest_sha256,
         )
+        if require_production_coverage:
+            _require(
+                candidate_manifest_sha256 is not None,
+                "production validation candidate manifest is absent",
+            )
+            _validate_addendum_data_scope(
+                data,
+                coverage_addendum,
+                train_manifest_sha256=train.manifest_sha256,
+                candidate_manifest_sha256=candidate_manifest_sha256,
+            )
         return data
 
 
@@ -769,6 +1404,7 @@ def _run_plan(
 ) -> dict[str, object]:
     name = str(architecture["name"])
     output_role = f"seed-{seed_index + 1:02d}/{name}"
+    run_id = f"c1-s{seed_index + 1:02d}-{name}"
     training_command = [
         "python",
         "tools/horde_training_control.py",
@@ -783,6 +1419,10 @@ def _run_plan(
         "{BOOK_SPLIT_RECEIPT}",
         "--wdl-calibration",
         "{WDL_CALIBRATION}",
+        "--campaign-plan",
+        "{CAMPAIGN_PLAN}",
+        "--campaign-run-id",
+        run_id,
         "--output",
         f"{{RUNS_ROOT}}/{output_role}",
         "--seed",
@@ -819,7 +1459,7 @@ def _run_plan(
     seed_value, seed_digest = _seed(seed_index)
     _require(seed_value == seed, "run seed contradicts its derivation")
     return {
-        "id": f"c1-s{seed_index + 1:02d}-{name}",
+        "id": run_id,
         "pair_index": seed_index,
         "seed": seed,
         "seed_derivation_sha256": seed_digest,
@@ -833,9 +1473,8 @@ def _run_plan(
 def _campaign_identity(plan: Mapping[str, Any]) -> str:
     data = _mapping(plan.get("data"), "campaign data")
     identity_payload = {
-        "contract_sha256": _mapping(plan.get("contract"), "campaign contract").get(
-            "sha256"
-        ),
+        "contract": plan.get("contract"),
+        "dependencies": plan.get("dependencies"),
         "source": plan.get("source"),
         "train_file": data.get("train_file"),
         "validation_file": data.get("validation_file"),
@@ -856,6 +1495,7 @@ def _validate_plan_against_contract(
     *,
     allow_fixture: bool,
 ) -> None:
+    _coverage_addendum, coverage_addendum_sha = load_coverage_addendum()
     _require(plan.get("schema") == PLAN_SCHEMA, "C1 campaign plan schema mismatch")
     plan_contract = _mapping(plan.get("contract"), "plan contract")
     _require(plan_contract.get("schema") == CONTRACT_SCHEMA, "plan contract schema drifted")
@@ -863,6 +1503,17 @@ def _validate_plan_against_contract(
     _require(
         plan_contract.get("path") == CONTRACT_RELATIVE_PATH.as_posix(),
         "plan contract path drifted",
+    )
+    _require(
+        plan_contract.get("coverage_addendum")
+        == {
+            "path": COVERAGE_ADDENDUM_RELATIVE_PATH.as_posix(),
+            "sha256": coverage_addendum_sha,
+            "schema": COVERAGE_ADDENDUM_SCHEMA,
+        }
+        and plan_contract.get("effective_sha256")
+        == _effective_contract_sha256(contract_sha, coverage_addendum_sha),
+        "plan effective contract identity drifted",
     )
     source = _mapping(plan.get("source"), "plan source")
     _require(_valid_commit(source.get("commit")), "plan source commit is invalid")
@@ -892,6 +1543,15 @@ def _validate_plan_against_contract(
             "sha256": DATA_REPAIR_CONTRACT_SHA256,
         },
         "plan data-repair dependency drifted",
+    )
+    _require(
+        dependencies.get("coverage_addendum")
+        == {
+            "path": COVERAGE_ADDENDUM_RELATIVE_PATH.as_posix(),
+            "schema": COVERAGE_ADDENDUM_SCHEMA,
+            "sha256": coverage_addendum_sha,
+        },
+        "plan coverage-addendum dependency drifted",
     )
     _require(
         dependencies.get("rank8_control") == _rank8_dependency(contract),
@@ -977,32 +1637,83 @@ def _validate_plan_against_contract(
         )
     coverage = _mapping(data.get("coverage"), "plan coverage receipt")
     coverage_gates = _mapping(coverage.get("gates"), "plan coverage gates")
-    coverage_contract = _mapping(contract.get("data"), "contract data")
-    frozen_coverage = _mapping(coverage_contract.get("coverage"), "contract coverage")
     _require(coverage.get("schema") == COVERAGE_SCHEMA, "plan coverage schema drifted")
     _require(
-        coverage_gates.get("royal_bucket_position_minimums")
-        == frozen_coverage.get("royal_bucket_position_minimums")
-        and coverage_gates.get("validation_stm_white_piece_bin_minimum")
-        == frozen_coverage.get("validation_stm_white_piece_bin_minimum")
+        coverage_gates.get("validation_stm_white_piece_bin_minimum") == 1_000
         and coverage_gates.get("side_result_classes_required")
-        == frozen_coverage.get("side_result_classes_required"),
+        == [-1, 0, 1],
         "plan coverage thresholds drifted",
     )
-    unseen_coverage = _mapping(
-        coverage.get("unseen_validation_royal_activations"),
-        "plan unseen Royal coverage",
-    )
     _require(
-        unseen_coverage.get("maximum_exclusive")
-        == frozen_coverage.get("unseen_validation_royal_activation_fraction_maximum_exclusive"),
-        "plan unseen Royal threshold drifted",
+        coverage_gates.get("zero_physical_cross_role_overlap")
+        is (_mapping(overlap.get("physical"), "plan physical overlap").get(
+            "cross_role_overlap_samples"
+        ) == 0)
+        and coverage_gates.get("zero_legacy_cross_role_overlap")
+        is (_mapping(overlap.get("legacy_model_input"), "plan legacy overlap").get(
+            "cross_role_overlap_samples"
+        ) == 0)
+        and coverage_gates.get("zero_validation_physical_duplicates")
+        is (overlap["physical"].get("validation_duplicate_samples") == 0)
+        and coverage_gates.get("zero_validation_legacy_duplicates")
+        is (overlap["legacy_model_input"].get("validation_duplicate_samples") == 0),
+        "plan coverage leakage gates contradict the overlap audit",
     )
     _validate_coverage_receipt(
         coverage,
         (int(train_file["records"]), int(validation_file["records"])),
     )
     if not fixture_mode:
+        registered_failure = _mapping(
+            _coverage_addendum.get("original_failed_coverage"),
+            "registered V1 coverage failure",
+        )
+        registered_minimums = _mapping(
+            registered_failure.get("royal_bucket_position_minimums"),
+            "registered V1 bucket failure",
+        )
+        registered_unseen = _mapping(
+            registered_failure.get("unseen_validation_royal_activation_fraction"),
+            "registered V1 unseen failure",
+        )
+        parent = _mapping(coverage.get("parent_preflight"), "plan parent preflight")
+        observed = _mapping(
+            parent.get("observed_royal_bucket_position_minimums"),
+            "plan V1 observed minimums",
+        )
+        unseen = _mapping(
+            parent.get("unseen_validation_royal_activations"),
+            "plan V1 unseen activations",
+        )
+        _require(
+            observed.get("train") == registered_minimums.get("observed_train")
+            and observed.get("validation")
+            == registered_minimums.get("observed_validation")
+            and unseen.get("count") == registered_unseen.get("observed_numerator")
+            and unseen.get("total") == registered_unseen.get("observed_denominator")
+            and parent.get("gates", {}).get("passed") is False,
+            "plan does not preserve the registered V1 coverage failure",
+        )
+        measured = _mapping(
+            _coverage_addendum.get("measured_support_before_registration"),
+            "registered topology support",
+        )
+        for topology in TOPOLOGY_SPECS:
+            registered = _mapping(measured.get(topology), f"registered {topology} support")
+            actual = _mapping(
+                _mapping(coverage.get("topologies"), "plan topologies").get(topology),
+                f"plan {topology} support",
+            )
+            actual_unseen = _mapping(
+                actual.get("unseen_validation"), f"plan {topology} unseen support"
+            )
+            _require(
+                actual_unseen.get("activation_count")
+                == registered.get("unseen_validation_activations")
+                and actual_unseen.get("activation_total")
+                == registered.get("total_validation_activations"),
+                f"plan {topology} support differs from the preregistered measurement",
+            )
         _require_production_coverage(coverage)
     wdl = _mapping(data.get("wdl_calibration"), "plan WDL calibration")
     _require(wdl.get("schema") == "HORDE_WDL_CALIBRATION_V1", "plan WDL schema drifted")
@@ -1099,6 +1810,7 @@ def plan_campaign(
     _source_override: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     contract, contract_sha = load_contract(contract_path)
+    coverage_addendum, coverage_addendum_sha = load_coverage_addendum()
     data_repair_contract, data_repair_sha = load_data_repair_contract()
     repair_campaign = _mapping(
         data_repair_contract.get("campaign_contract"),
@@ -1136,6 +1848,7 @@ def plan_campaign(
         split_receipt_path,
         wdl_path,
         expected_records,
+        coverage_addendum=coverage_addendum,
         require_production_coverage=not fixture_mode,
         validation_candidate_path=validation_candidate_path,
     )
@@ -1162,6 +1875,14 @@ def plan_campaign(
             "path": CONTRACT_RELATIVE_PATH.as_posix(),
             "sha256": contract_sha,
             "schema": CONTRACT_SCHEMA,
+            "coverage_addendum": {
+                "path": COVERAGE_ADDENDUM_RELATIVE_PATH.as_posix(),
+                "sha256": coverage_addendum_sha,
+                "schema": COVERAGE_ADDENDUM_SCHEMA,
+            },
+            "effective_sha256": _effective_contract_sha256(
+                contract_sha, coverage_addendum_sha
+            ),
         },
         "source": source,
         "dependencies": {
@@ -1169,6 +1890,11 @@ def plan_campaign(
                 "path": DATA_REPAIR_CONTRACT_RELATIVE_PATH.as_posix(),
                 "schema": DATA_REPAIR_CONTRACT_SCHEMA,
                 "sha256": data_repair_sha,
+            },
+            "coverage_addendum": {
+                "path": COVERAGE_ADDENDUM_RELATIVE_PATH.as_posix(),
+                "schema": COVERAGE_ADDENDUM_SCHEMA,
+                "sha256": coverage_addendum_sha,
             },
             "rank8_control": _rank8_dependency(contract),
             "run6b_sha256": wire.RUN6B_SHA256,
@@ -1226,6 +1952,22 @@ def _verify_training_receipt(
         _mapping(receipt.get("source"), "training source"),
         _mapping(plan.get("source"), "plan source"),
         "training source",
+    )
+    plan_contract = _mapping(plan.get("contract"), "plan contract")
+    expected_campaign_binding = {
+        "schema": "HORDE_V2_C1_TRAINER_BINDING_V1",
+        "campaign_plan_sha256": _sha256_bytes(_canonical_json(plan)),
+        "parent_contract_sha256": plan_contract.get("sha256"),
+        "coverage_addendum_sha256": _mapping(
+            plan_contract.get("coverage_addendum"), "plan coverage addendum"
+        ).get("sha256"),
+        "effective_contract_sha256": plan_contract.get("effective_sha256"),
+        "campaign_identity_sha256": plan.get("campaign_identity_sha256"),
+        "campaign_run_id": run.get("id"),
+    }
+    _require(
+        receipt.get("campaign") == expected_campaign_binding,
+        f"{run['id']} campaign-plan binding drifted",
     )
     architecture = _mapping(receipt.get("architecture"), "training architecture")
     expected_architecture = _mapping(run.get("architecture"), "planned architecture")
@@ -1445,6 +2187,8 @@ def verify_campaign(
     train_path: Path | None = None,
     validation_candidate_path: Path | None = None,
     validation_role_path: Path | None = None,
+    split_receipt_path: Path | None = None,
+    wdl_path: Path | None = None,
     contract_path: Path | None = None,
     _allow_fixture: bool = False,
 ) -> dict[str, Any]:
@@ -1471,24 +2215,34 @@ def verify_campaign(
         _require(
             train_path is not None
             and validation_candidate_path is not None
-            and validation_role_path is not None,
-            "production verification requires train, candidate and selected-role inputs",
+            and validation_role_path is not None
+            and split_receipt_path is not None
+            and wdl_path is not None,
+            (
+                "production verification requires train, candidate, selected-role, "
+                "book-split and WDL inputs"
+            ),
         )
-        try:
-            selected_role_verification = verify_selected_role(
-                train_path,
-                validation_candidate_path,
-                validation_role_path,
-            )
-        except SelectedRoleError as error:
-            raise CampaignError(f"selected validation role failed final verification: {error}") from error
-        expected_validation = _mapping(
-            _mapping(plan.get("data"), "plan data").get("validation_file"),
-            "plan selected validation file",
+        coverage_addendum, _coverage_addendum_sha = load_coverage_addendum()
+        recomputed_data = _validate_data(
+            train_path,
+            validation_role_path,
+            split_receipt_path,
+            wdl_path,
+            (250_000, 250_000),
+            coverage_addendum=coverage_addendum,
+            require_production_coverage=True,
+            validation_candidate_path=validation_candidate_path,
         )
         _require(
-            selected_role_verification.get("selected_role") == expected_validation,
-            "final selected-role identity differs from the campaign plan",
+            recomputed_data == _mapping(plan.get("data"), "plan data"),
+            "recomputed production data receipt differs from the campaign plan",
+        )
+        selected_role_verification = dict(
+            _mapping(
+                recomputed_data.get("validation_selection_verification"),
+                "recomputed selected-role verification",
+            )
         )
     root = runs_root.expanduser().resolve()
     _require(root.is_dir(), f"runs root does not exist: {root}")
@@ -1586,6 +2340,10 @@ def verify_campaign(
     return {
         "schema": VERIFICATION_SCHEMA,
         "contract_sha256": contract_sha,
+        "coverage_addendum_sha256": COVERAGE_ADDENDUM_SHA256,
+        "effective_contract_sha256": _effective_contract_sha256(
+            contract_sha, COVERAGE_ADDENDUM_SHA256
+        ),
         "plan_sha256": _sha256_bytes(plan_payload),
         "campaign_identity_sha256": plan.get("campaign_identity_sha256"),
         "source": source,
@@ -1632,6 +2390,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     verify.add_argument("--train-file", type=Path)
     verify.add_argument("--validation-candidate", type=Path)
     verify.add_argument("--validation-role", type=Path)
+    verify.add_argument("--book-split-receipt", type=Path)
+    verify.add_argument("--wdl-calibration", type=Path)
     verify.add_argument("--output", type=Path, required=True)
     verify.add_argument("--contract", type=Path)
     return parser.parse_args(argv)
@@ -1655,6 +2415,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             train_path=args.train_file,
             validation_candidate_path=args.validation_candidate,
             validation_role_path=args.validation_role,
+            split_receipt_path=args.book_split_receipt,
+            wdl_path=args.wdl_calibration,
             contract_path=args.contract,
         )
     payload = _canonical_json(result)

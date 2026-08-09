@@ -816,11 +816,11 @@ architectures, seeds, epochs, optimizer, device, or selection margins. Its
 `HORDE_BIN_V1` files, the derived selected validation role, the reflection-safe
 V2 book split, zero physical and legacy-input cross-role overlap, the exact WDL
 calibration, Run 6B, the Rank-8 receipt, a clean trainer commit, all 32 Royal
-buckets, STM-by-Horde-material slices, side-specific WDL support, and a below
-0.1% unseen Royal-row activation rate before writing nine explicit
-train/export commands. Seed one is designated for any later playing gate
-before training metrics exist. The plan remains a preflight artifact and makes
-no training or strength claim.
+buckets, STM-by-Horde-material slices and side-specific WDL support before
+writing nine explicit train/export commands. Every trainer command binds the
+canonical plan and exact run id before epoch-zero validation. Seed one is
+designated for any later playing gate before training metrics exist. The plan
+remains a preflight artifact and makes no training or strength claim.
 
 The first direct 250,000-record validation generation correctly failed that
 preflight: despite a reflection-safe opening partition, later game
@@ -834,10 +834,26 @@ key definitions. The resulting 250,000-record role has explicit derived
 provenance and is independently reconstructed by the campaign planner and
 final verifier.
 
+That repaired role then exposed a separate preregistered-policy defect before
+any trainer invocation: the V1 Royal bucket minima required 500/200 positions,
+while the exact natural roles contained minima of 86/111. Royal-32 also had
+6,755 unseen validation activations out of 5,821,399, narrowly missing the old
+strict-below-0.1% gate. The failed V1 preflight remains preserved. The
+hash-pinned `schemas/horde-v2-c1-coverage-addendum-v1.json` replaces only
+`data.coverage` for these exact data, selection, split and WDL identities. It
+requires every ABS, Rank-8 and Royal-32 key and all ten fixed roles in both
+roles, at least one exact train/validation row intersection per key, and at
+least 99/100 of validation activation mass seen in training using integer
+arithmetic. Observed unseen fractions are 56, 1,975 and 6,755 out of 5,821,399
+for ABS, Rank-8 and Royal-32 respectively. Architectures, paired seeds, sample
+order, recipe, data and all later selection gates remain unchanged.
+
 After all nine runs and integer exports exist, the `verify` command checks the
 complete training receipts, checkpoint and metrics hashes, quantized container
 provenance, equal environments, and sample-order chains independently rebuilt
-from the frozen dataset, seed and shuffle schedule. Successful verification
+from the frozen dataset, seed and shuffle schedule. It also recomputes leakage,
+duplicate and three-topology coverage receipts from the exact physical files.
+Successful verification
 authenticates the evidence but deliberately leaves architecture selection and
 playing-gate eligibility false. A later training-screen artifact plus
 fixed-node and equal-time evidence remain mandatory.
@@ -878,11 +894,14 @@ python tools/horde_v2_c1_campaign.py plan TRAIN.bin SELECTED-VALIDATION/receipt.
 python tools/horde_v2_c1_campaign.py verify C1-PLAN.json RUNS-DIRECTORY \
   --train-file TRAIN.bin --validation-candidate CANDIDATE.bin \
   --validation-role SELECTED-VALIDATION/receipt.json \
+  --book-split-receipt BOOK-SPLIT.json \
+  --wdl-calibration WDL-CALIBRATION.json \
   --output C1-VERIFICATION.json
 
 python tools/horde_v2_c1_screen.py C1-PLAN.json RUNS-DIRECTORY \
   --train-file TRAIN.bin --validation-candidate CANDIDATE.bin \
   --validation SELECTED-VALIDATION/receipt.json \
+  --book-split-receipt BOOK-SPLIT.json \
   --wdl-calibration WDL-CALIBRATION.json \
   --output C1-QUANTIZED-SCREEN.json
 ```
