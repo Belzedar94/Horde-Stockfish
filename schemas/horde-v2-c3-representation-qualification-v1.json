@@ -64,7 +64,7 @@
       "seed_derivation_sha256": "D1E6960C733A6EB5DE26021384B6AEC32EEEECCBCB1A552A2E2F1BAE1DFA8C7B"
     },
     "selection": {
-      "candidate_order_key": "SHA-256('HORDE_V2_C3_CONFIRMATION_ROLE_V1:select:' || candidate_payload_sha256 || uint64be(local_record_index)), ascending digest then ascending local_record_index",
+      "candidate_order_key": "SHA-256('HORDE_V2_C3_CONFIRMATION_ROLE_V1:select:' || uint64be(local_record_index)), ascending digest then ascending local_record_index",
       "excluded_roles": [
         {
           "file_sha256": "0BFEB566EC1587256DBDB6111689DF51EAFD3063C7D47A2120655B917E29AC6A",
