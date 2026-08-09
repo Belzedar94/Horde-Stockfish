@@ -818,6 +818,7 @@ def _device_receipt(device: torch.device, cpu_threads: int) -> dict[str, object]
                 "name": torch.cuda.get_device_name(index),
                 "capability": list(torch.cuda.get_device_capability(index)),
                 "cuda": torch.version.cuda,
+                "cudnn": torch.backends.cudnn.version(),
             }
         )
     return receipt
@@ -984,6 +985,29 @@ def _sample_chain(previous: bytes, payload_sha256: str, indices: Sequence[int]) 
     for index in indices:
         digest.update(struct.pack("<Q", index))
     return digest.digest()
+
+
+def sample_order_chain_sha256(
+    record_count: int,
+    batch_size: int,
+    block_size: int,
+    seed: int,
+    epochs: int,
+    payload_sha256: str,
+) -> str:
+    """Reconstruct the complete deterministic training-sample order receipt."""
+
+    _require(epochs > 0, "sample-order epoch count must be positive")
+    _require(
+        len(payload_sha256) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in payload_sha256),
+        "sample-order payload identity is invalid",
+    )
+    chain = bytes(32)
+    for epoch in range(epochs):
+        for indices in epoch_batches(record_count, batch_size, block_size, seed, epoch):
+            chain = _sample_chain(chain, payload_sha256, indices)
+    return chain.hex().upper()
 
 
 def _training_settings(
@@ -1489,6 +1513,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 "betas": [0.9, 0.999],
                 "epsilon": 1.0e-7,
                 "weight_decay": 0.0,
+                "foreach": False,
                 "base_learning_rate": args.learning_rate,
                 "output_learning_rate_multiplier": 0.1,
                 "lookahead": False,

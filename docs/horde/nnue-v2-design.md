@@ -777,6 +777,36 @@ are frozen in `docs/horde/nnue-v2-rank8-control-receipt.json`. That receipt does
 not claim a speed result, completed training gate, playing strength, or
 production dispatch.
 
+The production comparison is registered in
+`schemas/horde-v2-c1-campaign-v1.json`. The planner
+`tools/horde_v2_c1_campaign.py` accepts no CLI override for record counts,
+architectures, seeds, epochs, optimizer, device, or selection margins. Its
+`plan` command authenticates both `HORDE_BIN_V1` roles, the reflection-safe V2
+book split, zero physical and legacy-input cross-role overlap, the exact WDL
+calibration, Run 6B, the Rank-8 receipt, a clean trainer commit, all 32 Royal
+buckets, STM-by-Horde-material slices, side-specific WDL support, and a below
+0.1% unseen Royal-row activation rate before writing nine explicit
+train/export commands. Seed one is designated for any later playing gate
+before training metrics exist. The plan remains a preflight artifact and makes
+no training or strength claim.
+
+After all nine runs and integer exports exist, the `verify` command checks the
+complete training receipts, checkpoint and metrics hashes, quantized container
+provenance, equal environments, and sample-order chains independently rebuilt
+from the frozen dataset, seed and shuffle schedule. Successful verification
+authenticates the evidence but deliberately leaves architecture selection and
+playing-gate eligibility false. A later training-screen artifact plus
+fixed-node and equal-time evidence remain mandatory.
+
+```console
+python tools/horde_v2_c1_campaign.py plan TRAIN.bin VALIDATION.bin \
+  --book-split-receipt BOOK-SPLIT.json \
+  --wdl-calibration WDL-CALIBRATION.json --output C1-PLAN.json
+
+python tools/horde_v2_c1_campaign.py verify C1-PLAN.json RUNS-DIRECTORY \
+  --output C1-VERIFICATION.json
+```
+
 The existing real-data C1 plumbing canary is frozen in
 `docs/horde/nnue-v2-c1-real-canary-receipt.json`. Both architectures completed
 two byte-identical three-epoch CPU runs on the same authenticated 4,096/1,024

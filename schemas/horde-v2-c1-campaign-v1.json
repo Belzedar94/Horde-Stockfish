@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-v2-c1-campaign-v1.json",
+  "title": "Horde V2 C1 architecture campaign V1",
+  "schema_name": "HORDE_V2_C1_CAMPAIGN_V1",
+  "status": "registered_not_run",
+  "purpose": "Select the cheapest sufficient first-domain topology before adding contextual Horde features.",
+  "dependencies": {
+    "dataset": {
+      "schema": "HORDE_BIN_V1",
+      "schema_sha256": "B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4"
+    },
+    "teacher": {
+      "schema": "HORDETEST_HP_LEGACY_V1",
+      "network_sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+    },
+    "labels": {
+      "schema": "HORDE_LABEL_CONTRACT_V1",
+      "schema_sha256": "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"
+    },
+    "book_split_schema": "HORDE_TRAINING_BOOK_SPLIT_V2",
+    "overlap_audit_schema": "HORDE_TRAINING_ROLE_OVERLAP_AUDIT_V1",
+    "wdl_calibration_schema": "HORDE_WDL_CALIBRATION_V1",
+    "rank8_receipt": {
+      "path": "docs/horde/nnue-v2-rank8-control-receipt.json",
+      "sha256": "2DC39B32BA8399504D2BBF5FC2BD59DB534E4B49FE09BF3774AFC4FA0770A3D9"
+    }
+  },
+  "data": {
+    "training_records": 250000,
+    "validation_records": 250000,
+    "roles_use_distinct_files": true,
+    "roles_use_distinct_book_hashes": true,
+    "opening_groups_disjoint_after_horizontal_reflection": true,
+    "complete_opening_partition": true,
+    "physical_position_cross_role_overlap": 0,
+    "legacy_model_input_cross_role_overlap": 0,
+    "teacher_and_generation_contract_identical_between_roles": true,
+    "wdl_calibration_fitted_from_exact_training_file": true,
+    "coverage": {
+      "schema": "HORDE_V2_C1_DATA_COVERAGE_V1",
+      "royal_bucket_position_minimums": {
+        "train": 500,
+        "validation": 200
+      },
+      "unseen_validation_royal_activation_fraction_maximum_exclusive": 0.001,
+      "validation_stm_white_piece_bin_minimum": 1000,
+      "white_piece_bins": [
+        "1-4",
+        "5-8",
+        "9-16",
+        "17-24",
+        "25-30",
+        "31-36"
+      ],
+      "side_result_classes_required": [
+        -1,
+        0,
+        1
+      ]
+    }
+  },
+  "training": {
+    "architectures": [
+      {
+        "name": "v2-c1-abs64x192",
+        "schema": "V2_C1_ABS_NONKING_64X192",
+        "first_domain": "absolute_nonking",
+        "serialized_parameter_bytes": 362824,
+        "training_structural_sha256": "66538DB76A0248662A824545A2ECCD2AE84CD4805DDFCA206B5239FA3BDE45B6"
+      },
+      {
+        "name": "v2-c1-rank8-64x192",
+        "schema": "V2_C1_ROYAL_RANK8_64X192",
+        "first_domain": "royal_rank8",
+        "serialized_parameter_bytes": 936264,
+        "training_structural_sha256": "53A82F734EBCAD97508AD91D54027ADD10772A1DC85A612F5D395AEE08567083"
+      },
+      {
+        "name": "v2-64x192",
+        "schema": "V2_BASE_P0_64X192",
+        "first_domain": "royal",
+        "serialized_parameter_bytes": 2902344,
+        "training_structural_sha256": "5360985A5B08E43A6F7C23E8601DF159BAEE38E9306C3652867AA93EEAD39862"
+      }
+    ],
+    "paired_seeds": {
+      "derivation": "Unsigned big-endian integer from the first eight bytes of SHA-256('HORDE_V2_C1_CAMPAIGN_V1:seed:<zero-based index>').",
+      "values": [
+        7435908571601354096,
+        3557647045056828427,
+        4999335725889688378
+      ]
+    },
+    "run_count": 9,
+    "epochs": 8,
+    "training_example_exposures_per_model": 2000000,
+    "batch_size": 4096,
+    "block_size": 65536,
+    "lambda": 0.6,
+    "learning_rate": 0.0015,
+    "scheduler_gamma": 0.987,
+    "optimizer": {
+      "name": "torch.optim.RAdam",
+      "betas": [
+        0.9,
+        0.999
+      ],
+      "epsilon": 1e-07,
+      "weight_decay": 0.0,
+      "output_learning_rate_multiplier": 0.1,
+      "foreach": false,
+      "lookahead": false,
+      "gradient_centralization": false,
+      "scheduler": {
+        "name": "StepLR",
+        "step_size_epochs": 1,
+        "gamma": 0.987
+      }
+    },
+    "device": {
+      "type": "cuda",
+      "expected_name": "NVIDIA GeForce RTX 3080",
+      "cpu_threads": 1,
+      "same_complete_environment_receipt_for_all_runs": true
+    },
+    "held_constant": [
+      "training and validation datasets",
+      "teacher labels and WDL calibration",
+      "optimizer and learning-rate schedule",
+      "lambda policy",
+      "64 first-domain lanes and 192 Global lanes",
+      "dense trunk and side-to-move heads",
+      "paired model seeds and sample order",
+      "container export and quantization"
+    ]
+  },
+  "selection": {
+    "validation_loss_is_diagnostic_only": true,
+    "tie_break": "select the cheaper model",
+    "predesignated_playing_seed_index": 0,
+    "predesignated_playing_seed": 7435908571601354096,
+    "quantized_container_required": true,
+    "royal32_over_rank8_gates": {
+      "paired_quantized_training": true,
+      "fixed_node_elo_lower_95_greater_than": 2.0,
+      "equal_time_elo_lower_95_greater_than": 0.0
+    },
+    "speed_and_strength_are_separate_axes": true,
+    "production_requires_subsequent_technical_and_three_time_control_gates": true
+  },
+  "claims": {
+    "data_generated": false,
+    "training_complete": false,
+    "architecture_selected": false,
+    "strength_evidence": false,
+    "production_network": false,
+    "run6b_production_path_changed": false
+  }
+}
