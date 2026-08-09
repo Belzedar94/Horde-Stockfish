@@ -507,6 +507,9 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
   accumulator adapters, `Position::do_move()`, and the build source list. No
   rule, evaluation, move-ordering, pruning, or search-policy change was mixed
   into the candidate.
+- Branch: `test/legacy-only-nnue-chassis`, commit
+  `1efbc249391abb59a946d1bed208367797a926ad`; parent
+  `69e52de5aebe2733862de5d75e17dd951e5495a2`.
 - Validation: Horde rules, fail-closed Run 6B contract, three deterministic
   315,576-node benches, 10,000-position T1/T2/T4 determinism, and exact raw and
   final evaluation parity against the pinned Fairy-Stockfish oracle on 100,000
@@ -516,11 +519,18 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
 - Local speed screen: +2.75% geometric mean, -0.38% median, and only 5/12
   positive alternating depth-16 pairs. Per-pair noise ranged from -6.63% to
   +22.42% under the live worker load.
-- Decision: rejected locally as insufficiently clear low-hanging fruit; no
-  commit, push, or OpenBench workload.
+- Decision: promoted on 2026-08-10 to OpenBench STC #336 at priority 301 after
+  the noisy local speed screen was judged worth resolving under distributed
+  load. The candidate is compared directly against `69e52de5` to isolate the
+  chassis from the already-passed DirtyPiece change.
+- Interaction: #333 isolates only the generic 1,024-to-512 accumulator-width
+  reduction. #336 is the cohesive legacy-only chassis and necessarily includes
+  that width as part of replacing the generic backend. Their results are useful
+  together, but the two candidates must not be stacked as independent changes.
 - Learning: removing dead generic infrastructure substantially simplifies the
-  binary and per-thread memory layout, but it does not remove enough measured
-  hot-path work to justify distributed games on its own.
+  binary and per-thread memory layout. OpenBench #336 will determine whether
+  that structural simplification produces a reproducible playing-strength gain
+  despite the noisy local timing result.
 
 ### 2026-08-07 — Match generic accumulator width to Run 6B
 
