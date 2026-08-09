@@ -454,6 +454,28 @@ Main-search selectivity experiments:
 
 ## Local rejects
 
+### 2026-08-10 - Explicit legacy accumulator transform SIMD
+
+- Scope: a runtime-gated AVX2/SSE2 implementation replaced only the scalar
+  clamp-and-pack of the two 512-lane Run 6B accumulators before the first
+  affine layer. Evaluation values, accumulator updates, and search were
+  otherwise unchanged.
+- Correctness screen: enabled and disabled modes ran from the same AVX2 binary
+  and searched exactly 315,576 nodes in every alternating pair.
+- Speed screen: 16 alternating pairs measured a `-2.153%` geometric NPS ratio,
+  a `-1.638%` median, and 7/16 favorable pairs. The host was concurrently
+  serving the production worker and a V2 training run, so the sample is noisy;
+  it nevertheless lacks the clear positive effect required for a low-hanging
+  speed candidate.
+- Post-mortem: the `-O3` scalar loop is already eligible for compiler
+  vectorization. The explicit path adds a runtime branch and AVX2 lane
+  permutation without removing semantic work, so hand-written packing has no
+  demonstrated advantage.
+- Decision: do not register an OpenBench workload. Revisit only if an isolated
+  assembly or microbenchmark audit proves that a later implementation removes
+  work the compiler cannot already eliminate, preferably after the legacy-only
+  NNUE chassis is accepted.
+
 ### 2026-08-07 - Disable qsearch move-count pruning by side
 
 - Hypothesis: the fixed two-move qsearch quota may be unreliable for only one
