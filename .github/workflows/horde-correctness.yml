@@ -111,6 +111,7 @@ jobs:
           tests/horde_v2_c1_campaign.py
           tests/horde_v2_c1_coverage.py
           tests/horde_v2_c1_screen.py
+          tests/horde_v2_c2_constant_baseline.py
           tests/horde_v2_functional_health.py
           tests/horde_v2_integer_eval.py
           tests/horde_v2_export.py
@@ -140,6 +141,8 @@ jobs:
           tools/horde_v2_container.py
           tools/horde_v2_c1_campaign.py
           tools/horde_v2_c1_screen.py
+          tools/horde_v2_c2_constant_baseline.py
+          tools/horde_v2_c2_objective.py
           tools/horde_v2_export.py
           tools/horde_v2_functional_health.py
           tools/horde_v2_integer_eval.py
@@ -192,6 +195,8 @@ jobs:
         run: python tests/horde_v2_c1_screen.py
       - name: Verify Horde V2 functional-health gate
         run: python tests/horde_v2_functional_health.py
+      - name: Verify Horde V2 C2 constant baseline
+        run: python tests/horde_v2_c2_constant_baseline.py
       - name: Verify interrupted trainer resume parity
         run: python tests/horde_training_resume.py
 

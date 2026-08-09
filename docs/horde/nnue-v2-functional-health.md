@@ -107,3 +107,41 @@ An arm is recipe-qualified only if all three seeds pass functional health and
 beat the exact side-to-move plus rule-50 constant baseline on held-out data.
 Only then may absolute, rank-8 Royal, and full Royal be compared under the same
 qualified recipe and dataset.
+
+### Frozen constant baseline
+
+`HORDE_V2_C2_CONSTANT_BASELINE_V1` fits exactly two integer values: one
+pre-rule50 score for White to move and one for Black to move. It exhaustively
+enumerates every integer in `[-31506, 31506]`; ties are exact binary64 ties and
+are resolved by `(abs(score), score)`. The fit accepts only the authenticated
+training split and its training-fitted WDL calibration. Its command line has no
+validation or checkpoint input:
+
+```console
+python tools/horde_v2_c2_constant_baseline.py \
+  path/to/train.bin \
+  path/to/wdl-calibration.json \
+  --output path/to/c2-constant-baseline.json
+```
+
+The fitter first casts the side-specific calibration to float32 and builds the
+complete CPU `torch.softmax` lookup used by the trainer for both sides and all
+63,013 integer scores. The receipt hashes the raw little-endian float32 table.
+Objective evaluation then casts those probabilities to binary64, applies the
+rule-50 transform with integer truncation semantics, and evaluates frozen
+sufficient moments in deterministic order. Mate-distance teacher scores are
+excluded only from the score-derived term; their result targets remain, and the
+composite mean is normalized by every record.
+
+The independent histogram reference is evaluated at each selected constant and
+its binary64 difference from the moment evaluator is recorded. A second audit
+scales every exact float32 probability by `2^149` and requires the moment and
+histogram integer numerators to be identical, with no tolerance. Minima,
+complete tie-set identity, runner-up gap, boundary contact, dataset identity,
+calibration identity, and software identity are all receipted. The frozen
+contract lives at `schemas/horde-v2-c2-constant-baseline-v1.json`.
+
+This artifact is a null model, not validation evidence. A later qualification
+command must re-evaluate both the frozen null and each complete three-seed arm
+on the same selected role. It may not refit the constants, replace a seed, or
+select a best epoch after seeing validation.
