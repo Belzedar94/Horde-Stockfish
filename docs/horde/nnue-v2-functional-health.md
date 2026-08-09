@@ -145,3 +145,27 @@ This artifact is a null model, not validation evidence. A later qualification
 command must re-evaluate both the frozen null and each complete three-seed arm
 on the same selected role. It may not refit the constants, replace a seed, or
 select a best epoch after seeing validation.
+
+### Qualification statistics
+
+`HORDE_BIN_V1` stores `game_ply` but no authenticated game or opening identity.
+The generator's in-memory opening index is not serialized into a training
+record. Record adjacency and `game_ply` therefore cannot be used to reconstruct
+clusters after the fact. C2 reports exact paired per-record objective deltas and
+makes no game-clustered confidence claim; an IID bootstrap would be equally
+misleading and is forbidden.
+
+The selected validation role has already participated in engineering and
+functional-health inspection, so it is a qualification/tuning role rather than
+fresh confirmation evidence. An optimizer arm qualifies only when all three
+frozen final checkpoints pass functional health and each has strictly lower
+canonical loss than the frozen constant on the same record order. There is no
+post-hoc numeric margin, best-seed replacement, best-epoch selection, or
+winner selection between two qualifying arms on this role. A later label-blind
+role is required for confirmatory ranking.
+
+Qualification is fail-closed on provenance as well as loss. The frozen
+constant, all three checkpoints, their training receipts, their
+functional-health receipts, the selected validation role, the teacher identity
+and the WDL lookup must agree exactly. A clean but unrelated receipt or a run
+trained on another byte stream is not admissible evidence.
