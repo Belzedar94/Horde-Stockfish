@@ -111,6 +111,7 @@ jobs:
           tests/horde_v2_c1_campaign.py
           tests/horde_v2_c1_coverage.py
           tests/horde_v2_c1_screen.py
+          tests/horde_v2_functional_health.py
           tests/horde_v2_integer_eval.py
           tests/horde_v2_export.py
           tests/horde_nnue_parity.py
@@ -140,6 +141,7 @@ jobs:
           tools/horde_v2_c1_campaign.py
           tools/horde_v2_c1_screen.py
           tools/horde_v2_export.py
+          tools/horde_v2_functional_health.py
           tools/horde_v2_integer_eval.py
       - name: Verify deterministic training-book split
         run: python3 tests/horde_training_book_split.py
@@ -188,6 +190,8 @@ jobs:
         run: python tests/horde_v2_integer_eval.py
       - name: Verify frozen Horde V2 C1 quantized screen
         run: python tests/horde_v2_c1_screen.py
+      - name: Verify Horde V2 functional-health gate
+        run: python tests/horde_v2_functional_health.py
       - name: Verify interrupted trainer resume parity
         run: python tests/horde_training_resume.py
 

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-v2-functional-health-v1.json",
+  "title": "Horde V2 functional health V1",
+  "schema_name": "HORDE_V2_FUNCTIONAL_HEALTH_V1",
+  "status": "registered",
+  "purpose": "Reject trained V2 checkpoints whose dense path no longer carries position-dependent feature signal before architecture or strength selection.",
+  "evaluation": {
+    "supported_architectures": [
+      "v2-c1-abs64x192",
+      "v2-c1-rank8-64x192",
+      "v2-64x192",
+      "v2-128x128"
+    ],
+    "dataset_binding": "exact checkpoint validation identity",
+    "probe": {
+      "records": 4096,
+      "selection": "deterministic midpoint stratification over the full validation record order",
+      "arithmetic": "trainer float32 forward on CPU",
+      "rule50": "report pre-rule50 and exact trainer post-rule50 scores separately"
+    },
+    "numeric_tolerances": {
+      "lane_variance_epsilon": 1e-12,
+      "jacobian_absolute_epsilon": 1e-12
+    },
+    "reported_layers": [
+      "first_domain_clipped",
+      "global_clipped",
+      "hidden0_preactivation",
+      "hidden0_clipped",
+      "hidden1_preactivation",
+      "hidden1_clipped"
+    ],
+    "reported_interventions": [
+      "zero_first_domain",
+      "permute_first_domain",
+      "zero_global",
+      "permute_global"
+    ]
+  },
+  "gates": {
+    "minimum_side_records": 32,
+    "maximum_constant_lane_fraction": 0.75,
+    "minimum_position_dependent_lane_fraction": 0.10,
+    "minimum_hidden_interior_sample_fraction": 0.01,
+    "minimum_within_side_unique_pre_rule50_integer_scores": 2,
+    "minimum_feature_to_score_jacobian_nonzero_fraction": 0.001
+  },
+  "claims": {
+    "parameter_health_replaced": false,
+    "functional_health_required_in_addition_to_parameter_health": true,
+    "validation_loss_selects_architecture": false,
+    "strength_evidence": false,
+    "architecture_selected": false,
+    "production_network": false,
+    "run6b_production_path_changed": false
+  }
+}
