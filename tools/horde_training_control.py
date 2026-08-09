@@ -163,12 +163,55 @@ MATE_SCORE_THRESHOLD = 31_507  # VALUE_TB_WIN_IN_MAX_PLY at MAX_PLY=246.
 DEFAULT_LAMBDA = 0.6
 DEFAULT_LEARNING_RATE = 1.5e-3
 DEFAULT_SCHEDULER_GAMMA = 0.987
+DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER = 1.0
+DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER = 0.1
 MASK_POLICY = "exclude abs(score) >= 31507 from score-derived WDL term; retain result WDL term"
 U64_MASK = (1 << 64) - 1
 
 
 class TrainingError(ValueError):
     """Raised when a training input or requested run violates the contract."""
+
+
+def _validate_optimizer_learning_rate_multipliers(
+    dense: float,
+    output: float,
+) -> tuple[float, float]:
+    _require(
+        math.isfinite(dense) and dense > 0.0,
+        "dense learning-rate multiplier must be positive",
+    )
+    _require(
+        math.isfinite(output) and output > 0.0,
+        "output learning-rate multiplier must be positive",
+    )
+    _require(
+        dense == DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER
+        or output == DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+        "optimizer experiments may change only one learning-rate multiplier",
+    )
+    return dense, output
+
+
+def _optimizer_learning_rate_multipliers(
+    args: argparse.Namespace,
+) -> tuple[float, float]:
+    return _validate_optimizer_learning_rate_multipliers(
+        float(
+            getattr(
+                args,
+                "dense_learning_rate_multiplier",
+                DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER,
+            )
+        ),
+        float(
+            getattr(
+                args,
+                "output_learning_rate_multiplier",
+                DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+            )
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -982,6 +1025,12 @@ def _finalize_campaign_binding(
             data_receipt.get(key) == planned_data.get(key),
             f"campaign trainer data field {key} differs from the plan",
         )
+    dense_multiplier, output_multiplier = _optimizer_learning_rate_multipliers(args)
+    _require(
+        dense_multiplier == DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER
+        and output_multiplier == DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+        "C1 campaign runs require the frozen baseline optimizer recipe",
+    )
     _require(
         configuration.get("training_records") == train_records
         and configuration.get("validation_records") == validation_records
@@ -1069,16 +1118,72 @@ def _configure_runtime(seed: int, device_name: str, cpu_threads: int) -> torch.d
 def _make_optimizer(
     model: nn.Module,
     learning_rate: float,
+    *,
+    dense_learning_rate_multiplier: float = DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER,
+    output_learning_rate_multiplier: float = DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
 ) -> torch.optim.Optimizer:
+    _require(math.isfinite(learning_rate) and learning_rate > 0.0, "learning rate must be positive")
+    dense_learning_rate_multiplier, output_learning_rate_multiplier = (
+        _validate_optimizer_learning_rate_multipliers(
+            dense_learning_rate_multiplier,
+            output_learning_rate_multiplier,
+        )
+    )
+
     output_weights = getattr(model, "output_weights")
     output_bias = getattr(model, "output_bias")
     output_ids = {id(output_weights), id(output_bias)}
-    body = [parameter for parameter in model.parameters() if id(parameter) not in output_ids]
-    return torch.optim.RAdam(
-        [
+    dense = [
+        getattr(model, name)
+        for name in (
+            "hidden0_weights",
+            "hidden0_bias",
+            "hidden1_weights",
+            "hidden1_bias",
+        )
+    ]
+    dense_ids = {id(parameter) for parameter in dense}
+    all_parameters = list(model.parameters())
+
+    if dense_learning_rate_multiplier == DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER:
+        body = [parameter for parameter in all_parameters if id(parameter) not in output_ids]
+        parameter_groups = [
             {"params": body, "lr": learning_rate},
-            {"params": [output_weights, output_bias], "lr": learning_rate / 10.0},
-        ],
+            {
+                "params": [output_weights, output_bias],
+                "lr": learning_rate * output_learning_rate_multiplier,
+            },
+        ]
+    else:
+        body = [
+            parameter
+            for parameter in all_parameters
+            if id(parameter) not in output_ids and id(parameter) not in dense_ids
+        ]
+        parameter_groups = [
+            {"params": body, "lr": learning_rate},
+            {
+                "params": dense,
+                "lr": learning_rate * dense_learning_rate_multiplier,
+            },
+            {
+                "params": [output_weights, output_bias],
+                "lr": learning_rate * output_learning_rate_multiplier,
+            },
+        ]
+
+    grouped_ids = {
+        id(parameter)
+        for group in parameter_groups
+        for parameter in group["params"]
+    }
+    _require(
+        len(grouped_ids) == sum(len(group["params"]) for group in parameter_groups)
+        and grouped_ids == {id(parameter) for parameter in all_parameters},
+        "optimizer parameter groups are incomplete or overlapping",
+    )
+    return torch.optim.RAdam(
+        parameter_groups,
         betas=(0.9, 0.999),
         eps=1.0e-7,
         weight_decay=0.0,
@@ -1245,6 +1350,15 @@ def _training_settings(
         "wdl_calibration_sha256": wdl_calibration_sha256,
         "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
     }
+    dense_multiplier, output_multiplier = _optimizer_learning_rate_multipliers(args)
+    if (
+        dense_multiplier != DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER
+        or output_multiplier != DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER
+    ):
+        settings["optimizer_learning_rate_multipliers"] = {
+            "dense_trunk": dense_multiplier,
+            "output": output_multiplier,
+        }
     if architecture != LEGACY_ARCHITECTURE:
         structure = _v2_structure(architecture)
         settings["architecture"] = {
@@ -1280,12 +1394,23 @@ def _load_checkpoint(
 
 def train(args: argparse.Namespace) -> dict[str, object]:
     architecture = _architecture_name(args)
+    dense_learning_rate_multiplier, output_learning_rate_multiplier = (
+        _optimizer_learning_rate_multipliers(args)
+    )
     _require(0 < args.seed <= U64_MASK, "training seed must be an unsigned 64-bit value")
     _require(args.epochs > 0, "epoch count must be positive")
     _require(args.batch_size > 0, "batch size must be positive")
     _require(args.block_size >= args.batch_size, "shuffle block size is too small")
     _require(0.0 <= args.lambda_value <= 1.0, "lambda is outside [0, 1]")
     _require(args.learning_rate > 0.0, "learning rate must be positive")
+    _require(
+        architecture != LEGACY_ARCHITECTURE
+        or (
+            dense_learning_rate_multiplier == DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER
+            and output_learning_rate_multiplier == DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER
+        ),
+        "optimizer learning-rate experiments require a V2 architecture",
+    )
     _require(0.0 < args.scheduler_gamma <= 1.0, "scheduler gamma is outside (0, 1]")
     _require(
         args.stop_after_steps is None or args.stop_after_steps > 0,
@@ -1437,7 +1562,12 @@ def train(args: argparse.Namespace) -> dict[str, object]:
         _require(stop_at_step <= target_steps, "stop-after-steps exceeds the target run")
 
         model = _make_model(architecture, args.seed).to(device)
-        optimizer = _make_optimizer(model, args.learning_rate)
+        optimizer = _make_optimizer(
+            model,
+            args.learning_rate,
+            dense_learning_rate_multiplier=dense_learning_rate_multiplier,
+            output_learning_rate_multiplier=output_learning_rate_multiplier,
+        )
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=1, gamma=args.scheduler_gamma
         )
@@ -1793,7 +1923,8 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 "weight_decay": 0.0,
                 "foreach": False,
                 "base_learning_rate": args.learning_rate,
-                "output_learning_rate_multiplier": 0.1,
+                "dense_learning_rate_multiplier": dense_learning_rate_multiplier,
+                "output_learning_rate_multiplier": output_learning_rate_multiplier,
                 "lookahead": False,
                 "gradient_centralization": False,
                 "scheduler": {
@@ -1894,6 +2025,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--block-size", type=int, default=65_536)
     parser.add_argument("--lambda", type=float, default=DEFAULT_LAMBDA, dest="lambda_value")
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
+    parser.add_argument(
+        "--dense-learning-rate-multiplier",
+        type=float,
+        default=DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER,
+        help="V2-only multiplier for hidden0/hidden1 weights and biases",
+    )
+    parser.add_argument(
+        "--output-learning-rate-multiplier",
+        type=float,
+        default=DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+        help="V2-only multiplier for the side-to-move output weights and biases",
+    )
     parser.add_argument("--scheduler-gamma", type=float, default=DEFAULT_SCHEDULER_GAMMA)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--cpu-threads", type=int, default=1)

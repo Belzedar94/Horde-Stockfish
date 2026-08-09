@@ -90,6 +90,19 @@ A separate arm may change only the output learning-rate multiplier from 0.1 to
 clamp-gradient semantics, objective weighting, feature widths, and architecture
 remain later orthogonal questions.
 
+The reference trainer exposes the two arms explicitly:
+
+```text
+--dense-learning-rate-multiplier 0.1
+--output-learning-rate-multiplier 1.0
+```
+
+The first command leaves the output multiplier at its frozen 0.1 default. The
+second leaves the dense multiplier at its frozen 1.0 default. Non-default values
+for both controls in the same run fail closed, and the frozen C1 campaign rejects
+either override. With both defaults, optimizer grouping and the first RAdam step
+remain bit-identical to the pre-C2 trainer.
+
 An arm is recipe-qualified only if all three seeds pass functional health and
 beat the exact side-to-move plus rule-50 constant baseline on held-out data.
 Only then may absolute, rank-8 Royal, and full Royal be compared under the same
