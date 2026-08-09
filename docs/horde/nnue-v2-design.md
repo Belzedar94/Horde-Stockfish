@@ -638,6 +638,12 @@ search-stack/full-refresh agreement on Linux and Windows. The normal CI path
 continues to require the frozen Run 6B bench, so enabling this candidate route
 does not alter V1 behaviour.
 
+The exact dispatch implementation, local V1/V2 checks, and cross-platform CI
+run are frozen in
+`docs/horde/nnue-v2-candidate-dispatch-receipt.json`. The receipt explicitly
+records that this is an untrained experimental route with no strength or
+production-promotion claim.
+
 ## Correctness and performance gates
 
 The first implementation is a scalar full-refresh reference. Exactly three

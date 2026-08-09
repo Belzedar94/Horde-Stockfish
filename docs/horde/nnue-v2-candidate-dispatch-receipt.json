@@ -1,0 +1,103 @@
+{
+  "schema": "HORDE_V2_CANDIDATE_DISPATCH_RECEIPT_V1",
+  "source": {
+    "branch": "feature/horde-v2-c1-engine-dispatch",
+    "base_commit": "c928480a52298ab7b65a7dddcd638ad737fcb2ab",
+    "implementation_commit": "797e1fdeafc122de6e83bad58db9520e1b555154",
+    "dirty": false
+  },
+  "dependencies": {
+    "incremental_container_receipt": {
+      "path": "docs/horde/nnue-v2-incremental-container-receipt.json",
+      "sha256": "42334CCCBB678030C0CF2E516A80FA4C486F3034E413645193963B718F645074"
+    },
+    "rank8_control_receipt": {
+      "path": "docs/horde/nnue-v2-rank8-control-receipt.json",
+      "sha256": "2DC39B32BA8399504D2BBF5FC2BD59DB534E4B49FE09BF3774AFC4FA0770A3D9"
+    }
+  },
+  "dispatch_contract": {
+    "normal_build": "Run 6B HORDETEST_HP_LEGACY_V1 remains unchanged",
+    "candidate_selection": "an EVALFILE ending in .hsv2 selects HORDE_V2_CANDIDATE at build time",
+    "contradictory_build_flags": "rejected by the Makefile before compilation",
+    "registered_schemas_only": true,
+    "artifact_replacement": "wait for search, authenticate the complete container, clear TT and all worker stacks",
+    "failed_replacement": "invalidate active parameters and exit before evaluation or search",
+    "fallbacks": [],
+    "candidate_export": false
+  },
+  "search_integration": {
+    "root": "full refresh into the candidate lazy accumulator stack",
+    "move": "Position::do_move Dirties are pushed into the candidate stack",
+    "undo": "pop exactly one candidate frame",
+    "null_move": "reuse the current accumulator frame",
+    "worker_legacy_accumulator_allocated": false,
+    "worker_legacy_refresh_cache_allocated": false,
+    "shadow_policy": "exact-board transition validation plus full-refresh comparison at every search evaluation"
+  },
+  "implementation": {
+    "src_makefile_sha256": "3A9F73AFD4ACF24E5ECC45580002C93CB4A4323F471C571415106692B464C9F8",
+    "engine_cpp_sha256": "FBE99D47E0783A6C3E4EB2804CA52D904C9412EEEFFFB682A10E44734A824763",
+    "engine_header_sha256": "7AC2E307DCAB8CED79A7A740738BAFC5B275789ADF8AA20A16A01D2D763E8F30",
+    "search_cpp_sha256": "75DA3BD4F993BD3C4D177566ECB924D9740C00B7BB6B4702E09C6C74BBB8417F",
+    "search_header_sha256": "CCFFB74BA63103E150300DA4FC6B12BD8FC6981A9C826844161C98FE94A74EAA",
+    "lazy_stack_sha256": "1D9CD2BAC5C2432120F70D38E2C6E1FAE0AA20BDEFD56C8C045BE9F2DC238A5D",
+    "candidate_oracle_sha256": "321CB302CB5394407D281B3DA0D2872FE07F1BEE3800B77444B878067199CC1A",
+    "correctness_workflow_sha256": "79B55C9FAB980640F28BA87173BE0F74B8D9FED0FBD649ACB4721A888755B651"
+  },
+  "local_windows_verification": {
+    "run6b_benchmark": {
+      "nodes": 315576,
+      "bestmoves_sha256": "FE9A5001C1997125CE34BF0EF119EAB44570F5F363227BD4BAB8E0DB1F4E8592"
+    },
+    "run6b_network_contract": "success",
+    "horde_rules": "success",
+    "material_corpus": {
+      "rows": 21996,
+      "sha256": "1F01B4FD3AB6066EFE5A96A2AE4E0DF5074FB99377D7CAAA2ACBA04D453D53CC"
+    },
+    "real_position_stack": {
+      "focused_special_moves": 10,
+      "legal_moves": 192,
+      "null_moves": 15,
+      "royal_refreshes": 17,
+      "lean_policy_equal": true
+    },
+    "candidate_shadow": "success"
+  },
+  "candidate_fixture": {
+    "architecture": "v2-c1-rank8-64x192",
+    "network_schema": "V2_C1_ROYAL_RANK8_64X192",
+    "bytes": 941596,
+    "sha256": "3BA92E3477A7FFE27C712B43842C253984B3BDE3FDD713B75EAB5E9CEBB8EA4F",
+    "reachable_full_refresh_fixtures": 5,
+    "depth1_nodes": 246,
+    "depth1_bestmoves_sha256": "987234A150116903A6950E199661602FA9A7FC38E60AE6D8BEE44FFFA3A3CA9D",
+    "repeat_determinism": true,
+    "corrupted_payload_rejected": "PAYLOAD_MISMATCH",
+    "legacy_run6b_rejected": "MAGIC_MISMATCH"
+  },
+  "ci": {
+    "correctness": {
+      "run_id": 31294983528,
+      "head_sha": "797e1fdeafc122de6e83bad58db9520e1b555154",
+      "conclusion": "success",
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31294983528",
+      "linux_candidate_job_id": 93198503198,
+      "windows_candidate_job_id": 93198503212,
+      "run6b_differential_positions": 100000
+    }
+  },
+  "claims": {
+    "build_time_candidate_dispatch": true,
+    "uci_candidate_evaluation": true,
+    "incremental_search": true,
+    "shadow_full_refresh_parity": true,
+    "linux_windows_verified": true,
+    "fail_closed_validation": true,
+    "run6b_production_path_changed": false,
+    "production_default": false,
+    "trained_c1_network": false,
+    "strength_evidence": false
+  }
+}
