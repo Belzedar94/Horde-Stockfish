@@ -26,7 +26,7 @@
 
 #include "../misc.h"
 #include "../types.h"
-#include "nnue_architecture.h"
+#include "horde_legacy_network.h"
 #include "../evaluate.h"
 
 namespace Stockfish {
@@ -48,10 +48,10 @@ struct EvalFile {
 };
 
 struct NnueEvalTrace {
-    static_assert(LayerStacks == PSQTBuckets);
+    static_assert(HordeLegacyNetwork::LayerStacks == HordeLegacyNetwork::PsqtBuckets);
 
-    Value psqt[LayerStacks];
-    Value positional[LayerStacks];
+    Value psqt[HordeLegacyNetwork::LayerStacks];
+    Value positional[HordeLegacyNetwork::LayerStacks];
     usize correctBucket;
 };
 

@@ -73,7 +73,7 @@ trace(Position& pos, const Eval::NNUE::Network& network, Eval::NNUE::Accumulator
        << "|            |   (PSQT)   |  (Layers)  |            |\n"
        << "+------------+------------+------------+------------+\n";
 
-    for (usize bucket = 0; bucket < LayerStacks; ++bucket)
+    for (usize bucket = 0; bucket < HordeLegacyNetwork::LayerStacks; ++bucket)
     {
         ss << "|  " << bucket << "        "  //
            << " |  ";

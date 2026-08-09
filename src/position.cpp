@@ -960,7 +960,7 @@ bool Position::gives_check(Move m) const {
 void Position::do_move(Move                      m,
                        StateInfo&                newSt,
                        bool                      givesCheck,
-                       Dirties&                  dirties,
+                       DirtyPiece&               dp,
                        const TranspositionTable* tt      = nullptr,
                        const SharedHistories*    history = nullptr) {
 
@@ -981,10 +981,6 @@ void Position::do_move(Move                      m,
     ++gamePly;
     ++st->rule50;
     ++st->pliesFromNull;
-
-    // Run 6B consumes only DirtyPiece. Threat and pawn-pair deltas belong to
-    // the unsupported standard NNUE path and are expensive to build per move.
-    auto& dp = dirties.dirtyPiece;
 
     Color  us       = sideToMove;
     Color  them     = ~us;

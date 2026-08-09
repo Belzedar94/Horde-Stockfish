@@ -20,20 +20,17 @@
 #define NETWORK_H_INCLUDED
 
 #include <functional>
-#include <iostream>
-#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
 #include <filesystem>
+#include <type_traits>
 
-#include "../types.h"
 #include "../misc.h"
-#include "nnue_architecture.h"
-#include "nnue_feature_transformer.h"
-#include "nnue_misc.h"
+#include "../types.h"
 #include "horde_legacy_network.h"
+#include "nnue_misc.h"
 
 namespace Stockfish {
 class Position;
@@ -47,9 +44,9 @@ struct AccumulatorCaches;
 using NetworkOutput    = std::tuple<Value, Value>;
 using RawNetworkOutput = HordeLegacyNetwork::RawOutput;
 
-// The network must be a trivial type, i.e. the memory must be in-line.
-// This is required to allow sharing the network via shared memory, as
-// there is no way to run destructors.
+// Horde-Stockfish accepts exactly the registered Run 6B schema. The network
+// remains an inline trivial type so NUMA replication and shared memory retain
+// the Stockfish ownership contract.
 class Network {
    public:
     Network() = default;
@@ -89,34 +86,10 @@ class Network {
     void load_internal(EvalFile&);
 
    private:
-    void initialize();
-
-    bool                       save(std::ostream&, const std::string&) const;
-    std::optional<std::string> load(std::istream&);
-
-    bool read_header(std::istream&, u32*, std::string*) const;
-    bool write_header(std::ostream&, u32, const std::string&) const;
-
-    bool read_parameters(std::istream&, std::string&);
-    bool write_parameters(std::ostream&, const std::string&) const;
-
-    // Input feature converter
-    FeatureTransformer featureTransformer;
-
-    // Evaluation function
-    NetworkArchitecture network[LayerStacks];
-
-    // Registered compatibility backend for the canonical Run 6B network.
     HordeLegacyNetwork hordeLegacyNetwork;
-
-    bool initialized = false;
-
-    // Hash value of evaluation function structure
-    static constexpr u32 hash =
-      FeatureTransformer::get_hash_value() ^ NetworkArchitecture::get_hash_value();
-
-    friend struct AccumulatorCaches;
 };
+
+static_assert(std::is_trivially_copyable_v<Network>);
 
 
 }  // namespace Stockfish::Eval::NNUE

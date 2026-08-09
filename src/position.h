@@ -161,7 +161,7 @@ class Position {
     void do_move(Move                      m,
                  StateInfo&                newSt,
                  bool                      givesCheck,
-                 Dirties&                  dirties,
+                 DirtyPiece&               dirtyPiece,
                  const TranspositionTable* tt,
                  const SharedHistories*    worker);
     void undo_move(Move m);
@@ -249,7 +249,7 @@ class Position {
     int        gamePly;
     Color      sideToMove;
     bool       chess960;
-    Dirties    scratchDirties;
+    DirtyPiece scratchDirtyPiece;
 };
 
 std::ostream& operator<<(std::ostream& os, const Position& pos);
@@ -460,9 +460,7 @@ inline void Position::swap_piece(Square s, Piece pc, DirtyThreats* const dts) {
 }
 
 inline void Position::do_move(Move m, StateInfo& newSt, const TranspositionTable* tt = nullptr) {
-    new (&scratchDirties.dirtyThreats) DirtyThreats;
-    new (&scratchDirties.dirtyPawnPairs) DirtyPawnPairs;
-    do_move(m, newSt, gives_check(m), scratchDirties, tt, nullptr);
+    do_move(m, newSt, gives_check(m), scratchDirtyPiece, tt, nullptr);
 }
 
 inline StateInfo* Position::state() const { return st; }
