@@ -192,6 +192,88 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
 
 ## Registered experiments
 
+### 2026-08-10 - Active STC registry audit
+
+This snapshot closes the branch-to-workload registry for the active V3-book
+queue. Every entry below tests one candidate directly against
+`cee98c4d2f41295378c9cc02a9fb5153ae956d73`; none of these diffs is stacked
+with another candidate. Both sides use Run 6B, `8.0+0.08`, `Threads=1`,
+`Hash=32`, and SPRT `[1.00, 6.00]`. The game counts and LLR values are a
+point-in-time receipt, not final outcomes.
+
+Qsearch frontier and capture-selection experiments:
+
+- `test/qsearch-white-pawn-checks` at
+  `258cbc8761d0f45710b63174ac6f14de4888c585`, [test 309](https://belzedar.duckdns.org/test/309/):
+  add only quiet checking White-pawn moves at the first qsearch ply, with the
+  matching TT-depth distinction. Snapshot: 4,992 games, LLR `+1.26`.
+- `test/qsearch-disable-movecount` at
+  `d6c24b025c076c308b24e7263e4d9037afe07232`, [test 312](https://belzedar.duckdns.org/test/312/):
+  disable only qsearch's after-two-moves cutoff while retaining futility, SEE,
+  and non-capture pruning. Snapshot: 3,072 games, LLR `+0.47`.
+- `test/qsearch-pawn-capture-see` at
+  `09b748f83fd20a230a42d80f5592f88b3374af8a`, [test 310](https://belzedar.duckdns.org/test/310/):
+  exempt captures of physical White pawns only from qsearch's final fixed SEE
+  cutoff. Snapshot: zero games.
+- `test/qsearch-pawn-futility-see` at
+  `307f9396ac36667bd1a549d9c564ff5e6f0e43cd`, [test 311](https://belzedar.duckdns.org/test/311/):
+  exempt captures of physical White pawns only from the alpha-relative SEE
+  term inside qsearch futility. Snapshot: 1,536 games, LLR `-0.22`.
+- `test/qsearch-pawn-capture-quota` at
+  `037b1406ee8b0af6107bafb876fc13840917c9ad`, [test 315](https://belzedar.duckdns.org/test/315/):
+  preserve captures of physical White pawns after the qsearch move-count
+  cutoff while leaving futility and SEE active. Snapshot: zero games.
+
+Move-ordering and exact-SEE experiments:
+
+- `test/endgame-horde-capture-ordering` at
+  `3027c573c968121df2d3c352343bda37d0a32f35`, [test 314](https://belzedar.duckdns.org/test/314/):
+  add an extinction-oriented capture-ordering bonus only when the Horde has at
+  most four units. Snapshot: 1,920 games, LLR `+1.02`.
+- `test/white-pawn-king-ring-ordering` at
+  `eac98ff04eeb7b6f66fede406b5bd09bc17a1761`, [test 306](https://belzedar.duckdns.org/test/306/):
+  reward only White-pawn quiet moves that increase pressure in the Black king
+  ring. Snapshot: 252 games, LLR `+0.20`.
+- `test/extinction-capture-ordering` at
+  `210fe213ee6f39fb773a7528d407f3ac004efb31`, [test 328](https://belzedar.duckdns.org/test/328/):
+  prioritize captures of the final Horde unit in capture and evasion picking
+  only. Snapshot: 1,536 games, LLR `-0.32`.
+- `test/white-threat-penalty` at
+  `2b75d9777332e1d18d3ec36a66495181fe312cd2`, [test 319](https://belzedar.duckdns.org/test/319/):
+  remove the orthodox lesser-attacker quiet-ordering penalty for White only,
+  preserving it for Black. Snapshot: 1,536 games, LLR `-1.19`.
+- `test/promotion-see` at
+  `11e9cad9c2d7525383d6d1842b6fd410a16e6a8a`, [test 317](https://belzedar.duckdns.org/test/317/):
+  account exactly for the promoted-piece gain and destination target in SEE.
+  Snapshot: 640 games, LLR `+0.13`.
+- `test/en-passant-see` at
+  `8261fa2c44140b67f3c6736851dfc56f19eecea0`, [test 316](https://belzedar.duckdns.org/test/316/):
+  make SEE remove the captured pawn from its actual en-passant square and
+  update occupancy accordingly. Snapshot: 1,536 games, LLR `-0.93`.
+- `test/stat-score-legacy-pawn` at
+  `5ffb8496c5465efc39ab8cf2eb24397ab647dfde`, [test 321](https://belzedar.duckdns.org/test/321/):
+  use the Run 6B Horde-pawn value only in capture `statScore`'s captured-piece
+  component. Snapshot: 640 games, LLR `-0.02`.
+
+Main-search selectivity experiments:
+
+- `test/white-side-lmp` at
+  `61ac7ade38bedbe048288ca57a994ba7066030b5`, [test 326](https://belzedar.duckdns.org/test/326/):
+  disable late-move pruning only at White nodes. Snapshot: 1,240 games, LLR
+  `-0.28`.
+- `test/selective-white-pawn-lmp` at
+  `c3ddd1ebe6578a014b435e6a0132e7ee840acafb`, [test 313](https://belzedar.duckdns.org/test/313/):
+  after LMP triggers at White nodes, retain only physical White-pawn pushes and
+  continue discarding other quiet moves. Snapshot: 1,920 games, LLR `-0.18`.
+- `test/promotion-capture-futility` at
+  `6117c270ba6c36a5fedadac1d773d323acb8debf`, [test 329](https://belzedar.duckdns.org/test/329/):
+  add the exact promotion material gain only to the main-search capture-
+  futility margin for White promotions. Snapshot: 1,536 games, LLR `-0.32`.
+- `test/white-pawn-history-pruning` at
+  `c9ea09dc4275167f2e30c91c77d6307eb54ebad3`, [test 327](https://belzedar.duckdns.org/test/327/):
+  exempt physical White-pawn pushes only from continuation-history pruning.
+  Snapshot: 640 games, LLR `-0.53`.
+
 ### 2026-08-07 - Treat White Horde pawns as null-move material
 
 - Branch: `test/white-pawn-nmp`
