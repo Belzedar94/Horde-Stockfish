@@ -472,6 +472,26 @@ Main-search selectivity experiments:
 
 ## Local rejects
 
+### 2026-08-10 - Preserve only immediate White promotion threats from parent futility
+
+- Scope: after test 323 rejected the blanket White-pawn exemption, a separate
+  default-off prototype exempted only quiet physical White-pawn moves whose
+  destination was rank seven or eight. Black moves, other White pawn pushes,
+  margins, history, SEE, qsearch, evaluation, and rules remained unchanged.
+- Correctness: Horde rules and the Run 6B network contract passed. Three
+  default-mode benches reproduced 315,576 nodes and best-move digest
+  `fe9a5001c1997125ce34bf0ef119eab44570f5f363227bd4bab8e0db1f4e8592`.
+- Node-growth screen: three enabled benches were deterministic at 505,918
+  nodes versus 315,576 disabled, a `+60.32%` increase. The count is independent
+  of concurrent host load.
+- Post-mortem: pruning changes are non-monotonic. Preserving a small but
+  tactically critical promotion-front subset can open deeper reply subtrees
+  than the broader exemption, so a narrower predicate does not guarantee a
+  smaller search tree.
+- Decision: do not commit or register an OpenBench workload. Future promotion
+  work should prefer ordering, exact SEE, or a measured extension over removing
+  parent-node futility from this class.
+
 ### 2026-08-10 - Explicit legacy accumulator transform SIMD
 
 - Scope: a runtime-gated AVX2/SSE2 implementation replaced only the scalar
