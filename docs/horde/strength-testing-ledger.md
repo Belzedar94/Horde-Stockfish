@@ -135,6 +135,14 @@ First wave, all at priority 1000:
    samples measured `1.084210` and `1.025097`; their combined geometric ratio
    is `1.054239`, with 55/64 favorable pairs and identical fixed work and best
    moves. All four artifact jobs pass.
+
+   Overlap note: OpenBench tests 282, 283, and 284 remain separate semantic
+   experiments, but all three edit the same `Position::outcome()` region.
+   Tests 283 and 284 additionally carry the same byte-identical White mobility
+   helper in `movegen.cpp` and `movegen.h`. If any one is accepted into the
+   development baseline, the other affected tests must be reconstructed on
+   that new baseline before further testing; their current diffs must not be
+   stacked or interpreted as independent after integration.
 4. `test/fixed-royal-slider-blockers` at
    `acbacc48fdaabe49512d2dff89880f8f9ead95c6`. It replaces only the generic
    White king lookup and early return in `set_check_info()` with the fixed
