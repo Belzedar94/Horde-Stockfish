@@ -259,6 +259,42 @@ evidence. This includes `test/qsearch-legacy-pawn-futility` (LLR `-1.62` after
 - Decision: registered for STC `[1.00, 6.00]` with a 10,000-game neutral
   cutoff and a 20,000-game absolute ceiling.
 
+## OpenBench outcomes
+
+### 2026-08-09 - Legacy dirty-piece tracking only passes STC
+
+- Branch: `test/legacy-dirty-piece-only`, commit
+  `69e52de5aebe2733862de5d75e17dd951e5495a2`.
+- OpenBench: [STC test 295](https://belzedar.duckdns.org/test/295/) and
+  [LTC test 331](https://belzedar.duckdns.org/test/331/).
+- STC result: green at 8,704 games, 4,352-4,181-171,
+  pentanomial `[309, 80, 3488, 81, 394]`, raw Elo `+6.83 +/- 4.26`, and
+  LLR `+2.95` for SPRT `[1.00, 6.00]`.
+- Infrastructure audit: both sides used Run 6B and
+  `HORDE_openings_v3.epd`; the test recorded no crash or Horde error event.
+- Decision: advance the identical single change to LTC at `40.0+0.40`,
+  Threads=1 and Hash=128. It is not accepted into development until LTC also
+  passes and the exact build and correctness receipts are rechecked.
+
+### 2026-08-09 - Reject White-wide child-node futility disable
+
+- Branch: `test/white-side-node-futility`, commit
+  `7d8ae885b89adb1d9d1305ddbfea19c2401c9cc1`.
+- OpenBench: [test 305](https://belzedar.duckdns.org/test/305/).
+- Scope: one default-off UCI switch that disabled only child-node futility
+  when White was to move. All margins, Black-side futility, other pruning,
+  rules, evaluation, network, and book remained unchanged.
+- Result: red at 756 games, 304-440-12, pentanomial
+  `[75, 9, 281, 3, 10]`, raw Elo `-63.19 +/- 16.35`, and LLR `-2.96` for
+  SPRT `[1.00, 6.00]`.
+- Infrastructure audit: both sides used Run 6B and
+  `HORDE_openings_v3.epd`; the reporting machine showed matched candidate and
+  baseline NPS, with zero crashes and no Horde error row.
+- Decision: rejected. Blanket removal sacrifices far more effective depth
+  than it recovers from false prunes; any future White futility experiment
+  must target a measured tactical class or narrow margin instead of exempting
+  the whole Horde side.
+
 ### 2026-08-07 — Fixed-role `do_move()` checkers update
 
 - Branch: `test/fixed-role-do-move-checkers`
