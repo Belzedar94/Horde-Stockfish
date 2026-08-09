@@ -29,13 +29,15 @@ inline constexpr std::size_t V2ContainerGlobalLanes = 192;
 inline constexpr std::size_t V2ContainerInputLanes  = 256;
 
 enum class ContainerSchema : std::uint32_t {
-    ROYAL_64X192       = 0x00010001,
-    ABS_NONKING_64X192 = 0x00010002,
+    ROYAL_64X192        = 0x00010001,
+    ABS_NONKING_64X192  = 0x00010002,
+    ROYAL_RANK8_64X192  = 0x00010003,
 };
 
 enum class FirstDomain : std::uint32_t {
     ROYAL            = 1,
     ABSOLUTE_NONKING = 2,
+    ROYAL_RANK8      = 3,
 };
 
 enum class ContainerLoadError {
@@ -89,7 +91,10 @@ struct ContainerParameters {
            && firstRows == RoyalPieceSquareDimensions)
           || (schema == ContainerSchema::ABS_NONKING_64X192
               && firstDomain == FirstDomain::ABSOLUTE_NONKING
-              && firstRows == RoyalNonKingRoleCount * SQUARE_NB);
+              && firstRows == RoyalNonKingRoleCount * SQUARE_NB)
+          || (schema == ContainerSchema::ROYAL_RANK8_64X192
+              && firstDomain == FirstDomain::ROYAL_RANK8
+              && firstRows == RoyalRankPieceSquareDimensions);
         if (!schemaRows || firstWeights.size() != firstRows * V2ContainerFirstLanes
             || globalWeights.size()
                  != std::size_t(FixedRolePieceSquareDimensions) * V2ContainerGlobalLanes
@@ -174,22 +179,42 @@ class ContainerNetwork {
     [[nodiscard]] FirstDomain first_domain() const noexcept { return parameters_.firstDomain; }
 
     [[nodiscard]] RoyalKey first_domain_key(const FullRefreshFeatures& features) const noexcept {
-        return parameters_.firstDomain == FirstDomain::ROYAL ? features.royalKey
-                                                              : NoContainerFirstDomainKey;
+        switch (parameters_.firstDomain)
+        {
+        case FirstDomain::ROYAL :
+            return features.royalKey;
+        case FirstDomain::ROYAL_RANK8 :
+            return royal_rank_key(features.royalKey);
+        case FirstDomain::ABSOLUTE_NONKING :
+            return NoContainerFirstDomainKey;
+        }
+        return NoContainerFirstDomainKey;
     }
 
     [[nodiscard]] RoyalKey first_domain_key(const Position& pos) const noexcept {
-        return parameters_.firstDomain == FirstDomain::ROYAL
-               ? royal_key(pos.square<KING>(BLACK))
-               : NoContainerFirstDomainKey;
+        switch (parameters_.firstDomain)
+        {
+        case FirstDomain::ROYAL :
+            return royal_key(pos.square<KING>(BLACK));
+        case FirstDomain::ROYAL_RANK8 :
+            return royal_rank_key(pos.square<KING>(BLACK));
+        case FirstDomain::ABSOLUTE_NONKING :
+            return NoContainerFirstDomainKey;
+        }
+        return NoContainerFirstDomainKey;
     }
 
     [[nodiscard]] bool requires_refresh(RoyalKey sourceKey, RoyalKey targetKey) const noexcept {
         if (parameters_.firstDomain == FirstDomain::ABSOLUTE_NONKING)
             return sourceKey != NoContainerFirstDomainKey
                 || targetKey != NoContainerFirstDomainKey;
-        return !is_valid_royal_key(sourceKey) || !is_valid_royal_key(targetKey)
-            || sourceKey != targetKey;
+        const bool sourceValid = parameters_.firstDomain == FirstDomain::ROYAL
+                                 ? is_valid_royal_key(sourceKey)
+                                 : is_valid_royal_rank_key(sourceKey);
+        const bool targetValid = parameters_.firstDomain == FirstDomain::ROYAL
+                                 ? is_valid_royal_key(targetKey)
+                                 : is_valid_royal_rank_key(targetKey);
+        return !sourceValid || !targetValid || sourceKey != targetKey;
     }
 
     void full_refresh(Frame& frame, const FullRefreshFeatures& features) const noexcept {
@@ -228,7 +253,7 @@ class ContainerNetwork {
         if (!requires_refresh(source.key, targetKey))
             return materialize_child_delta(child, source, dirty, targetKey);
 
-        assert(parameters_.firstDomain == FirstDomain::ROYAL);
+        assert(parameters_.firstDomain != FirstDomain::ABSOLUTE_NONKING);
         child.global = source.global;
         apply_global_deltas(child.global, dirty);
         child.key   = targetKey;
@@ -300,6 +325,19 @@ class ContainerNetwork {
             return;
         }
 
+        if (parameters_.firstDomain == FirstDomain::ROYAL_RANK8)
+        {
+            for (std::size_t active = 0; active < features.royalSize; ++active)
+            {
+                const IndexType row = royal_rank_index_from_royal(features.royal[active]);
+                assert(row != InvalidRoyalRankFeatureIndex);
+                Kernels::add_row(accumulator,
+                                 parameters_.firstWeights.data()
+                                   + std::size_t(row) * V2ContainerFirstLanes);
+            }
+            return;
+        }
+
         for (std::size_t active = 0; active < features.globalSize; ++active)
         {
             const IndexType row = absolute_nonking_index_from_global(features.global[active]);
@@ -344,12 +382,8 @@ class ContainerNetwork {
                    RoyalKey                                       key) const noexcept {
         if (piece == B_KING)
             return;
-        const IndexType index = parameters_.firstDomain == FirstDomain::ROYAL
-                                ? royal_piece_square_index(piece, square, key)
-                                : absolute_nonking_piece_square_index(piece, square);
-        assert(index
-               != (parameters_.firstDomain == FirstDomain::ROYAL ? InvalidRoyalFeatureIndex
-                                                                  : InvalidFeatureIndex));
+        const IndexType index = first_domain_piece_square_index(piece, square, key);
+        assert(index < parameters_.firstRows);
         Kernels::add_row(accumulator, parameters_.firstWeights.data()
                                         + std::size_t(index) * V2ContainerFirstLanes);
     }
@@ -360,12 +394,8 @@ class ContainerNetwork {
                         RoyalKey                                       key) const noexcept {
         if (piece == B_KING)
             return;
-        const IndexType index = parameters_.firstDomain == FirstDomain::ROYAL
-                                ? royal_piece_square_index(piece, square, key)
-                                : absolute_nonking_piece_square_index(piece, square);
-        assert(index
-               != (parameters_.firstDomain == FirstDomain::ROYAL ? InvalidRoyalFeatureIndex
-                                                                  : InvalidFeatureIndex));
+        const IndexType index = first_domain_piece_square_index(piece, square, key);
+        assert(index < parameters_.firstRows);
         Kernels::subtract_row(accumulator, parameters_.firstWeights.data()
                                              + std::size_t(index) * V2ContainerFirstLanes);
     }
@@ -391,6 +421,21 @@ class ContainerNetwork {
             add_first(accumulator, dirty.pc, dirty.to, key);
         if (dirty.add_sq != SQ_NONE)
             add_first(accumulator, dirty.add_pc, dirty.add_sq, key);
+    }
+
+    [[nodiscard]] IndexType first_domain_piece_square_index(Piece    piece,
+                                                             Square   square,
+                                                             RoyalKey key) const noexcept {
+        switch (parameters_.firstDomain)
+        {
+        case FirstDomain::ROYAL :
+            return royal_piece_square_index(piece, square, key);
+        case FirstDomain::ROYAL_RANK8 :
+            return royal_rank_piece_square_index(piece, square, key);
+        case FirstDomain::ABSOLUTE_NONKING :
+            return absolute_nonking_piece_square_index(piece, square);
+        }
+        return InvalidFeatureIndex;
     }
 
     const ContainerParameters& parameters_;

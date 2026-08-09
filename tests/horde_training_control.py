@@ -183,6 +183,13 @@ def test_v2_gradient_path() -> None:
             362_824,
             "absolute_nonking_transformer",
         ),
+        "v2-c1-rank8-64x192": (
+            "royal_rank8",
+            64,
+            192,
+            936_264,
+            "royal_rank8_transformer",
+        ),
     }
     common_initial_states: dict[tuple[str, tuple[int, ...]], torch.Tensor] = {}
 
@@ -223,6 +230,18 @@ def test_v2_gradient_path() -> None:
                 raise AssertionError("C1 absolute domain retained a non-physical G0 row")
             if not torch.equal(absolute_offsets, batch.royal_offsets):
                 raise AssertionError("C1 absolute domain did not omit exactly the Black king")
+        elif first_domain == "royal_rank8":
+            rank8_indices, rank8_offsets = model.royal_rank8_features(batch)
+            rows_per_bucket = 10 * 64
+            expected_indices = (
+                torch.div(batch.v2_royal, rows_per_bucket * 4, rounding_mode="floor")
+                * rows_per_bucket
+                + torch.remainder(batch.v2_royal, rows_per_bucket)
+            )
+            if not torch.equal(rank8_indices, expected_indices):
+                raise AssertionError("C1 R8 projection changed its rank-bucket map")
+            if not torch.equal(rank8_offsets, batch.royal_offsets):
+                raise AssertionError("C1 R8 projection changed sparse record boundaries")
         before = control._state_sha256(model)
         for name in (
             "global_weights",

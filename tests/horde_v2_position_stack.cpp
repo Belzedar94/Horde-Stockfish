@@ -750,7 +750,8 @@ void exercise_container_move(const ContainerNetwork<Kernels>& network,
 
 template<typename Kernels>
 void exercise_container_special_moves(const ContainerNetwork<Kernels>& network) {
-    const bool royal = network.first_domain() == FirstDomain::ROYAL;
+    const bool fullRoyal = network.first_domain() == FirstDomain::ROYAL;
+    const bool keyedRoyal = network.first_domain() != FirstDomain::ABSOLUTE_NONKING;
     exercise_container_move(network, "4k3/8/8/8/8/8/P7/8 w - - 0 1", Move(SQ_A2, SQ_A3),
                             expected_dirty(W_PAWN, SQ_A2, SQ_A3), false);
     exercise_container_move(network, "4k3/8/8/8/8/8/2pR4/P7 w - - 0 1", Move(SQ_D2, SQ_C2),
@@ -763,19 +764,21 @@ void exercise_container_special_moves(const ContainerNetwork<Kernels>& network) 
       Move::make<PROMOTION>(SQ_B7, SQ_A8, QUEEN),
       expected_dirty(W_PAWN, SQ_B7, SQ_NONE, B_ROOK, SQ_A8, W_QUEEN, SQ_A8), false);
     exercise_container_move(network, "4k3/8/8/8/8/8/P7/8 b - - 0 1", Move(SQ_E8, SQ_D8),
-                            expected_dirty(B_KING, SQ_E8, SQ_D8), royal);
+                            expected_dirty(B_KING, SQ_E8, SQ_D8), keyedRoyal);
+    exercise_container_move(network, "3k4/8/8/8/8/8/P7/8 b - - 0 1", Move(SQ_D8, SQ_D7),
+                            expected_dirty(B_KING, SQ_D8, SQ_D7), keyedRoyal);
     exercise_container_move(network, "4k2r/8/8/8/8/8/P7/8 b k - 0 1",
                             Move::make<CASTLING>(SQ_E8, SQ_H8),
                             expected_dirty(B_KING, SQ_E8, SQ_G8, B_ROOK, SQ_H8, B_ROOK, SQ_F8),
-                            royal);
+                            fullRoyal);
     exercise_container_move(network, "4k1r1/8/8/8/8/8/P7/8 b g - 0 1",
                             Move::make<CASTLING>(SQ_E8, SQ_G8),
                             expected_dirty(B_KING, SQ_E8, SQ_G8, B_ROOK, SQ_G8, B_ROOK, SQ_F8),
-                            royal, true);
+                            fullRoyal, true);
     exercise_container_move(network, "5k1r/8/8/8/8/8/P7/8 b h - 0 1",
                             Move::make<CASTLING>(SQ_F8, SQ_H8),
                             expected_dirty(B_KING, SQ_F8, SQ_G8, B_ROOK, SQ_H8, B_ROOK, SQ_F8),
-                            royal, true);
+                            fullRoyal, true);
     exercise_container_move(network, "6kr/8/8/8/8/8/P7/8 b h - 0 1",
                             Move::make<CASTLING>(SQ_G8, SQ_H8),
                             expected_dirty(B_KING, SQ_G8, SQ_G8, B_ROOK, SQ_H8, B_ROOK, SQ_F8),
@@ -783,7 +786,7 @@ void exercise_container_special_moves(const ContainerNetwork<Kernels>& network) 
     exercise_container_move(network, "4kr2/8/8/8/8/8/P7/8 b f - 0 1",
                             Move::make<CASTLING>(SQ_E8, SQ_F8),
                             expected_dirty(B_KING, SQ_E8, SQ_G8, B_ROOK, SQ_F8, B_ROOK, SQ_F8),
-                            royal, true);
+                            fullRoyal, true);
 }
 
 template<typename Kernels>
@@ -909,7 +912,7 @@ LeanPositionReceipt exercise_container_legal_sequences(const ContainerNetwork<Ke
     receipt.materializations = stack.counters().materialized;
     assert(stack.counters().pushed == receipt.moves);
     assert(receipt.materializations == receipt.moves);
-    if (network.first_domain() == FirstDomain::ROYAL)
+    if (network.first_domain() != FirstDomain::ABSOLUTE_NONKING)
         assert(receipt.royalRefreshes > 0);
     else
         assert(receipt.royalRefreshes == 0);

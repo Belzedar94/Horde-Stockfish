@@ -15,6 +15,7 @@ try:
     from .horde_training_decoder import (
         LEGACY_DIMENSIONS,
         V2_GLOBAL_DIMENSIONS,
+        V2_ROYAL_RANK8_DIMENSIONS,
         V2_ROYAL_DIMENSIONS,
         WHITE,
     )
@@ -22,6 +23,7 @@ except ImportError:
     from horde_training_decoder import (
         LEGACY_DIMENSIONS,
         V2_GLOBAL_DIMENSIONS,
+        V2_ROYAL_RANK8_DIMENSIONS,
         V2_ROYAL_DIMENSIONS,
         WHITE,
     )
@@ -333,6 +335,93 @@ class AbsoluteNonKingV2Model(nn.Module):
             "absolute_nonking_transformer": (
                 self.absolute_nonking_weights,
                 self.absolute_nonking_bias,
+            ),
+            "global_transformer": (self.global_weights, self.global_bias),
+            "dense_trunk": (
+                self.hidden0_weights,
+                self.hidden0_bias,
+                self.hidden1_weights,
+                self.hidden1_bias,
+            ),
+            "output": (self.output_weights, self.output_bias),
+        }
+
+
+class RoyalRank8V2Model(nn.Module):
+    """C1 control keyed by Black-king rank and the canonical mirror bit."""
+
+    def __init__(self, royal_lanes: int, global_lanes: int, seed: int) -> None:
+        super().__init__()
+        self.royal_lanes = royal_lanes
+        self.global_lanes = global_lanes
+        self.royal_rank8_weights = _uniform_parameter(
+            (V2_ROYAL_RANK8_DIMENSIONS, royal_lanes),
+            seed,
+            "v2.royal_rank8_weights",
+            0.012,
+        )
+        self.royal_rank8_bias = nn.Parameter(torch.full((royal_lanes,), 0.45))
+        self.global_weights = _uniform_parameter(
+            (V2_GLOBAL_DIMENSIONS, global_lanes), seed, "v2.global_weights", 0.012
+        )
+        self.global_bias = nn.Parameter(torch.full((global_lanes,), 0.45))
+        transformed = royal_lanes + global_lanes
+        self.hidden0_weights = _uniform_parameter(
+            (HIDDEN0_LANES, transformed), seed, "v2.hidden0_weights", 0.018
+        )
+        self.hidden0_bias = nn.Parameter(torch.full((HIDDEN0_LANES,), 0.20))
+        self.hidden1_weights = _uniform_parameter(
+            (HIDDEN1_LANES, HIDDEN0_LANES), seed, "v2.hidden1_weights", 0.025
+        )
+        self.hidden1_bias = nn.Parameter(torch.full((HIDDEN1_LANES,), 0.20))
+        self.output_weights = _uniform_parameter(
+            (2, HIDDEN1_LANES), seed, "v2.output_weights", 0.020
+        )
+        self.output_bias = nn.Parameter(torch.zeros(2))
+
+    @staticmethod
+    def royal_rank8_features(batch: V2ModelBatch) -> tuple[Tensor, Tensor]:
+        """Fold each 32-bucket Royal row into its eight-rank bucket."""
+
+        rows_per_bucket = 10 * 64
+        bucket = torch.div(batch.v2_royal, rows_per_bucket, rounding_mode="floor")
+        within_bucket = torch.remainder(batch.v2_royal, rows_per_bucket)
+        rank8 = torch.div(bucket, 4, rounding_mode="floor") * rows_per_bucket + within_bucket
+        return rank8, batch.royal_offsets
+
+    def forward(self, batch: V2ModelBatch) -> Tensor:
+        rank8_indices, rank8_offsets = self.royal_rank8_features(batch)
+        royal = _sparse_sum(
+            rank8_indices,
+            rank8_offsets,
+            self.royal_rank8_weights,
+            self.royal_rank8_bias,
+        )
+        global_ = _sparse_sum(
+            batch.v2_global,
+            batch.global_offsets,
+            self.global_weights,
+            self.global_bias,
+        )
+        transformed = torch.clamp(torch.cat((royal, global_), dim=1), 0.0, 1.0)
+        hidden0 = torch.clamp(
+            functional.linear(transformed, self.hidden0_weights, self.hidden0_bias),
+            0.0,
+            1.0,
+        )
+        hidden1 = torch.clamp(
+            functional.linear(hidden0, self.hidden1_weights, self.hidden1_bias),
+            0.0,
+            1.0,
+        )
+        all_heads = functional.linear(hidden1, self.output_weights, self.output_bias)
+        return all_heads.gather(1, batch.side_to_move.unsqueeze(1)).squeeze(1)
+
+    def gradient_groups(self) -> dict[str, Iterable[nn.Parameter]]:
+        return {
+            "royal_rank8_transformer": (
+                self.royal_rank8_weights,
+                self.royal_rank8_bias,
             ),
             "global_transformer": (self.global_weights, self.global_bias),
             "dense_trunk": (

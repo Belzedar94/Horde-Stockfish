@@ -494,6 +494,26 @@ def main() -> int:
         ):
             raise AssertionError("C1 absolute-content training control did not complete")
 
+        c1_rank8 = root / "v2-c1-rank8-64x192-full"
+        c1_rank8_receipt = control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                c1_rank8,
+                architecture="v2-c1-rank8-64x192",
+            )
+        )
+        if (
+            c1_rank8_receipt["architecture"]["schema"]
+            != "V2_C1_ROYAL_RANK8_64X192"
+            or c1_rank8_receipt["architecture"]["domains"][0]["name"]
+            != "royal_rank8"
+            or not c1_rank8_receipt["run"]["complete"]
+        ):
+            raise AssertionError("C1 R8 training control did not complete")
+
         print(
             "Horde trainer resume parity passed: "
             f"legacy_sha256={full_semantic_sha} v2_sha256={v2_semantic_sha}"

@@ -24,6 +24,7 @@ from horde_v2_container import (  # noqa: E402
     DIRECTORY_OFFSET,
     FIRST_DOMAIN_ABSOLUTE_NONKING,
     FIRST_DOMAIN_ROYAL,
+    FIRST_DOMAIN_ROYAL_RANK8,
     MAX_SAFE_BIAS_MAGNITUDE,
     ContainerError,
     NetworkSpec,
@@ -256,7 +257,9 @@ def decode_parameters(container: ParsedContainer) -> IntegerParameters:
     )
 
 
-def sparse_indices(board: str) -> tuple[list[int], list[int], list[int]]:
+def sparse_indices(
+    board: str,
+) -> tuple[list[int], list[int], list[int], list[int]]:
     if len(board) != 64:
         raise AssertionError(f"fixture board is {len(board)} characters instead of 64")
     pieces: list[tuple[int, int]] = []
@@ -289,8 +292,9 @@ def sparse_indices(board: str) -> tuple[list[int], list[int], list[int]]:
         for role, square in pieces
         if role < 10
     ]
+    rank8_rows = [((row // (10 * 64)) // 4) * (10 * 64) + row % (10 * 64) for row in royal_rows]
     absolute_nonking_rows = [row for row in global_rows if row < 10 * 64]
-    return global_rows, royal_rows, absolute_nonking_rows
+    return global_rows, royal_rows, rank8_rows, absolute_nonking_rows
 
 
 def add_sparse_rows(
@@ -334,9 +338,11 @@ def evaluate_fixture(
     parameters: IntegerParameters,
     fixture: PositionFixture,
 ) -> dict[str, object]:
-    global_rows, royal_rows, absolute_rows = sparse_indices(fixture.board)
+    global_rows, royal_rows, rank8_rows, absolute_rows = sparse_indices(fixture.board)
     if container.spec.first_domain_code == FIRST_DOMAIN_ROYAL:
         first_rows = royal_rows
+    elif container.spec.first_domain_code == FIRST_DOMAIN_ROYAL_RANK8:
+        first_rows = rank8_rows
     elif container.spec.first_domain_code == FIRST_DOMAIN_ABSOLUTE_NONKING:
         first_rows = absolute_rows
     else:  # pragma: no cover - codec already rejects unknown domains
@@ -400,7 +406,7 @@ def expected_trace(path: Path) -> dict[str, object]:
         positions[3]["first_accumulator"] == positions[4]["first_accumulator"]
     )
     if mirrored_first_equal != (
-        parsed.spec.first_domain_code == FIRST_DOMAIN_ROYAL
+        parsed.spec.first_domain_code in (FIRST_DOMAIN_ROYAL, FIRST_DOMAIN_ROYAL_RANK8)
     ):
         raise AssertionError("mirrored fixtures contradict the registered first domain")
     if positions[3]["global_accumulator"] == positions[4]["global_accumulator"]:

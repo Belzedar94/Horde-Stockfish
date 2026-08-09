@@ -40,6 +40,7 @@ try:
         HordeBinV1Dataset,
         SparseBatch,
         V2_GLOBAL_DIMENSIONS,
+        V2_ROYAL_RANK8_DIMENSIONS,
         V2_ROYAL_DIMENSIONS,
         WHITE,
         dataset_receipt,
@@ -53,6 +54,7 @@ try:
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
+        RoyalRank8V2Model,
         V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
     from .horde_training_split_audit import audit_pair
@@ -68,6 +70,7 @@ except ImportError:
         HordeBinV1Dataset,
         SparseBatch,
         V2_GLOBAL_DIMENSIONS,
+        V2_ROYAL_RANK8_DIMENSIONS,
         V2_ROYAL_DIMENSIONS,
         WHITE,
         dataset_receipt,
@@ -81,6 +84,7 @@ except ImportError:
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
+        RoyalRank8V2Model,
         V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
     from horde_training_split_audit import audit_pair
@@ -120,6 +124,13 @@ V2_ARCHITECTURES = {
         "first_lanes": 64,
         "global_lanes": 192,
         "serialized_parameter_bytes": 362_824,
+    },
+    "v2-c1-rank8-64x192": {
+        "schema": "V2_C1_ROYAL_RANK8_64X192",
+        "first_domain": "royal_rank8",
+        "first_lanes": 64,
+        "global_lanes": 192,
+        "serialized_parameter_bytes": 936_264,
     },
 }
 ARCHITECTURE_CHOICES = (LEGACY_ARCHITECTURE, *V2_ARCHITECTURES)
@@ -329,6 +340,17 @@ def _v2_structure(name: str) -> dict[str, object]:
             "horizontal_mirror": "black king canonicalized to files E-H",
             "includes_black_king": False,
         }
+    elif first_domain == "royal_rank8":
+        first_domain_receipt = {
+            "name": "royal_rank8",
+            "dimensions": V2_ROYAL_RANK8_DIMENSIONS,
+            "lanes": first_lanes,
+            "black_king_buckets": 8,
+            "bucket_map": "black king rank",
+            "horizontal_mirror": "black king canonicalized to files E-H",
+            "refresh_key": "black king rank plus horizontal mirror bit",
+            "includes_black_king": False,
+        }
     elif first_domain == "absolute_nonking":
         first_domain_receipt = {
             "name": "absolute_nonking",
@@ -378,6 +400,8 @@ def _make_model(name: str, seed: int) -> nn.Module:
     global_lanes = int(config["global_lanes"])
     if config["first_domain"] == "royal":
         return HordeV2Model(first_lanes, global_lanes, seed)
+    if config["first_domain"] == "royal_rank8":
+        return RoyalRank8V2Model(first_lanes, global_lanes, seed)
     if config["first_domain"] == "absolute_nonking":
         return AbsoluteNonKingV2Model(first_lanes, global_lanes, seed)
     raise TrainingError(f"unknown V2 first domain: {config['first_domain']}")

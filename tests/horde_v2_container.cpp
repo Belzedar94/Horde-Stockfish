@@ -225,8 +225,8 @@ void verify_incremental_transition(const ContainerNetwork<Kernels>&       networ
         || child.key != refreshed.key)
         fail(std::string("incremental/full accumulator mismatch: ") + std::string(name));
 
-    const bool expectedRefresh = network.first_domain() == FirstDomain::ROYAL
-                              && sourceFeatures.royalKey != targetFeatures.royalKey;
+    const bool expectedRefresh =
+      network.first_domain_key(sourceFeatures) != network.first_domain_key(targetFeatures);
     if (refresh != expectedRefresh)
         fail(std::string("wrong first-domain refresh decision: ") + std::string(name));
 

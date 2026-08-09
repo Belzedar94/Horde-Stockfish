@@ -556,7 +556,8 @@ The first executable contract is `HORDE_V2_INTEGER_NETWORK_V1`. It uses the
 distinct eight-byte magic `HSV2INT\0`, a fixed 2,048-byte little-endian header,
 and ten authenticated parameter sections. Schema `0x00010001` registers
 `V2_BASE_P0_64X192`; schema `0x00010002` registers
-`V2_C1_ABS_NONKING_64X192`. The header carries both the container structural
+`V2_C1_ABS_NONKING_64X192`; and schema `0x00010003` registers
+`V2_C1_ROYAL_RANK8_64X192`. The header carries both the container structural
 hash and the training architecture structural hash, plus the exact checkpoint,
 training receipt, train split, validation split, WDL calibration, and clean
 source-commit identities. A schema is never inferred from the file size or a
@@ -575,8 +576,8 @@ legal full-refresh and dense sums inside signed 32-bit range.
 checkpoint and writes the container exclusively. `tools/horde_v2_container.py`
 owns the canonical descriptor and an independent fail-closed reader.
 `src/nnue/horde_v2_container.cpp` owns the C++ reader and the container-specific
-full-refresh and incremental adapters. Both registered schemas use the shared
-lazy stack and dense propagation path. `tests/horde_v2_container_parity.py`
+full-refresh and incremental adapters. All three registered schemas use the
+shared lazy stack and dense propagation path. `tests/horde_v2_container_parity.py`
 independently reconstructs sparse rows and every integer layer, compares Python
 with scalar and AVX2 C++, invokes scalar and AVX2 real-`Position` stack oracles,
 and verifies adversarial header, provenance, directory, payload, truncation,
@@ -595,10 +596,10 @@ The subsequent lazy incremental stack is frozen separately in
 `docs/horde/nnue-v2-incremental-container-receipt.json` at source commit
 `a1b318ae`. It verifies real-`Position` make/undo/null transitions, ordinary
 delta materialization, Royal-only refreshes after king-bucket changes, both
-registered container schemas, scalar/AVX2 parity, and ASan/UBSan. The older
-full-refresh receipt remains immutable and therefore retains its historical
-`incremental_eligible: false` field. Neither receipt enables production UCI
-dispatch or makes a playing-strength claim.
+schemas registered at that source commit, scalar/AVX2 parity, and ASan/UBSan.
+The older full-refresh receipt remains immutable and therefore retains its
+historical `incremental_eligible: false` field. Neither receipt enables
+production UCI dispatch or makes a playing-strength claim.
 
 The engine dispatch order is explicit:
 
@@ -752,7 +753,26 @@ not parameter matched: the absolute control serializes 362,824 parameter bytes
 and the Royal candidate 2,902,344. C1 must therefore judge any fixed-node gain
 against the Royal table's measured refresh, cache, and equal-time cost.
 
-The real-data C1 plumbing canary is frozen in
+The compact Royal control is `v2-c1-rank8-64x192`, schema
+`V2_C1_ROYAL_RANK8_64X192`. It keeps the same ten non-king roles, 64 first-domain
+lanes, G0 192, trunk, heads, initialization, labels, optimizer, and schedule.
+Its Royal key contains only the Black king rank and horizontal reflection: eight
+buckets, 5,120 rows, and 936,264 serialized parameter bytes. A king move within
+the same rank and mirrored half keeps the key and uses ordinary deltas; a rank
+or mirror-key transition refreshes only the first domain. This is a topology
+control, not a contextual pawn feature.
+
+The decisive C1 comparison is three-way: absolute, Rank-8 Royal, and the full
+32-bucket Royal map. It uses disjoint 250,000-position training and
+250,000-position validation sets, three paired seeds, and exactly 2,000,000
+training-example exposures per model. Dataset, labels, calibration, optimizer,
+widths, initialization policy, and export quantization remain identical. A tie
+selects the cheaper model. The 32-bucket map is retained only if it beats Rank-8
+after quantized training, establishes a fixed-node 95% lower bound above
+`+2 Elo`, and then establishes a positive equal-time 95% lower bound. No larger
+map advances on floating-point validation loss alone.
+
+The existing real-data C1 plumbing canary is frozen in
 `docs/horde/nnue-v2-c1-real-canary-receipt.json`. Both architectures completed
 two byte-identical three-epoch CPU runs on the same authenticated 4,096/1,024
 split, and every first-domain, Global, dense, and output gradient group was
@@ -795,22 +815,25 @@ advances because of validation loss alone.
    the single table and require identical forward values, gradients, optimizer
    state and exported integer evaluations after reassembly.
 7. C1 isolates Royal content at the fastest surviving split: compare
-   `ABS_NONKING_64 + G0_192` with `R0_64 + G0_192`. The absolute first domain
-   uses the same ten non-king roles and at most 51 active rows, but has no king
-   bucket or orientation. This is a content control, not a parameter-matched
-   claim; R0 intentionally owns many more rows.
-8. C2 runs only if R0 passes C1: compare `R0_128 + G0_128` with the accepted
-   `R0_64 + G0_192`. These are the two width points that survived the real AVX2
-   gate and have equal dense work, accumulator bytes and quiet-move lane work.
-9. Freeze one no-context width before testing side-to-move, phase, count or
-   contextual features. Prefer `64+192` unless `128+128` establishes a
-   positive fixed-node lower bound and then wins equal-time.
+   `ABS_NONKING_64 + G0_192`, `ROYAL_RANK8_64 + G0_192`, and
+   `ROYAL_32_64 + G0_192`. All three use the same ten non-king roles and at most
+   51 active rows. This is a content/topology control, not a parameter-matched
+   claim; the three first domains intentionally own different row counts.
+8. C2 runs only if a Royal map passes C1: compare the accepted map at
+   `Royal_128 + G0_128` with `Royal_64 + G0_192`. These are the two width points
+   that survived the real AVX2 gate and have equal dense work, accumulator bytes
+   and quiet-move lane work.
+9. Freeze one no-context map and width before testing side-to-move, phase,
+   count, pawn-boundary, or relational features. Prefer the cheaper topology
+   unless a larger point establishes the required fixed-node lower bound and
+   then wins equal-time.
 10. Compare two final STM rows with one dense STM scalar or tiny embedding.
 11. Compare no count, one count feature, and White-count phase buckets as
     alternatives.
 12. Test each remaining scalar count independently.
-13. Test each per-file shape representation independently; frontier plane and
-    front-rank summary are alternatives first.
+13. Test one frontier-square pawn representation by itself. A front-rank
+    summary is a separate alternative and is not combined without individual
+    receipts.
 14. Test each P2 predicate independently.
 15. Only then test promotion-runner, king-ring, and relational threat blocks.
 
@@ -820,12 +843,15 @@ tested only after both individual receipts exist.
 
 ## Open questions before a frozen V2 schema
 
-- Does R0 beat the absolute non-king content control after its refresh cost?
-- Is the 32-bucket Royal map worth 10 MiB, or should it be coarser?
+- Does either Royal map beat the absolute non-king content control after its
+  refresh cost?
+- Is rank-only Royal context sufficient, or does the 32-bucket map justify its
+  larger table and higher refresh/cache cost?
 - Can a Royal refresh cache amortize the measured search-node king-move rate?
 - Do two final STM rows beat a post-transform STM scalar at equal NPS?
 - Which count or phase representation has adequate late-extinction coverage?
-- Which boundary pawn representation adds information beyond G0?
+- Does a frontier-square pawn representation add information beyond G0 before
+  any richer rank, file, or support encoding is introduced?
 - Which exact integer scales and bounds give safe, efficient inference?
 - Which score/result calibration best fits each side to move?
 - How much near-extinction and near-fortress oversampling helps without

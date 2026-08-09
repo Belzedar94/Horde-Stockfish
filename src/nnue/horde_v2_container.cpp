@@ -35,14 +35,19 @@ constexpr std::size_t         MaximumContainerBytes = 16 * 1024 * 1024;
 constexpr std::string_view ContainerSchemaName = "HORDE_V2_INTEGER_NETWORK_V1";
 constexpr std::string_view RoyalSchemaName     = "V2_BASE_P0_64X192";
 constexpr std::string_view AbsoluteSchemaName  = "V2_C1_ABS_NONKING_64X192";
+constexpr std::string_view RoyalRank8SchemaName = "V2_C1_ROYAL_RANK8_64X192";
 constexpr std::string_view RoyalStructureSha =
   "7456B4C43FCF9CCCCB57C465D92708975BC131058619EB58D7EB239BCA42F9D1";
 constexpr std::string_view AbsoluteStructureSha =
   "4FC702F66B3B1BB12105B67C05FFFC73B9B17E9B33EF09EBF9BEE04570AFE21A";
+constexpr std::string_view RoyalRank8StructureSha =
+  "D99A6CBE80F94ED45DA5888193474C590FDDFBD2A458D9F3516CE1EFCC0B135F";
 constexpr std::string_view RoyalTrainingStructureSha =
   "5360985A5B08E43A6F7C23E8601DF159BAEE38E9306C3652867AA93EEAD39862";
 constexpr std::string_view AbsoluteTrainingStructureSha =
   "66538DB76A0248662A824545A2ECCD2AE84CD4805DDFCA206B5239FA3BDE45B6";
+constexpr std::string_view RoyalRank8TrainingStructureSha =
+  "53A82F734EBCAD97508AD91D54027ADD10772A1DC85A612F5D395AEE08567083";
 
 enum class DType : Byte {
     I8  = 1,
@@ -74,6 +79,13 @@ constexpr SchemaSpec AbsoluteSpec{ContainerSchema::ABS_NONKING_64X192,
                                   AbsoluteStructureSha,
                                   AbsoluteTrainingStructureSha,
                                   362824};
+constexpr SchemaSpec RoyalRank8Spec{ContainerSchema::ROYAL_RANK8_64X192,
+                                    FirstDomain::ROYAL_RANK8,
+                                    RoyalRankPieceSquareDimensions,
+                                    RoyalRank8SchemaName,
+                                    RoyalRank8StructureSha,
+                                    RoyalRank8TrainingStructureSha,
+                                    936264};
 
 struct SectionSpec {
     std::uint16_t id;
@@ -102,6 +114,8 @@ const SchemaSpec* schema_spec(std::uint32_t value) noexcept {
         return &RoyalSpec;
     if (value == std::uint32_t(ContainerSchema::ABS_NONKING_64X192))
         return &AbsoluteSpec;
+    if (value == std::uint32_t(ContainerSchema::ROYAL_RANK8_64X192))
+        return &RoyalRank8Spec;
     return nullptr;
 }
 
@@ -396,5 +410,6 @@ ContainerLoadResult load_integer_container(const std::filesystem::path& path) {
 
 static_assert(RoyalSpec.parameterBytes == 2902344);
 static_assert(AbsoluteSpec.parameterBytes == 362824);
+static_assert(RoyalRank8Spec.parameterBytes == 936264);
 
 }  // namespace Stockfish::Eval::NNUE::HordeV2

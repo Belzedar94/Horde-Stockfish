@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checkpoint-to-container tests for both registered Horde V2 schemas."""
+"""Checkpoint-to-container tests for the registered Horde V2 schemas."""
 
 from __future__ import annotations
 
@@ -16,7 +16,11 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from horde_training_models import AbsoluteNonKingV2Model, HordeV2Model  # noqa: E402
+from horde_training_models import (  # noqa: E402
+    AbsoluteNonKingV2Model,
+    HordeV2Model,
+    RoyalRank8V2Model,
+)
 from horde_v2_container import SPECS, read_container  # noqa: E402
 from horde_v2_export import ExportError, export_checkpoint  # noqa: E402
 
@@ -33,6 +37,8 @@ def fixture(spec: object) -> tuple[dict[str, object], dict[str, object]]:
     }
     if spec.first_domain_name == "royal":
         model = HordeV2Model(64, 192, 0x56324558)
+    elif spec.first_domain_name == "royal_rank8":
+        model = RoyalRank8V2Model(64, 192, 0x56324558)
     else:
         model = AbsoluteNonKingV2Model(64, 192, 0x56324558)
     checkpoint: dict[str, object] = {

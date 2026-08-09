@@ -30,6 +30,7 @@ MAXIMUM_CONTAINER_BYTES = 16 * 1024 * 1024
 ROUND_TO_NEAREST_TIES_EVEN = 1
 FIRST_DOMAIN_ROYAL = 1
 FIRST_DOMAIN_ABSOLUTE_NONKING = 2
+FIRST_DOMAIN_ROYAL_RANK8 = 3
 RULE50_POSTPROCESSOR_V1 = 1
 FEATURE_ORDER_A1_H8_V1 = 1
 
@@ -139,6 +140,20 @@ class NetworkSpec:
                 "name": "royal",
                 "roles": roles,
             }
+        elif self.first_domain_code == FIRST_DOMAIN_ROYAL_RANK8:
+            first = {
+                "active_rows_max": 51,
+                "bias_policy": "one shared bias across all king-rank buckets",
+                "black_king_buckets": 8,
+                "bucket_map": "black king rank",
+                "dimensions": self.first_rows,
+                "index": "((rank_bucket * 10 + role) * 64) + oriented_square",
+                "lanes": FIRST_LANES,
+                "mirror": "files A-D horizontally reflected; king canonicalized to E-H",
+                "name": "royal_rank8",
+                "refresh_key": "black king rank plus horizontal mirror bit",
+                "roles": roles,
+            }
         else:
             first = {
                 "active_rows_max": 51,
@@ -221,6 +236,15 @@ SPECS: tuple[NetworkSpec, ...] = (
         first_domain_code=FIRST_DOMAIN_ABSOLUTE_NONKING,
         first_domain_name="absolute_nonking",
         first_rows=10 * 64,
+    ),
+    NetworkSpec(
+        architecture="v2-c1-rank8-64x192",
+        schema_id=0x00010003,
+        schema_name="V2_C1_ROYAL_RANK8_64X192",
+        training_structural_sha256="53A82F734EBCAD97508AD91D54027ADD10772A1DC85A612F5D395AEE08567083",
+        first_domain_code=FIRST_DOMAIN_ROYAL_RANK8,
+        first_domain_name="royal_rank8",
+        first_rows=8 * 10 * 64,
     ),
 )
 SPECS_BY_ARCHITECTURE = {spec.architecture: spec for spec in SPECS}

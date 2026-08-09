@@ -31,6 +31,7 @@ LEGACY_DIMENSIONS = 896
 V2_SCHEMA = "V2_BASE_P0"
 V2_GLOBAL_DIMENSIONS = 704
 V2_ROYAL_DIMENSIONS = 20_480
+V2_ROYAL_RANK8_DIMENSIONS = 5_120
 
 # HORDE_BIN_V1 physical piece codes are deliberately aligned with V2 fixed
 # roles after subtracting one. Legacy families preserve Run 6B's H/P split.
