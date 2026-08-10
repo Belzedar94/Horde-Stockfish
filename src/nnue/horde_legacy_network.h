@@ -36,10 +36,13 @@ struct AccumulatorState;
 class HordeLegacyNetwork {
    public:
     static constexpr const char* SchemaName = "HORDETEST_HP_LEGACY_V1";
+    // The default production artifact remains Run 6B. Additional legacy
+    // artifacts are accepted only when their full digest and size are present
+    // in the compiled registry in horde_legacy_network.cpp.
     static constexpr const char* Sha256 =
       "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7";
 
-    static constexpr usize FileSize              = 1088416;
+    static constexpr usize Run6BFileSize          = 1088416;
     static constexpr usize FeatureDimensions     = HordeLegacy::PieceSquareDimensions;
     static constexpr usize AccumulatorDimensions = 512;
     static constexpr usize NetworkInputs         = 1024;
@@ -58,6 +61,8 @@ class HordeLegacyNetwork {
     [[nodiscard]] bool      loaded() const { return loaded_; }
     [[nodiscard]] usize     content_hash() const;
     [[nodiscard]] int       bucket_for(const Position& pos) const;
+    [[nodiscard]] const char* artifact_name() const;
+    [[nodiscard]] const char* artifact_sha256() const;
 
    private:
     struct LayerStack {
@@ -75,6 +80,7 @@ class HordeLegacyNetwork {
     std::array<i32, FeatureDimensions * PsqtBuckets>           psqtWeights_{};
     std::array<LayerStack, LayerStacks>                        layers_{};
     bool                                                       loaded_ = false;
+    u8                                                         manifestId_ = 0;
 
     void refresh_accumulator(const Position& pos, AccumulatorState& target) const;
     void update_accumulator(const DirtyPiece&       dirty,

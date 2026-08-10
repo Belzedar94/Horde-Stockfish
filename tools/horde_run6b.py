@@ -144,22 +144,51 @@ class Run6BNetwork:
 
     @classmethod
     def load(cls, path: Path) -> Run6BNetwork:
+        return cls.load_registered(path, RUN6B_SHA256, FILE_SIZE, "Run 6B")
+
+    @classmethod
+    def load_registered(
+        cls,
+        path: Path,
+        expected_sha256: str,
+        expected_size: int,
+        artifact_name: str = "registered legacy NNUE",
+    ) -> Run6BNetwork:
         resolved = path.expanduser().resolve()
         payload = resolved.read_bytes()
-        _require(len(payload) == FILE_SIZE, f"Run 6B size mismatch: {len(payload)}")
+        _require(
+            isinstance(expected_size, int) and expected_size > 0,
+            "registered legacy NNUE size is invalid",
+        )
+        expected_sha256 = expected_sha256.upper()
+        _require(
+            len(expected_sha256) == 64
+            and all(character in "0123456789ABCDEF" for character in expected_sha256),
+            "registered legacy NNUE SHA-256 is invalid",
+        )
+        _require(
+            len(payload) == expected_size,
+            f"{artifact_name} size mismatch: {len(payload)}",
+        )
         observed_sha = hashlib.sha256(payload).hexdigest().upper()
-        _require(observed_sha == RUN6B_SHA256, f"Run 6B SHA-256 mismatch: {observed_sha}")
+        _require(
+            observed_sha == expected_sha256,
+            f"{artifact_name} SHA-256 mismatch: {observed_sha}",
+        )
 
         reader = _Reader(payload)
         version = reader.u32()
         network_hash = reader.u32()
         description = reader.text(reader.u32())
         transformer_hash = reader.u32()
-        _require(version == FILE_VERSION, f"Run 6B version mismatch: 0x{version:08X}")
-        _require(network_hash == NETWORK_HASH, f"Run 6B network hash mismatch: 0x{network_hash:08X}")
+        _require(version == FILE_VERSION, f"{artifact_name} version mismatch: 0x{version:08X}")
+        _require(
+            network_hash == NETWORK_HASH,
+            f"{artifact_name} network hash mismatch: 0x{network_hash:08X}",
+        )
         _require(
             transformer_hash == TRANSFORMER_HASH,
-            f"Run 6B transformer hash mismatch: 0x{transformer_hash:08X}",
+            f"{artifact_name} transformer hash mismatch: 0x{transformer_hash:08X}",
         )
 
         biases = reader.values("h", ACCUMULATOR_DIMENSIONS, "feature-transformer biases")
@@ -177,7 +206,7 @@ class Run6BNetwork:
             architecture_hash = reader.u32()
             _require(
                 architecture_hash == ARCHITECTURE_HASH,
-                f"Run 6B stack {stack_index} architecture hash mismatch: "
+                f"{artifact_name} stack {stack_index} architecture hash mismatch: "
                 f"0x{architecture_hash:08X}",
             )
             layers.append(
@@ -187,7 +216,7 @@ class Run6BNetwork:
                     _read_dense(reader, 32, 32, 1),
                 )
             )
-        _require(reader.offset == len(payload), "Run 6B contains trailing bytes")
+        _require(reader.offset == len(payload), f"{artifact_name} contains trailing bytes")
         return cls(description, biases, weights, psqt_weights, tuple(layers))
 
     def _accumulate(self, indices: Sequence[int], bucket: int) -> tuple[list[int], int]:

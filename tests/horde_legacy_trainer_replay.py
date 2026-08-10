@@ -45,6 +45,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=ROOT / "networks" / "hordetest_run6b_e37_l06.nnue",
     )
+    parser.add_argument("--expected-sha256", default=horde_run6b.RUN6B_SHA256)
+    parser.add_argument("--expected-size", type=int, default=horde_run6b.FILE_SIZE)
+    parser.add_argument("--artifact-name", default="Run 6B")
     parser.add_argument("--positions", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--seed", type=lambda value: int(value, 0), default=0x6B37_06)
@@ -60,7 +63,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.positions <= 0 or args.batch_size <= 0:
         raise AssertionError("positions and batch size must be positive")
 
-    network = horde_run6b.Run6BNetwork.load(network_path)
+    network = horde_run6b.Run6BNetwork.load_registered(
+        network_path,
+        args.expected_sha256,
+        args.expected_size,
+        args.artifact_name,
+    )
     positions, coverage = parity.generate_positions(args.positions, args.seed)
     missing = [
         label
@@ -98,7 +106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         checked += len(fens)
 
     print(
-        "Run 6B trainer replay passed: "
+        "Horde legacy trainer replay passed: "
         f"positions={checked}, raw_sha256={digest.hexdigest().upper()}, "
         f"description={network.description!r}"
     )

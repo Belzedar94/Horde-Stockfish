@@ -1,0 +1,27 @@
+{
+  "schema": "HORDE_FRESH_LEGACY_PLAYABLE_MANIFEST_V1",
+  "artifact": {
+    "file_name": "fresh-legacy-250k-seed01.nnue",
+    "file_size": 1088499,
+    "sha256": "3E518F19CCC381235399FD11C64E2C81BAF6983FB823FCE628C2768D5820DFEE"
+  },
+  "export_receipt": {
+    "schema": "HORDE_FRESH_LEGACY_NNUE_EXPORT_V1",
+    "sha256": "CE2CCD6456224A6055F239B609BBCF1243968C86AB99249CA7C6BDACCDADA1A4"
+  },
+  "training": {
+    "architecture": "HORDETEST_HP_FRESH_CONTROL_V1",
+    "checkpoint_sha256": "DCEBF18F3698ED4DED176BF484542EF30AC3958E26FEF98C83AF60C24BAA709B",
+    "feature_schema": "HORDETEST_HP_LEGACY_V1",
+    "seed": 7435908571601354096,
+    "source_commit": "7c2ab02dbd77d8707b49b1c7038d7d31b869bf94",
+    "train_file_sha256": "0BFEB566EC1587256DBDB6111689DF51EAFD3063C7D47A2120655B917E29AC6A",
+    "training_receipt_sha256": "898B694EF7DBF70501855599E6A2D47ABAA35B55AA5344BBA61B23DC2B83FA92",
+    "validation_file_sha256": "945983D43EEB7D180110765A73DF8C3E6E71CB6E7FE3C575478549F11E7A3A70"
+  },
+  "claims": {
+    "production_network": false,
+    "strength_evidence": false,
+    "requires_equal_time_gate": true
+  }
+}

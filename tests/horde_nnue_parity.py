@@ -272,7 +272,38 @@ def raw_eval_batch(
     timeout: float,
 ) -> list[tuple[int, int, int]]:
     """Compatibility wrapper for raw-only determinism consumers."""
-    return network_eval_batch(executable, prefix, fens, hordetest, cwd, timeout)[0]
+    commands = list(prefix)
+    for fen in fens:
+        commands.append(f"position fen {to_hordetest_fen(fen) if hordetest else fen}")
+        commands.append("horde-raw-eval")
+    commands.append("quit")
+
+    completed = subprocess.run(
+        [str(executable)],
+        cwd=cwd,
+        input=("\n".join(commands) + "\n").encode("ascii"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+        check=False,
+    )
+    output = completed.stdout.decode("utf-8", errors="replace")
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"{executable.name} exited with {completed.returncode}:\n{output[-4000:]}"
+        )
+
+    raw_values = [
+        tuple(map(int, match.groups()))
+        for line in output.splitlines()
+        if (match := RAW_RE.fullmatch(line.strip()))
+    ]
+    if len(raw_values) != len(fens):
+        raise RuntimeError(
+            f"{executable.name} returned {len(raw_values)} raw evaluations "
+            f"for {len(fens)} positions:\n{output[-4000:]}"
+        )
+    return raw_values
 
 
 def with_rule50(fen: str, count: int) -> str:

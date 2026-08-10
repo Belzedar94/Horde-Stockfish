@@ -35,9 +35,44 @@ constexpr int WeightScaleBits  = 6;
 constexpr int OutputScale      = 16;
 constexpr int StartPieceCount  = 52;
 
-constexpr std::array<unsigned char, 32> ExpectedSha256 = {
-  0xB7, 0x11, 0x08, 0x58, 0x79, 0x68, 0xAC, 0x54, 0x4E, 0xB2, 0xE6, 0x2C, 0x23, 0x33, 0xFE, 0xCA,
-  0x88, 0x0D, 0xA5, 0xAC, 0xA5, 0x28, 0x66, 0x78, 0x7F, 0x14, 0x02, 0x16, 0x34, 0x44, 0xAD, 0xF7};
+struct LegacyArtifactManifest {
+    const char*                   name;
+    const char*                   sha256;
+    usize                         fileSize;
+    std::array<unsigned char, 32> digest;
+    usize                         contentHash;
+};
+
+constexpr std::array<LegacyArtifactManifest, 2> LegacyArtifactRegistry = {{
+  {"Run 6B",
+   "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7",
+   HordeLegacyNetwork::Run6BFileSize,
+   {0xB7, 0x11, 0x08, 0x58, 0x79, 0x68, 0xAC, 0x54, 0x4E, 0xB2, 0xE6, 0x2C, 0x23, 0x33,
+    0xFE, 0xCA, 0x88, 0x0D, 0xA5, 0xAC, 0xA5, 0x28, 0x66, 0x78, 0x7F, 0x14, 0x02, 0x16,
+    0x34, 0x44, 0xAD, 0xF7},
+   usize(0xB71108587968AC54ULL)},
+  {"fresh legacy 250k seed 1",
+   "3E518F19CCC381235399FD11C64E2C81BAF6983FB823FCE628C2768D5820DFEE",
+   1088499,
+   {0x3E, 0x51, 0x8F, 0x19, 0xCC, 0xC3, 0x81, 0x23, 0x53, 0x99, 0xFD, 0x11, 0xC6, 0x4E,
+    0x2C, 0x81, 0xBA, 0xF6, 0x98, 0x3F, 0xB8, 0x23, 0xFC, 0xE6, 0x28, 0xC2, 0x76, 0x8D,
+    0x58, 0x20, 0xDF, 0xEE},
+   usize(0x3E518F19CCC38123ULL)},
+}};
+
+const LegacyArtifactManifest* find_manifest(const std::array<unsigned char, 32>& digest,
+                                            usize                                size) {
+    for (const LegacyArtifactManifest& manifest : LegacyArtifactRegistry)
+        if (manifest.fileSize == size && manifest.digest == digest)
+            return &manifest;
+    return nullptr;
+}
+
+const LegacyArtifactManifest* manifest_by_id(u8 manifestId) {
+    if (manifestId == 0 || manifestId > LegacyArtifactRegistry.size())
+        return nullptr;
+    return &LegacyArtifactRegistry[manifestId - 1];
+}
 
 constexpr std::array<u32, 64> Sha256Constants = {
   0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u, 0x923f82a4u,
@@ -221,19 +256,21 @@ u8 activate(i32 value) { return static_cast<u8>(std::clamp(value >> WeightScaleB
 }  // namespace
 
 bool HordeLegacyNetwork::load(const unsigned char* data, usize size, std::string& description) {
-    loaded_ = false;
+    loaded_     = false;
+    manifestId_ = 0;
     description.clear();
 
-    if (!data || size != FileSize)
+    if (!data || size < 1'000'000 || size > 2'000'000)
     {
-        description = "file size does not match the Run 6B manifest";
+        description = "file size is outside the registered legacy NNUE envelope";
         return false;
     }
     const auto digest = sha256(data, size);
-    if (digest != ExpectedSha256)
+    const auto* manifest = find_manifest(digest, size);
+    if (!manifest)
     {
         constexpr char Hex[] = "0123456789ABCDEF";
-        description          = "SHA-256 does not match the registered Run 6B artifact (got ";
+        description          = "SHA-256 does not match a registered legacy NNUE artifact at this size (got ";
         for (const unsigned char byte : digest)
         {
             description += Hex[byte >> 4];
@@ -280,6 +317,8 @@ bool HordeLegacyNetwork::load(const unsigned char* data, usize size, std::string
     loaded_ = layerStream.peek() == std::char_traits<char>::eof();
     if (!loaded_)
         description = "legacy network contains trailing bytes";
+    else
+        manifestId_ = static_cast<u8>(manifest - LegacyArtifactRegistry.data() + 1);
     return loaded_;
 }
 
@@ -440,7 +479,18 @@ HordeLegacyNetwork::RawOutput HordeLegacyNetwork::evaluate_raw_full_refresh(cons
 }
 
 usize HordeLegacyNetwork::content_hash() const {
-    return loaded_ ? usize(0xB71108587968AC54ULL) : 0;
+    const auto* manifest = loaded_ ? manifest_by_id(manifestId_) : nullptr;
+    return manifest ? manifest->contentHash : 0;
+}
+
+const char* HordeLegacyNetwork::artifact_name() const {
+    const auto* manifest = loaded_ ? manifest_by_id(manifestId_) : nullptr;
+    return manifest ? manifest->name : "unloaded";
+}
+
+const char* HordeLegacyNetwork::artifact_sha256() const {
+    const auto* manifest = loaded_ ? manifest_by_id(manifestId_) : nullptr;
+    return manifest ? manifest->sha256 : "";
 }
 
 }  // namespace Stockfish::Eval::NNUE
