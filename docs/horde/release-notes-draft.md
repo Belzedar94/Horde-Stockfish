@@ -28,20 +28,22 @@ confidence interval, LOS, crashes and time losses.
 
 ## Features
 
-- Horde-specific legality, terminal conditions and search behavior.
-- NNUE evaluation authenticated against the network and baseline manifests.
-- Standard UCI, deterministic Horde benchmark, multi-threading and large hash
-  support.
-- Linux and Windows packages for `x86-64-avx2` and `x86-64-bmi2`.
-
-TBD: replace this list with the exact user-visible scope of the release. Do not
-claim features or strength that are not covered by an exact-commit receipt.
+- Native Lichess Horde legality, including the kingless White side, Horde pawn
+  double steps, Black-only castling, en passant and ordinary promotions.
+- Horde terminal handling for checkmate, extinction, stalemate, closed
+  fortresses and side-specific winning material.
+- Authenticated legacy H/P NNUE evaluation with full-refresh/incremental and
+  scalar/SIMD parity against the frozen Run 6B contract.
+- A fail-closed `EvalFile` contract: unregistered networks are rejected instead
+  of falling back to another evaluator.
+- Horde-specific search behavior on a modern Stockfish chassis, with a
+  deterministic Horde benchmark, multi-threading and configurable hash.
+- Linux and Windows native packages for `x86-64-avx2` and `x86-64-bmi2`.
 
 ## Usage
 
-Download the archive matching your operating system and CPU. Use
-`x86-64-bmi2` for compatible Haswell/Zen 3 or newer systems and
-`x86-64-avx2` as the safer fallback.
+Download the archive matching your operating system and CPU. Use the BMI2
+package only when the CPU advertises BMI2 support; otherwise use AVX2.
 
 Extract the complete archive without changing its directory layout, then start
 the executable below `bin/` from a UCI-compatible graphical interface or the
@@ -76,12 +78,17 @@ from the final candidate artifact.
 
 ## Known limitations
 
-- TBD: list any unresolved compatibility or performance limitations.
 - The release does not include a GUI.
-- Horde tablebase support is not claimed.
+- Only standard 8x8 Lichess Horde is supported. Chess960 and orthodox chess are
+  outside the public engine contract.
+- Horde tablebase support is not included.
+- The production evaluator is the registered Run 6B legacy network. NNUE V2 is
+  experimental and is not part of this release.
+- Initial native packages target x86-64 Linux and Windows with AVX2 or BMI2;
+  macOS, ARM and portable baseline packages are not included.
 
 ## Acknowledgements
 
-Built on the work of the Stockfish, Fairy-Stockfish and Horde chess
-communities. Testing infrastructure is based on OpenBench. Network authors and
-data contributors must be credited in the final network section.
+Run 6B was authored by Belzedar and is distributed under CC0 1.0. Horde-Stockfish
+builds on the work of the Stockfish, Fairy-Stockfish, scalachess and Horde chess
+communities. Distributed testing is provided by OpenBench.
