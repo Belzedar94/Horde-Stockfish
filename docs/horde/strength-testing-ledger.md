@@ -1131,3 +1131,8 @@ Main-search selectivity experiments:
   one-line change removes an observed hot-path library call while preserving
   the exact generated feature bytes and search tree. The local magnitude is
   noisy, but both ABBA screens support testing it rather than discarding it.
+- Follow-up assembly audit: the remaining value-initializers on `fc0Output`,
+  `hidden0`, `fc1Output`, `hidden1`, and `positional` do not emit clearing
+  stores in the same GCC 16 AVX2 `propagate()` body. Its sole `vpxor` creates
+  the zero vector used by the clamp itself. Removing those braces would
+  therefore be source-only churn, not another speed candidate.
