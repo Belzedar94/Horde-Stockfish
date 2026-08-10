@@ -982,12 +982,9 @@ void Position::do_move(Move                      m,
     ++st->rule50;
     ++st->pliesFromNull;
 
-    auto& dpps = dirties.dirtyPawnPairs;
-    auto& dts  = dirties.dirtyThreats;
-    auto& dp   = dirties.dirtyPiece;
-
-    dpps.before[WHITE] = pieces(WHITE, PAWN);
-    dpps.before[BLACK] = pieces(BLACK, PAWN);
+    // Run 6B consumes only DirtyPiece. Threat and pawn-pair deltas belong to
+    // the unsupported standard NNUE path and are expensive to build per move.
+    auto& dp = dirties.dirtyPiece;
 
     Color  us       = sideToMove;
     Color  them     = ~us;
@@ -1011,7 +1008,7 @@ void Position::do_move(Move                      m,
         assert(captured == make_piece(us, ROOK));
 
         Square rfrom, rto;
-        do_castling<true>(us, from, to, rfrom, rto, &dts, &dp);
+        do_castling<true>(us, from, to, rfrom, rto, nullptr, &dp);
 
         k ^= Zobrist::psq[captured][rfrom] ^ Zobrist::psq[captured][rto];
         st->nonPawnKey[us] ^= Zobrist::psq[captured][rfrom] ^ Zobrist::psq[captured][rto];
@@ -1036,7 +1033,7 @@ void Position::do_move(Move                      m,
                 assert(piece_on(capsq) == make_piece(them, PAWN));
 
                 // Update board and piece lists in ep case, normal captures are updated later
-                remove_piece(capsq, &dts);
+                remove_piece(capsq);
             }
 
             st->pawnKey ^= Zobrist::psq[captured][capsq];
@@ -1179,15 +1176,15 @@ void Position::do_move(Move                      m,
 
         if (captured && m.type_of() != EN_PASSANT)
         {
-            remove_piece(from, &dts);
-            swap_piece(to, toPc, &dts);
+            remove_piece(from);
+            swap_piece(to, toPc);
         }
         else if (pc == toPc)
-            move_piece(from, to, &dts);
+            move_piece(from, to);
         else
         {
-            remove_piece(from, &dts);
-            put_piece(toPc, to, &dts);
+            remove_piece(from);
+            put_piece(toPc, to);
         }
     }
 
@@ -1223,9 +1220,6 @@ void Position::do_move(Move                      m,
     }
 
     assert(pos_is_ok());
-
-    dpps.after[WHITE] = pieces(WHITE, PAWN);
-    dpps.after[BLACK] = pieces(BLACK, PAWN);
 
     assert(dp.pc != NO_PIECE);
     assert(!(bool(captured) || m.type_of() == CASTLING) ^ (dp.remove_sq != SQ_NONE));
