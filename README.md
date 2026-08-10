@@ -1,161 +1,115 @@
-<div align="center">
+# Horde-Stockfish
 
-  [![Stockfish][stockfish128-logo]][website-link]
+[![Horde correctness](https://github.com/Belzedar94/Horde-Stockfish/actions/workflows/horde-correctness.yml/badge.svg)](https://github.com/Belzedar94/Horde-Stockfish/actions/workflows/horde-correctness.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](Copying.txt)
 
-  <h3>Stockfish</h3>
+Horde-Stockfish is a dedicated UCI engine for
+[Lichess Horde chess](https://lichess.org/variant/horde), derived from modern
+[Stockfish](https://github.com/official-stockfish/Stockfish). Its Horde rules
+are checked against [scalachess](https://github.com/lichess-org/scalachess),
+while [Fairy-Stockfish](https://github.com/fairy-stockfish/Fairy-Stockfish)
+defines the frozen legacy NNUE format and formal development baseline.
 
-  A free and strong UCI chess engine.
-  <br>
-  <strong>[Explore Stockfish docs »][wiki-link]</strong>
-  <br>
-  <br>
-  [Report bug][issue-link]
-  ·
-  [Open a discussion][discussions-link]
-  ·
-  [Discord][discord-link]
-  ·
-  [Blog][website-blog-link]
+> [!WARNING]
+> This repository is under active development and does not yet have a stable,
+> strength-qualified release. The production evaluator is the authenticated
+> Run 6B network. NNUE V2 remains experimental until its full-data candidate
+> passes parity, speed and equal-time strength gates.
 
-  [![Build][build-badge]][build-link]
-  [![License][license-badge]][license-link]
-  <br>
-  [![Release][release-badge]][release-link]
-  [![Commits][commits-badge]][commits-link]
-  <br>
-  [![Website][website-badge]][website-link]
-  [![Fishtest][fishtest-badge]][fishtest-link]
-  [![Discord][discord-badge]][discord-link]
+## Scope
 
-</div>
+The project deliberately supports one variant and a narrow public contract:
 
-## Overview
+- standard 8x8 Lichess Horde rules;
+- UCI with `position startpos` loading the Horde starting position;
+- `UCI_Variant` fixed to `horde`;
+- deterministic Horde benchmark, multi-threading and configurable hash;
+- the registered legacy HordeTest H/P NNUE schema; and
+- Linux and Windows native release targets for AVX2 and BMI2 CPUs.
 
-[Stockfish][website-link] is a **free and strong UCI chess engine** derived from
-Glaurung 2.1 that analyzes chess positions and computes the optimal moves.
+Chess960, orthodox chess, Syzygy tablebases, standard-chess NNUE networks and
+silent evaluation fallbacks are outside the release contract.
 
-Stockfish **does not include a graphical user interface** (GUI) that is required
-to display a chessboard and to make it easy to input moves. These GUIs are
-developed independently from Stockfish and are available online. **Read the
-documentation for your GUI** of choice for information about how to use
-Stockfish with it.
+## Neural network
 
-See also the Stockfish [documentation][wiki-usage-link] for further usage help.
+The current default is
+[`hordetest_run6b_e37_l06.nnue`](networks/hordetest_run6b_e37_l06.nnue),
+SHA-256
+`B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7`.
+It was authored by Belzedar and is distributed under CC0 1.0; see the
+[network notice](networks/CC0-1.0-NOTICE.md).
 
-## Files
+Public FEN and UCI positions continue to use `P` for every pawn. The historical
+`H` identity exists only at the legacy NNUE feature boundary. The engine
+authenticates compatible networks instead of inferring their schema from file
+size or shared header hashes.
 
-This distribution of Stockfish consists of the following files:
+Native release packages call the same byte-identical network `Horde_v1.nnue`.
+That name is a distribution alias; the tracked source filename and default
+engine contract remain unchanged.
 
-  * [README.md][readme-link], the file you are currently reading.
+## Building
 
-  * [Copying.txt][license-link], a text file containing the GNU General Public
-    License version 3.
+From `src`, inspect the supported targets with `make help`. A BMI2 build on a
+compatible 64-bit Intel or AMD CPU can be produced with:
 
-  * [AUTHORS][authors-link], a text file with the list of authors for the project.
-
-  * [src][src-link], a subdirectory containing the full source code, including a
-    Makefile that can be used to compile Stockfish on Unix-like systems.
-
-  * a file with the .nnue extension, storing the neural network for the NNUE
-    evaluation. Binary distributions will have this file embedded.
-
-## Contributing
-
-__See [Contributing Guide](CONTRIBUTING.md).__
-
-### Donating hardware
-
-Improving Stockfish requires a massive amount of testing. You can donate your
-hardware resources by installing the [Fishtest Worker][worker-link] and viewing
-the current tests on [Fishtest][fishtest-link].
-
-### Improving the code
-
-In the [chessprogramming wiki][programming-link], many techniques used in
-Stockfish are explained with a lot of background information.
-The [section on Stockfish][programmingsf-link] describes many features
-and techniques used by Stockfish. However, it is generic rather than
-focused on Stockfish's precise implementation.
-
-The engine testing is done on [Fishtest][fishtest-link].
-If you want to help improve Stockfish, please read this [guideline][guideline-link]
-first, where the basics of Stockfish development are explained.
-
-Discussions about Stockfish take place these days mainly in the Stockfish
-[Discord server][discord-link]. This is also the best place to ask questions
-about the codebase and how to improve it.
-
-## Compiling Stockfish
-
-Stockfish has support for 32 or 64-bit CPUs, certain hardware instructions,
-big-endian machines such as Power PC, and other platforms.
-
-On Unix-like systems, it should be easy to compile Stockfish directly from the
-source code with the included Makefile in the folder `src`. In general, it is
-recommended to run `make help` to see a list of make targets with corresponding
-descriptions. An example suitable for most Intel and AMD chips:
-
-```
+```sh
 cd src
-make -j profile-build
+make -j2 ARCH=x86-64-bmi2 build
 ```
 
-Detailed compilation instructions for all platforms can be found in our
-[documentation][wiki-compile-link]. Our wiki also has information about
-the [UCI commands][wiki-uci-link] supported by Stockfish.
+The direct Makefile output is `stockfish` (`stockfish.exe` on Windows), but its
+UCI identity is `Horde-Stockfish`. Release packages rename the executable to
+`horde-stockfish`.
 
-## Terms of use
+## Usage
 
-Stockfish is free and distributed under the
-[**GNU General Public License version 3**][license-link] (GPL v3). Essentially,
-this means you are free to do almost exactly what you want with the program,
-including distributing it among your friends, making it available for download
-from your website, selling it (either by itself or as part of some bigger
-software package), or using it as the starting point for a software project of
-your own.
+Horde-Stockfish does not include a graphical interface. Start the engine from
+a UCI-compatible GUI with Horde support, or use it directly:
 
-The only real limitation is that whenever you distribute Stockfish in some way,
-you MUST always include the license and the full source code (or a pointer to
-where the source code can be found) to generate the exact binary you are
-distributing. If you make any changes to the source code, these changes must
-also be made available under GPL v3.
+```text
+uci
+setoption name Threads value 1
+setoption name Hash value 128
+position startpos
+go movetime 1000
+```
 
-## Acknowledgements
+The tracked default network is embedded by the native release build. Setting
+`EvalFile` to an unregistered or incompatible network fails closed.
 
-Stockfish uses neural networks trained on [data provided by the Leela Chess Zero
-project][lc0-data-link], which is made available under the [Open Database License][odbl-link] (ODbL).
+## Validation
 
+The quickest local integrity and engine checks are:
 
-[authors-link]:       https://github.com/official-stockfish/Stockfish/blob/master/AUTHORS
-[build-link]:         https://github.com/official-stockfish/Stockfish/actions/workflows/stockfish.yml
-[commits-link]:       https://github.com/official-stockfish/Stockfish/commits/master
-[discord-link]:       https://discord.gg/GWDRS3kU6R
-[issue-link]:         https://github.com/official-stockfish/Stockfish/issues/new?assignees=&labels=&template=BUG-REPORT.yml
-[discussions-link]:   https://github.com/official-stockfish/Stockfish/discussions/new
-[fishtest-link]:      https://tests.stockfishchess.org/tests
-[guideline-link]:     https://github.com/official-stockfish/fishtest/wiki/Creating-my-first-test
-[license-link]:       https://github.com/official-stockfish/Stockfish/blob/master/Copying.txt
-[programming-link]:   https://www.chessprogramming.org/Main_Page
-[programmingsf-link]: https://www.chessprogramming.org/Stockfish
-[readme-link]:        https://github.com/official-stockfish/Stockfish/blob/master/README.md
-[release-link]:       https://github.com/official-stockfish/Stockfish/releases/latest
-[src-link]:           https://github.com/official-stockfish/Stockfish/tree/master/src
-[stockfish128-logo]:  https://stockfishchess.org/images/logo/icon_128x128.png
-[uci-link]:           https://backscattering.de/chess/uci/
-[website-link]:       https://stockfishchess.org
-[website-blog-link]:  https://stockfishchess.org/blog/
-[wiki-link]:          https://github.com/official-stockfish/Stockfish/wiki
-[wiki-compile-link]:  https://github.com/official-stockfish/Stockfish/wiki/Compiling-from-source
-[wiki-uci-link]:      https://github.com/official-stockfish/Stockfish/wiki/UCI-&-Commands
-[wiki-usage-link]:    https://github.com/official-stockfish/Stockfish/wiki/Download-and-usage
-[worker-link]:        https://github.com/official-stockfish/fishtest/wiki/Running-the-worker
-[lc0-data-link]:      https://storage.lczero.org/files/training_data
-[odbl-link]:          https://opendatacommons.org/licenses/odbl/odbl-10.txt
+```sh
+python scripts/horde/verify_baseline.py
+python tests/horde_rules.py src/stockfish
+python tests/horde_network_contract.py src/stockfish
+python tests/horde_bench.py src/stockfish
+```
 
-[build-badge]:        https://img.shields.io/github/actions/workflow/status/official-stockfish/Stockfish/stockfish.yml?branch=master&style=for-the-badge&label=stockfish&logo=github
-[commits-badge]:      https://img.shields.io/github/commits-since/official-stockfish/Stockfish/latest?style=for-the-badge
-[discord-badge]:      https://img.shields.io/discord/435943710472011776?style=for-the-badge&label=discord&logo=Discord
-[fishtest-badge]:     https://img.shields.io/website?style=for-the-badge&down_color=red&down_message=Offline&label=Fishtest&up_color=success&up_message=Online&url=https%3A%2F%2Ftests.stockfishchess.org%2Ftests%2Ffinished
-[license-badge]:      https://img.shields.io/github/license/official-stockfish/Stockfish?style=for-the-badge&label=license&color=success
-[release-badge]:      https://img.shields.io/github/v/release/official-stockfish/Stockfish?style=for-the-badge&label=official%20release
-[website-badge]:      https://img.shields.io/website?style=for-the-badge&down_color=red&down_message=Offline&label=website&up_color=success&up_message=Online&url=https%3A%2F%2Fstockfishchess.org
+The complete CI matrix additionally covers the material corpus, canonical
+perfts, 100,000-position legacy NNUE parity, incremental refresh, scalar/SIMD
+and thread determinism, sanitizers, Windows/Linux builds, NNUE V2 experimental
+contracts and reproducible release packaging.
+
+See the [Horde documentation index](docs/horde/README.md), the
+[testing and release contract](docs/horde/testing-and-release-contract.md) and
+the [native release process](docs/horde/release-process.md) for the frozen
+authorities, exact gates and publication procedure.
+
+## Release policy
+
+A public release requires an exact final `main` commit and network, green
+correctness and packaging gates, and a paired 600/400/200-game strength panel
+at the three frozen time controls. The release workflow builds authenticated
+candidate artifacts only; it never creates or moves a tag and never publishes
+a GitHub release automatically.
+
+## Attribution and license
+
+Horde-Stockfish retains Stockfish's copyright notices and is distributed under
+the [GNU General Public License version 3](Copying.txt). See [AUTHORS](AUTHORS)
+for project and upstream attribution. Fairy-Stockfish and scalachess remain
+independently versioned references rather than vendored code.
