@@ -395,7 +395,7 @@ HordeLegacyNetwork::RawOutput HordeLegacyNetwork::propagate(
   const Position& pos, const AccumulatorState& accumulator, int bucket) const {
     bucket = bucket < 0 ? bucket_for(pos) : std::clamp(bucket, 0, int(LayerStacks) - 1);
     const std::array<Color, COLOR_NB> perspectives = {pos.side_to_move(), ~pos.side_to_move()};
-    alignas(CacheLineSize) std::array<u8, NetworkInputs> transformed{};
+    alignas(CacheLineSize) std::array<u8, NetworkInputs> transformed;
     for (usize p = 0; p < COLOR_NB; ++p)
         for (usize i = 0; i < AccumulatorDimensions; ++i)
             transformed[p * AccumulatorDimensions + i] =
