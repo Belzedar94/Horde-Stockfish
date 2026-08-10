@@ -4,7 +4,7 @@ This ledger records reproducible strength experiments against the accepted
 Horde-Stockfish baseline. Public OpenBench tests use Run 6B on both sides and
 the `LICHESS_HORDE_V1` contract.
 
-Current baseline: `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
+Current development baseline: `8d2934c2482c44da846430eaf380cae545018eab`.
 
 ## Experiment policy
 
@@ -462,7 +462,7 @@ Main-search selectivity experiments:
 
 ## OpenBench outcomes
 
-### 2026-08-09 - Legacy dirty-piece tracking only passes STC
+### 2026-08-10 - Legacy dirty-piece tracking passes STC and LTC; merged
 
 - Branch: `test/legacy-dirty-piece-only`, commit
   `69e52de5aebe2733862de5d75e17dd951e5495a2`.
@@ -471,11 +471,22 @@ Main-search selectivity experiments:
 - STC result: green at 8,704 games, 4,352-4,181-171,
   pentanomial `[309, 80, 3488, 81, 394]`, raw Elo `+6.83 +/- 4.26`, and
   LLR `+2.95` for SPRT `[1.00, 6.00]`.
+- LTC result: green at 9,708 games, 4,799-4,660-249,
+  pentanomial `[193, 103, 4179, 130, 249]`, raw Elo `+4.97 +/- 3.14`, and
+  LLR `+3.00` for SPRT `[1.00, 6.00]`.
 - Infrastructure audit: both sides used Run 6B and
-  `HORDE_openings_v3.epd`; the test recorded no crash or Horde error event.
-- Decision: advance the identical single change to LTC at `40.0+0.40`,
-  Threads=1 and Hash=128. It is not accepted into development until LTC also
-  passes and the exact build and correctness receipts are rechecked.
+  `HORDE_openings_v3.epd`; neither test recorded a crash or Horde error event.
+- Integration: the exact winner is commit
+  `152ff72dc9e100ae4357d6c94eb55fad3faccc0c`; PR
+  [#1](https://github.com/Belzedar94/Horde-Stockfish/pull/1) merged it into
+  `main` as `8d2934c2482c44da846430eaf380cae545018eab`.
+- Post-merge verification: the winner is an ancestor of `origin/main`;
+  [Horde correctness run 31375995078](https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31375995078)
+  and [OpenBench artifacts run 31375995132](https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31375995132)
+  both passed on that exact merge SHA.
+- Decision: accepted as the development baseline. Existing independent STCs
+  keep their frozen baseline unless there is real overlap; any subsequent LTC
+  is measured against the development baseline current when it is created.
 
 ### 2026-08-10 - Reject blanket White-pawn parent-node futility exemption
 
