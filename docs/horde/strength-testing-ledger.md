@@ -1118,11 +1118,15 @@ Main-search selectivity experiments:
   and nine of twelve complete ABBA blocks favored the candidate; the range was
   `0.681050` to `2.034844` under the live T24 worker load.
 - Publication receipt: the isolated branch is pushed and GitHub Actions run
-  `31351691037` started on the exact commit. No OpenBench workload was created
-  while the existing priority-301 Horde queue remains broad.
-- Decision: retain as a prepared high-confidence speed candidate. After CI is
-  green, schedule one isolated STC when the queue has room, rebasing onto the
-  accepted development baseline first if test 331 changes it.
+  `31351691037` passed all four Linux/Windows POPCNT/PEXT artifact jobs on the
+  exact commit.
+- OpenBench receipt: [test 343](https://belzedar.duckdns.org/test/343/) uses
+  the exact `cee98c4d..047fd875` diff, Run 6B on both sides,
+  `HORDE_openings_v3.epd`, STC `8.0+0.08`, SPRT `[1.00, 6.00]`, priority 301,
+  workload 32, verbose PGNs, and no Syzygy probing or adjudication.
+- Decision: active isolated STC by explicit project-owner decision. Promote
+  to LTC only if the complete OpenBench SPRT passes cleanly; if the accepted
+  development baseline advances first, use that new baseline for LTC.
 - Learning: unlike earlier explicit-SIMD and sidecar-layout experiments, this
   one-line change removes an observed hot-path library call while preserving
   the exact generated feature bytes and search tree. The local magnitude is
