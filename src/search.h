@@ -471,6 +471,8 @@ class Worker {
 
     bool hordePreservePawnQsearchCaptureSee = false;
 
+    bool hordeFortressPawnMobilityReject = false;
+
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;
     u64                  hordeExperimentMask = 0;
