@@ -1680,7 +1680,7 @@ bool Position::is_horde_extinction_capture(Move m) const {
 }
 
 
-std::optional<Outcome> Position::outcome(int ply) {
+std::optional<Outcome> Position::outcome(int ply, bool fortressPawnMobilityReject) {
 
     MoveList<LEGAL> legalMoves(*this);
     const bool      noLegalMoves = legalMoves.size() == 0;
@@ -1706,8 +1706,29 @@ std::optional<Outcome> Position::outcome(int ply) {
         Bitboard horde = pieces(WHITE);
         const bool mateInOne =
           !more_than_one(horde) && bool(attackers_to(lsb(horde), pieces()) & pieces(BLACK));
+        const bool persistentPawnMobility = fortressPawnMobilityReject
+                                         && more_than_one(shift<NORTH>(pieces(WHITE, PAWN))
+                                                          & ~pieces());
 
-        if (!mateInOne)
+        assert(!persistentPawnMobility || [&] {
+            for (Move move : legalMoves)
+            {
+                StateInfo moveState;
+                do_move(move, moveState);
+                const bool whiteCanMove = MoveList<LEGAL>(*this).size() != 0;
+                undo_move(move);
+
+                if (!whiteCanMove)
+                    return false;
+            }
+
+            return true;
+        }());
+
+        // One legal Black move cannot remove two distinct single pawn pushes.
+        // An en-passant landing square is on the just-vacated pawn file, while
+        // castling across both push targets would cross a pawn-attacked square.
+        if (!mateInOne && !persistentPawnMobility)
         {
             bool fortress = true;
             for (Move move : legalMoves)
