@@ -63,6 +63,13 @@ def main() -> int:
     drifted_optional = {**expected_with_optional, "seed": "2026080803"}
     if control._identity_matches(observed_identity, drifted_optional):
         raise AssertionError("stable identity accepted optional provenance drift")
+    expected_teacher = {"network": {"sha256": "F" * 64}, "source_commit": "abc123"}
+    observed_teacher = {**expected_teacher, "generation": {"depth": 4}}
+    if not control._contains_expected_mapping(observed_teacher, expected_teacher):
+        raise AssertionError("teacher identity rejected additional provenance")
+    drifted_teacher = {**expected_teacher, "source_commit": "def456"}
+    if control._contains_expected_mapping(observed_teacher, drifted_teacher):
+        raise AssertionError("teacher identity accepted authenticated-field drift")
 
     seeds = control.EXPECTED_SEEDS
     rank8 = [

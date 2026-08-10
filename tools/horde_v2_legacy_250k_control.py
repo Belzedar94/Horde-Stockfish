@@ -209,6 +209,14 @@ def _identity_matches(observed: Mapping[str, Any], expected: Mapping[str, Any]) 
     ) and all(field not in expected or observed.get(field) == expected[field] for field in optional)
 
 
+def _contains_expected_mapping(
+    observed: Mapping[str, Any], expected: Mapping[str, Any]
+) -> bool:
+    """Require every authenticated expected field while allowing extra provenance."""
+
+    return all(key in observed and observed[key] == value for key, value in expected.items())
+
+
 @dataclass(slots=True)
 class LegacyRun:
     directory: Path
@@ -294,7 +302,9 @@ def _prepare_legacy_run(
     _require(
         _identity_matches(observed_training, expected_training)
         and _identity_matches(observed_validation, expected_validation)
-        and data.get("teacher") == dict(expected_teacher),
+        and _contains_expected_mapping(
+            _mapping(data.get("teacher"), "legacy checkpoint teacher"), expected_teacher
+        ),
         f"legacy checkpoint data identity drifted: {resolved}",
     )
     checkpoint_wdl = _mapping(data.get("wdl_calibration"), "legacy checkpoint WDL")
