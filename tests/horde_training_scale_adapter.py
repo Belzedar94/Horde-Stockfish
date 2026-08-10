@@ -11,8 +11,11 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+# Keep the production helpers ahead of same-named test modules.  Inserting the
+# tests directory last would shadow tools/horde_training_chunk_set.py on Linux
+# and Windows CI when horde_fit_wdl imports it as a top-level module.
 sys.path.insert(0, str(ROOT / "tests"))
+sys.path.insert(0, str(ROOT / "tools"))
 
 import horde_fit_wdl as fit_wdl  # noqa: E402
 import horde_training_chunk_set as chunk_set  # noqa: E402
