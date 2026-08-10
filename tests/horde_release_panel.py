@@ -56,16 +56,11 @@ class TrackerTests(unittest.TestCase):
     def test_infrastructure_reason_invalidates_panel(self) -> None:
         spec = panel.PanelSpec("TEST", "1+0.01", 16, 2, 1)
         tracker = panel.PanelTracker(spec)
-        tracker.consume(
-            "Finished game 1 (Horde-Stockfish-release vs Fairy-Stockfish-dev): "
-            "0-1 {White disconnects}"
-        )
-        tracker.consume(
-            "Finished game 2 (Fairy-Stockfish-dev vs Horde-Stockfish-release): "
-            "1-0 {White mates}"
-        )
         with self.assertRaisesRegex(RuntimeError, "infrastructure defect"):
-            tracker.require_complete()
+            tracker.consume(
+                "Finished game 1 (Horde-Stockfish-release vs Fairy-Stockfish-dev): "
+                "0-1 {White disconnects}"
+            )
 
     def test_missing_game_is_rejected(self) -> None:
         spec = panel.PanelSpec("TEST", "1+0.01", 16, 2, 1)
@@ -150,6 +145,9 @@ class ContractTests(unittest.TestCase):
             )
             observed = panel.validate_inputs(args)
             self.assertEqual(observed["book"]["opening_count"], 300)
+            self.assertEqual(
+                observed["runner_script"]["sha256"], panel.sha256_file(MODULE_PATH)
+            )
 
             short_book = root / "short.epd"
             short_book.write_text("position\n" * 299, encoding="utf-8")

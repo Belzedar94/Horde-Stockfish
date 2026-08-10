@@ -126,8 +126,8 @@ three emitted cutechess commands, then repeat the same invocation without
 `--dry-run` in an empty output directory. A valid completion produces the
 original PGNs and logs plus `manifest.json`, one `result.json` per time
 control, and `panel-receipt.json` with authenticated output hashes. The
-candidate network SHA defaults to the frozen Run 6B hash; every other moving
-asset hash must be supplied explicitly.
+candidate network SHA is fixed in the runner to the frozen Run 6B hash; every
+moving asset hash must be supplied explicitly.
 
 ## Creating a candidate artifact
 

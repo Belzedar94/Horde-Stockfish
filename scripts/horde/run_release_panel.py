@@ -163,6 +163,9 @@ class PanelTracker:
             )
 
         score = candidate_score(white, black, result)
+        anomaly = next(
+            (term for term in BAD_REASON_TERMS if term in reason.lower()), None
+        )
         with self.lock:
             previous = self.games.get(game_no)
             if previous is not None:
@@ -170,8 +173,12 @@ class PanelTracker:
                     f"{self.spec.label} reported game {game_no} more than once"
                 )
             self.games[game_no] = score
-            if any(term in reason.lower() for term in BAD_REASON_TERMS):
+            if anomaly is not None:
                 self.anomalies.append(f"game {game_no}: {reason}")
+        if anomaly is not None:
+            raise RuntimeError(
+                f"{self.spec.label} infrastructure defect in game {game_no}: {reason}"
+            )
 
     def set_status(self, status: str) -> None:
         with self.lock:
@@ -287,6 +294,12 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, object]:
             f"Opening book has {openings} positions; the panel needs at least {required}"
         )
     observed["book"]["opening_count"] = openings
+    runner = Path(__file__).resolve()
+    observed["runner_script"] = {
+        "path": str(runner),
+        "sha256": sha256_file(runner),
+        "size": runner.stat().st_size,
+    }
     return observed
 
 
@@ -613,9 +626,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--candidate-sha256", required=True, type=checked_sha)
     parser.add_argument("--candidate-commit", required=True, type=checked_commit)
     parser.add_argument("--candidate-network", required=True, type=path_arg)
-    parser.add_argument(
-        "--candidate-network-sha256", type=checked_sha, default=RUN6B_SHA256
-    )
     parser.add_argument("--baseline", required=True, type=path_arg)
     parser.add_argument("--baseline-sha256", required=True, type=checked_sha)
     parser.add_argument("--baseline-commit", required=True, type=checked_commit)
@@ -638,6 +648,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--report-interval", type=float, default=300.0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    args.candidate_network_sha256 = RUN6B_SHA256
     if args.concurrency_per_tc <= 0:
         parser.error("--concurrency-per-tc must be positive")
     if args.move_overhead_ms < 0 or args.time_margin_ms < 0:
