@@ -136,13 +136,16 @@ First wave, all at priority 1000:
    is `1.054239`, with 55/64 favorable pairs and identical fixed work and best
    moves. All four artifact jobs pass.
 
-   Overlap note: OpenBench tests 282, 283, and 284 remain separate semantic
-   experiments, but all three edit the same `Position::outcome()` region.
-   Tests 283 and 284 additionally carry the same byte-identical White mobility
-   helper in `movegen.cpp` and `movegen.h`. If any one is accepted into the
-   development baseline, the other affected tests must be reconstructed on
-   that new baseline before further testing; their current diffs must not be
-   stacked or interpreted as independent after integration.
+   Overlap note: the original OpenBench tests 282, 283, and 284 were stopped at
+   zero games because they referenced the interim V3 book. Their exact commits
+   were restored as tests 337, 338, and 339 with the definitive V3 book. The
+   three remain separate semantic experiments, but all edit the same
+   `Position::outcome()` region. Tests 338 and 339 additionally carry the same
+   byte-identical White mobility helper in `movegen.cpp` and `movegen.h`. If
+   any one is accepted into the development baseline, the other affected tests
+   must be reconstructed on that new baseline before further testing; their
+   current diffs must not be stacked or interpreted as independent after
+   integration.
 4. `test/fixed-royal-slider-blockers` at
    `acbacc48fdaabe49512d2dff89880f8f9ead95c6`. It replaces only the generic
    White king lookup and early return in `set_check_info()` with the fixed
@@ -200,6 +203,35 @@ queue. Every entry below tests one candidate directly against
 with another candidate. Both sides use Run 6B, `8.0+0.08`, `Threads=1`,
 `Hash=32`, and SPRT `[1.00, 6.00]`. The game counts and LLR values are a
 point-in-time receipt, not final outcomes.
+
+Outcome and fortress speed-path experiments:
+
+- `test/black-outcome-fastpath` at
+  `bca714f45b99524f92057f9bd7144b6397636856`, [test 337](https://belzedar.duckdns.org/test/337/):
+  return the exact Black terminal result and reason without constructing a
+  complete legal move list when the fixed-role fast path can decide it. This
+  is the exact green-CI commit from zero-game interim-book test 282. Local
+  fixed-work screens measured about `+1.3%` on the start-position suite and
+  `+3.8%` on the ten-position suite. Snapshot: zero games.
+- `test/white-outcome-has-move-fastpath` at
+  `4be2e1656d61a48273e360264057feaff800c41a`, [test 338](https://belzedar.duckdns.org/test/338/):
+  replace only White terminal legal-list construction with the exhaustively
+  checked fixed-role `has_legal_move()` predicate. This is the exact green-CI
+  commit from zero-game interim-book test 283. Local fixed-work screens
+  measured about `+3.2%` and `+3.6%`. Snapshot: zero games.
+- `test/fortress-white-mobility-fastpath` at
+  `f25edacd54d897b97590c67edc09c5fcfc82b74b`, [test 339](https://belzedar.duckdns.org/test/339/):
+  use the same proven White mobility predicate only after legal Black moves in
+  the fortress scan, leaving direct White terminal detection unchanged. This
+  is the exact green-CI commit from zero-game interim-book test 284. The
+  combined ten-position local screen measured about `+5.4%`, with one hotspot
+  sample reaching about `+8.4%`. Snapshot: zero games.
+
+All three replacements use `HORDE_openings_v3.epd`, Run 6B for both engines,
+priority 301, workload 32, no Syzygy adjudication, and the active `Stop`
+control. They are orthogonal by call site, but overlap in source layout; after
+the first accepted integration, any still-relevant sibling must be rebuilt
+against the new development baseline before its result can be interpreted.
 
 Qsearch frontier and capture-selection experiments:
 
