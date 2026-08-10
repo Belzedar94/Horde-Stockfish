@@ -57,7 +57,15 @@ def _record(index: int) -> bytes:
     return record
 
 
-def _write_dataset(path: Path, *, first: int, count: int, book_sha256: str, seed: int) -> None:
+def _write_dataset(
+    path: Path,
+    *,
+    first: int,
+    count: int,
+    book_sha256: str,
+    seed: int,
+    opening_count: int | None = None,
+) -> None:
     payload = b"".join(_record(index) for index in range(first, first + count))
     manifest = {
         "schema": "HORDE_BIN_V1",
@@ -95,7 +103,7 @@ def _write_dataset(path: Path, *, first: int, count: int, book_sha256: str, seed
             "write_min_ply": 0,
             "write_max_ply": 1,
             "max_game_ply": 2,
-            "opening_count": count,
+            "opening_count": count if opening_count is None else opening_count,
         },
     }
     encoded = json.dumps(

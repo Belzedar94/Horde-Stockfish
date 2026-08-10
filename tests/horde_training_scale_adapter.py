@@ -136,6 +136,7 @@ def _assemble_role(
     chunks: int,
     base_seed: int,
     book_sha256: str,
+    opening_count: int,
 ) -> Path:
     paths: list[Path] = []
     for index in range(chunks):
@@ -146,6 +147,7 @@ def _assemble_role(
             count=64,
             book_sha256=book_sha256,
             seed=base_seed + index,
+            opening_count=opening_count,
         )
         paths.append(path)
     receipt = root / f"{role}-chunk-set.json"
@@ -210,6 +212,7 @@ def main() -> int:
             chunks=3,
             base_seed=TRAIN_BASE_SEED,
             book_sha256=TRAIN_BOOK,
+            opening_count=3,
         )
         candidate = _assemble_role(
             root,
@@ -219,6 +222,7 @@ def main() -> int:
             chunks=2,
             base_seed=CANDIDATE_BASE_SEED,
             book_sha256=VALIDATION_BOOK,
+            opening_count=2,
         )
         selected_root = root / "selected"
         selector.create_scale_selected_role(
