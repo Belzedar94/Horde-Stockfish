@@ -866,14 +866,28 @@ Main-search selectivity experiments:
   unchanged.
 - Validation: a clean GCC 16 AVX2 build passed Horde rules, the Run 6B
   contract, and three deterministic 315,576-node benches with the accepted
-  best-move digest.
+  best-move digest. GitHub Actions run `31196697362` passed all four
+  Windows/Linux PEXT/POPCNT artifact jobs on the exact commit; the same three
+  local gates were repeated successfully while preparing promotion.
 - Local speed screen: 48 start-position pairs measured `0.976385` geometric,
   `0.975427` trimmed, and only 13/48 favorable. The ten-position bench measured
   `1.025345` raw because of one host pause, but only `1.004699` trimmed and
   8/32 favorable.
-- Decision: rejected locally; no OpenBench workload.
+- OpenBench receipt: [test 300](https://belzedar.duckdns.org/test/300/) is an
+  explicit distributed exception to the negative local layout screen. It uses
+  Run 6B on both sides, the definitive V3 book, `8.0+0.08`, SPRT `[1.00,
+  6.00]`, and priority 301. At 3,260 games it had LLR `+1.50` with no reported
+  defect.
+- Promotion readiness: the exact diff touches only `src/search.cpp`, while the
+  pending `legacy-dirty-piece-only` winner touches only `src/position.cpp`.
+  The changes are structurally independent, but LTC must still be created
+  against whichever development baseline is accepted when STC crosses.
+- Decision: active STC; create LTC immediately only after a clean positive
+  SPRT boundary.
 - Learning: the block is semantically redundant under the Horde outcome
-  contract, but it is cold and deleting it worsens the hot code layout.
+  contract. Local fixed-work layout screens were negative, while early
+  distributed strength is positive; only the completed SPRT can distinguish a
+  real search benefit from variance.
 
 ### 2026-08-08 - Fixed-role White legality gate
 
