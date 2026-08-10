@@ -988,3 +988,33 @@ Main-search selectivity experiments:
 - Learning: although the rule argument is cleaner, this inherited exception
   fires too rarely in representative Horde searches to qualify as low-hanging
   fruit on its own.
+
+### 2026-08-10 - Compile out the unsupported Syzygy backend
+
+- Branch: `test/disable-syzygy-build`, commit
+  `bfbb1956f3154d13afb6ca595134388737d69876`.
+- Hypothesis: Horde cannot consume orthodox Syzygy tables, so compiling the
+  unreachable backend out of every build may improve instruction layout and
+  reduce binary footprint without changing searched work.
+- Scope: force `syzygy=no` in `src/Makefile`; no rule, evaluation, search,
+  ordering, pruning, or time-management code changed.
+- Validation: the candidate compiled with `-DNO_TABLEBASES`, passed Horde
+  rules and the fail-closed Run 6B network contract, and retained the exact
+  315,576-node bench and ten-best-move digest. The AVX2 executable shrank from
+  5,510,320 to 5,397,252 bytes. All four Linux/Windows PEXT/POPCNT artifact
+  jobs passed in GitHub Actions run `31347002295`.
+- Local speed screen: twelve alternating depth-16 pairs were noisy and
+  negative at `-3.23%` geometric, `-1.68%` median, and 5/12 favorable. The
+  test was nevertheless retained by explicit project-owner decision so a
+  shared-worker measurement can resolve the strong code-layout uncertainty.
+- OpenBench receipt: [test 342](https://belzedar.duckdns.org/test/342/) uses
+  Run 6B on both sides, `HORDE_openings_v3.epd`, STC `8.0+0.08`, SPRT
+  `[1.00, 6.00]`, priority 301, workload 32, and no Syzygy probing or
+  adjudication. The first Windows worker build passed and reported candidate
+  versus baseline NPS of approximately 0.65M versus 0.50M before any games
+  completed; that startup reading is not a strength result.
+- Decision: active STC exception to the usual negative-local-screen policy.
+  Promote only if the complete OpenBench SPRT passes cleanly.
+- Learning: removing a dead subsystem is semantically safe and materially
+  reduces binary size, but its speed effect is dominated by platform-specific
+  layout and must be settled by the distributed time-controlled test.
