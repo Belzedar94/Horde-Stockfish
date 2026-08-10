@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-v2-rank8-scale-v1.json",
+  "title": "Horde V2 Rank8 scale campaign V1",
+  "schema_name": "HORDE_V2_RANK8_SCALE_V1",
+  "status": "registered_not_run",
+  "purpose": "Train the selected Rank-8 Horde V2 representation on a first 50-million-position scale dataset without changing its architecture.",
+  "dependencies": {
+    "architecture_selection": {
+      "path": "docs/horde/nnue-v2-representation-selection.json",
+      "sha256": "7CF38A69051B19D1A7FD087A0BDB5D4218D32DCFF266BCBC71353284DFE50A72",
+      "selected_architecture": "v2-c1-rank8-64x192"
+    },
+    "dataset": {
+      "schema": "HORDE_BIN_V1",
+      "schema_sha256": "B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4"
+    },
+    "teacher": {
+      "source_commit": "491e522718c2a0748d52d825f5c1fb0ce7d6c162",
+      "producer_sha256": "50B798908F24951B8BA6E1155FEF70C41AA4E860D319C0C65BC1E714FA9D2568",
+      "network_schema": "HORDETEST_HP_LEGACY_V1",
+      "network_sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+    },
+    "labels": {
+      "schema": "HORDE_LABEL_CONTRACT_V1",
+      "schema_sha256": "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"
+    },
+    "book_split_schema": "HORDE_TRAINING_BOOK_SPLIT_V2",
+    "selected_validation_schema": "HORDE_TRAINING_SELECTED_ROLE_V1",
+    "overlap_audit_schema": "HORDE_TRAINING_ROLE_OVERLAP_AUDIT_V1",
+    "wdl_calibration_schema": "HORDE_WDL_CALIBRATION_V1"
+  },
+  "openbench": {
+    "publication_protocol": 41,
+    "campaign_id": "horde-v2-rank8-scale-20260810",
+    "cohort": "run6b-d4-v3-split",
+    "training_workload_id": "train-50m",
+    "validation_workload_id": "validation-candidate-1m"
+  },
+  "books": {
+    "source": {
+      "name": "HORDE_openings_v3.epd",
+      "records": 1500,
+      "raw_sha256": "E09630E8A0A7D28028E2B02131E82A176DD2D8B18634D671F93E230F9D14F304"
+    },
+    "training": {
+      "name": "HORDE_openings_v3_train.epd",
+      "records": 1203,
+      "raw_sha256": "1DC2DD829962CD29FA98CAFC1B0613AC2FCAAFF088B65977E10AAEAF76E96A55"
+    },
+    "validation": {
+      "name": "HORDE_openings_v3_validation.epd",
+      "records": 297,
+      "raw_sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A"
+    },
+    "complete_partition": true,
+    "reflection_safe": true,
+    "disjoint": true
+  },
+  "generation": {
+    "common": {
+      "hash_mb": 16,
+      "depth": 4,
+      "nodes": 0,
+      "random_move_min_ply": 4,
+      "random_move_max_ply": 16,
+      "random_move_count": 4,
+      "random_multi_pv": 4,
+      "random_multi_pv_diff": 100,
+      "write_min_ply": 5,
+      "write_max_ply": 200,
+      "max_game_ply": 300
+    },
+    "training": {
+      "records": 50000000,
+      "positions_per_chunk": 250000,
+      "chunk_count": 200,
+      "base_seed": 202608100100000,
+      "chunk_order": "chunk index ascending",
+      "expected_seed": "base_seed + chunk_index"
+    },
+    "validation_candidate": {
+      "records": 1000000,
+      "positions_per_chunk": 250000,
+      "chunk_count": 4,
+      "base_seed": 202608100200000,
+      "chunk_order": "chunk index ascending",
+      "expected_seed": "base_seed + chunk_index"
+    }
+  },
+  "validation_selection": {
+    "target_records": 250000,
+    "algorithm": "FIRST_ELIGIBLE_DUAL_KEY_V1",
+    "candidate_order": "chunk index ascending, then local record index ascending",
+    "reject_training_physical_key": true,
+    "reject_training_legacy_model_input_key": true,
+    "reject_selected_physical_duplicate": true,
+    "reject_selected_legacy_model_input_duplicate": true,
+    "label_blind": true,
+    "insufficient_candidate_records_fail_closed": true
+  },
+  "training": {
+    "architecture": {
+      "name": "v2-c1-rank8-64x192",
+      "schema": "V2_C1_ROYAL_RANK8_64X192",
+      "training_structural_sha256": "53A82F734EBCAD97508AD91D54027ADD10772A1DC85A612F5D395AEE08567083"
+    },
+    "seed": 7435908571601354096,
+    "epochs": 1,
+    "training_example_exposures": 50000000,
+    "batch_size": 4096,
+    "optimizer_steps": 12208,
+    "block_size": 65536,
+    "lambda": 0.6,
+    "learning_rate": 0.0015,
+    "dense_learning_rate_multiplier": 0.1,
+    "output_learning_rate_multiplier": 0.1,
+    "scheduler_gamma": 0.987,
+    "optimizer": "torch.optim.RAdam",
+    "device": {
+      "type": "cuda",
+      "expected_name": "NVIDIA GeForce RTX 3080",
+      "cpu_threads": 1
+    },
+    "checkpoint_steps": [
+      2048,
+      4096,
+      6144,
+      8192,
+      10240,
+      12208
+    ],
+    "resume_must_be_bit_exact": true
+  },
+  "gates": {
+    "authenticated_chunk_receipts": true,
+    "zero_cross_role_overlap": true,
+    "fresh_wdl_calibration_from_exact_training_role": true,
+    "complete_training_receipt": true,
+    "integer_export": true,
+    "python_to_native_parity": true,
+    "full_refresh_to_incremental_parity": true,
+    "scalar_to_simd_parity": true,
+    "make_undo_parity": true,
+    "wrong_network_rejected": true,
+    "nps_and_latency_receipt": true,
+    "three_time_control_equal_time_gate_against_run6b": true
+  },
+  "claims": {
+    "data_generated": false,
+    "training_started": false,
+    "training_complete": false,
+    "strength_evidence": false,
+    "production_network": false,
+    "run6b_production_path_changed": false
+  }
+}

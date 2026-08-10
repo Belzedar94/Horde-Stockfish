@@ -1,0 +1,248 @@
+{
+  "architecture": {
+    "legacy_feature_schema": "HORDETEST_HP_LEGACY_V1",
+    "parameter_count": 602248,
+    "schema": "HORDETEST_HP_FRESH_CONTROL_V1",
+    "serialized_topology": "896 -> 512 shared FT + PSQT; 8 x (1024 -> 16 -> 32 -> 1)",
+    "training_only_factorizer": false
+  },
+  "artifacts": {
+    "checkpoint": {
+      "name": "checkpoint.pt",
+      "sha256": "D60C946E3943681EE7B0ADA6FE496E324D6F84C67AC0AF3D4D9626701D12A495"
+    },
+    "metrics": {
+      "name": "metrics.jsonl",
+      "sha256": "B71543DE59EE64C05B3B7BEF9C17D8E9FCDECABDFC020B289AB0A04F24037A32"
+    }
+  },
+  "claims": {
+    "integration_only": true,
+    "production_network": false,
+    "strength_evidence": false
+  },
+  "data": {
+    "book_split": {
+      "assignment": {
+        "hash": "SHA-256",
+        "integer": "first eight digest bytes, unsigned big-endian",
+        "key": "first four normalized FEN fields",
+        "modulus": 5,
+        "validation_residue": 0
+      },
+      "complete_partition": true,
+      "disjoint_position_keys": true,
+      "receipt_name": "receipt.json",
+      "receipt_sha256": "AB91B6492B013200E7798CD0A663B6C13BA52E60C1E178766E57791BE29C7088",
+      "source": {
+        "bytes": 117653,
+        "name": "HORDE_openings_v3.epd",
+        "records": 1500,
+        "sha256": "E09630E8A0A7D28028E2B02131E82A176DD2D8B18634D671F93E230F9D14F304"
+      }
+    },
+    "teacher": {
+      "generation": {
+        "depth": 4,
+        "hash_mb": 16,
+        "max_game_ply": 300,
+        "nodes": 0,
+        "random_move_count": 4,
+        "random_move_max_ply": 16,
+        "random_move_min_ply": 4,
+        "random_multi_pv": 4,
+        "random_multi_pv_diff": 100,
+        "threads": 1,
+        "write_max_ply": 200,
+        "write_min_ply": 5
+      },
+      "network": {
+        "schema": "HORDETEST_HP_LEGACY_V1",
+        "sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+      },
+      "producer_sha256": "B42CD9D15FDEF816291B39933976FB3851A0A17ED1E8A4AFDD50AD8B2C680C1F",
+      "source_commit": "9f4179699494375a9874db4164560ceac350c9b5"
+    },
+    "train_file": {
+      "book_sha256": "99FFADF51F72FCDA3407A327070BCD3C31021285C14B0D1F533292AD13DEF717",
+      "name": "train.bin",
+      "payload_sha256": "D64A26B6EFE76CA067535EC52C224555357C6EC965F764A9C0D89151BB689F6D",
+      "records": 4096,
+      "seed": "2026080801",
+      "sha256": "F9F92A627FEAED051EDCCF4118F3FA4AA20AC25812F15B9B1CE8A3DC2CB43BC4"
+    },
+    "validation_file": {
+      "book_sha256": "B19E609F9CE62457CEBFDFAC29CD2F7EEDE777C91621E5367CE654D590A737EE",
+      "name": "validation.bin",
+      "payload_sha256": "DB634035ACC48DAE9875856A5A3AB0EF730159924FE109F778391D65827E4DC2",
+      "records": 1024,
+      "seed": "2026080802",
+      "sha256": "A6D75EB33CA95FD2CD1B9D43AC767FE266F787BD34BFE3838A0D5B107098DEA1"
+    }
+  },
+  "environment": {
+    "device": {
+      "cpu_threads": 1,
+      "cublas_workspace_config": ":4096:8",
+      "deterministic_algorithms": true,
+      "mkldnn_enabled": false,
+      "type": "cpu"
+    },
+    "platform": "Windows-10-10.0.19045-SP0",
+    "python": "3.12.0",
+    "pytorch": "2.7.1+cu118"
+  },
+  "labels": {
+    "eval_sigmoid_scale": 410.0,
+    "lambda": 0.6,
+    "mate_policy": "exclude abs(score) >= 31507 from eval term; retain result term",
+    "mate_score_threshold": 31507,
+    "network_to_score": 600.0,
+    "output_sigmoid_scale": 361.0,
+    "result": "terminal game result from side-to-move perspective mapped to [0, 1]",
+    "score": "raw root-search Value from side-to-move perspective"
+  },
+  "optimizer": {
+    "base_learning_rate": 0.0015,
+    "betas": [
+      0.9,
+      0.999
+    ],
+    "dense_weight_clipping": {
+      "hidden": [
+        -1.984375,
+        1.984375
+      ],
+      "output": [
+        -1.6801041666666667,
+        1.6801041666666667
+      ]
+    },
+    "epsilon": 1e-07,
+    "gradient_centralization": false,
+    "lookahead": false,
+    "name": "torch.optim.RAdam",
+    "output_learning_rate_multiplier": 0.1,
+    "scheduler": {
+      "gamma": 0.987,
+      "name": "StepLR",
+      "step_size_epochs": 1
+    },
+    "weight_decay": 0.0
+  },
+  "run": {
+    "batch_size": 512,
+    "epochs": 3,
+    "epochs_receipt": [
+      {
+        "epoch": 1,
+        "learning_rates": [
+          0.0015,
+          0.00015000000000000001
+        ],
+        "schedule_sha256": "50DE218E56466F412D3CC7A202AF69B0AEBF83BABC26784075057B51D5532DD9",
+        "state_sha256": "DC56EF51C3AD19909B729CABFC039C736A1A48C25116DF18F9F1E78C35DE3ED1",
+        "train": {
+          "composite_loss": 0.18554562846660733,
+          "eval_eligible": 3959,
+          "eval_mse_eligible": 0.1644985893786416,
+          "mate_scores_masked": 137,
+          "prediction_mean": 0.49842063493997557,
+          "result_mse": 0.22536921584666852,
+          "samples": 4096
+        },
+        "validation": {
+          "composite_loss": 0.1909606450353749,
+          "eval_eligible": 990,
+          "eval_mse_eligible": 0.15787652186449758,
+          "mate_scores_masked": 34,
+          "prediction_mean": 0.4981187547673471,
+          "result_mse": 0.2484498067642562,
+          "samples": 1024
+        }
+      },
+      {
+        "epoch": 2,
+        "learning_rates": [
+          0.0014805,
+          0.00014805000000000002
+        ],
+        "schedule_sha256": "D39B439E30714E01E2A47B6C14751D620D89CB7B3F11138C3B741A18A9ACC390",
+        "state_sha256": "3295EE22017CB3B87F1892CCC31CC79ED1B86299A501BE47D7E9BE63D002D0F3",
+        "train": {
+          "composite_loss": 0.18466028172602705,
+          "eval_eligible": 3959,
+          "eval_mse_eligible": 0.16366446629305095,
+          "mate_scores_masked": 137,
+          "prediction_mean": 0.4985866657589213,
+          "result_mse": 0.22436518518060608,
+          "samples": 4096
+        },
+        "validation": {
+          "composite_loss": 0.18987479130009888,
+          "eval_eligible": 990,
+          "eval_mse_eligible": 0.1571866199743339,
+          "mate_scores_masked": 34,
+          "prediction_mean": 0.4984122370951809,
+          "result_mse": 0.24673566542332992,
+          "samples": 1024
+        }
+      },
+      {
+        "epoch": 3,
+        "learning_rates": [
+          0.0014612535,
+          0.00014612535000000003
+        ],
+        "schedule_sha256": "46420C056E0B7FE5B6FB75195B07BA3EE592E0D6EA97D7F78F9F0C33B4D921D1",
+        "state_sha256": "6149789D5B232FBD3F55AA63800FB8654B0255E696F42ADD14B37F95B69D7191",
+        "train": {
+          "composite_loss": 0.18263169329335366,
+          "eval_eligible": 3959,
+          "eval_mse_eligible": 0.16175698244035275,
+          "mate_scores_masked": 137,
+          "prediction_mean": 0.4988629247236531,
+          "result_mse": 0.22205923949432194,
+          "samples": 4096
+        },
+        "validation": {
+          "composite_loss": 0.18840446596732363,
+          "eval_eligible": 990,
+          "eval_mse_eligible": 0.1560031764972042,
+          "mate_scores_masked": 34,
+          "prediction_mean": 0.4988384305033833,
+          "result_mse": 0.24477607710286975,
+          "samples": 1024
+        }
+      }
+    ],
+    "final_state_sha256": "6149789D5B232FBD3F55AA63800FB8654B0255E696F42ADD14B37F95B69D7191",
+    "first_step_gradient_norms": {
+      "dense_trunk": 0.001123513282232306,
+      "feature_transformer": 9.927025019057327e-05,
+      "output": 0.016929890909890898,
+      "psqt": 0.12187140583079283
+    },
+    "initial_state_sha256": "E3D5028FC3A687F77EFE3034A1FC763367EA5BFA2BAF74A02F7E62E7FB871602",
+    "initial_validation": {
+      "composite_loss": 0.19123894142830977,
+      "eval_eligible": 990,
+      "eval_mse_eligible": 0.15814065010815886,
+      "mate_scores_masked": 34,
+      "prediction_mean": 0.49806888948660344,
+      "result_mse": 0.24876251022215,
+      "samples": 1024
+    },
+    "seed": 2026080803,
+    "shuffle": {
+      "block_size": 2048,
+      "complete_permutation_each_epoch": true,
+      "schema": "SPLITMIX64_BLOCK_SHUFFLE_V1"
+    }
+  },
+  "schema": "HORDE_FRESH_LEGACY_CONTROL_TRAINING_V1",
+  "source": {
+    "commit": "ff30b3663d3635141b6b36b885922d6d0aa33ad7",
+    "dirty": false
+  }
+}

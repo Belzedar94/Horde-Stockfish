@@ -36,7 +36,14 @@
 #include "horde_search_telemetry.h"
 #endif
 #include "misc.h"
+#if defined(HORDE_V2_CANDIDATE)
+#include "nnue/horde_v2_container.h"
+#else
 #include "nnue/nnue_accumulator.h"
+#endif
+#if defined(HORDE_V2_PERF)
+#include "nnue/horde_v2_performance.h"
+#endif
 #include "numa.h"
 #include "position.h"
 #include "score.h"
@@ -60,6 +67,16 @@ class OptionsMap;
 namespace Eval::NNUE {
 class Network;
 }
+
+#if defined(HORDE_V2_CANDIDATE) && defined(HORDE_V2_PERF)
+#error HORDE_V2_CANDIDATE and HORDE_V2_PERF are mutually exclusive
+#endif
+
+#if defined(HORDE_V2_CANDIDATE)
+using SearchEvalNetwork = Eval::NNUE::HordeV2::ContainerNetwork<>;
+#else
+using SearchEvalNetwork = LazyNumaReplicatedSystemWide<Eval::NNUE::Network>;
+#endif
 
 namespace Search {
 
@@ -162,6 +179,28 @@ struct RootMove {
 using RootMoves = std::vector<RootMove>;
 
 
+struct TrainingSearchRequest {
+    Depth depth   = 0;
+    u64   nodes   = 0;
+    usize multiPV = 1;
+};
+
+struct TrainingSearchLine {
+    Value   value = VALUE_NONE;
+    PVMoves pv;
+    bool    exact = false;
+};
+
+struct TrainingSearchResult {
+    Value                           value = VALUE_NONE;
+    PVMoves                         pv;
+    std::vector<TrainingSearchLine> lines;
+    u64                             nodes = 0;
+    Depth                           depth = 0;
+    bool                            exact = false;
+};
+
+
 // LimitsType struct stores information sent by the caller about the analysis required.
 struct LimitsType {
 
@@ -186,22 +225,22 @@ struct LimitsType {
 // The UCI stores the uci options, thread pool, and transposition table.
 // This struct is used to easily forward data to the Search::Worker class.
 struct SharedState {
-    SharedState(const OptionsMap&                                        optionsMap,
-                ThreadPool&                                              threadPool,
-                TranspositionTable&                                      transpositionTable,
-                std::map<NumaIndex, SharedHistories>&                    sharedHists,
-                const LazyNumaReplicatedSystemWide<Eval::NNUE::Network>& net) :
+    SharedState(const OptionsMap&                          optionsMap,
+                ThreadPool&                                threadPool,
+                TranspositionTable&                        transpositionTable,
+                std::map<NumaIndex, SharedHistories>&      sharedHists,
+                const SearchEvalNetwork&                   net) :
         options(optionsMap),
         threads(threadPool),
         tt(transpositionTable),
         sharedHistories(sharedHists),
         network(net) {}
 
-    const OptionsMap&                                        options;
-    ThreadPool&                                              threads;
-    TranspositionTable&                                      tt;
-    std::map<NumaIndex, SharedHistories>&                    sharedHistories;
-    const LazyNumaReplicatedSystemWide<Eval::NNUE::Network>& network;
+    const OptionsMap&                          options;
+    ThreadPool&                                threads;
+    TranspositionTable&                        tt;
+    std::map<NumaIndex, SharedHistories>&      sharedHistories;
+    const SearchEvalNetwork&                   network;
 };
 
 class Worker;
@@ -338,6 +377,10 @@ class Worker {
 
     void ensure_network_replicated();
 
+    // Synchronous per-worker entry point linked only by the isolated Horde
+    // data-generator target. Scores remain raw engine Values.
+    TrainingSearchResult training_search(Position&, const TrainingSearchRequest&);
+
     // Public because they need to be updatable by the stats
     ButterflyHistory mainHistory;
     LowPlyHistory    lowPlyHistory;
@@ -410,11 +453,21 @@ class Worker {
     const OptionsMap&                                        options;
     ThreadPool&                                              threads;
     TranspositionTable&                                      tt;
-    const LazyNumaReplicatedSystemWide<Eval::NNUE::Network>& network;
-
-    // Used by NNUE
+    const SearchEvalNetwork&                                 network;
+#if defined(HORDE_V2_CANDIDATE)
+#if defined(HORDE_V2_CANDIDATE_SHADOW)
+    Eval::NNUE::HordeV2::ValidatingContainerAccumulatorStack<> accumulatorStack;
+#else
+    Eval::NNUE::HordeV2::ContainerAccumulatorStack<> accumulatorStack;
+#endif
+#else
+    // Used by the registered legacy NNUE.
     Eval::NNUE::AccumulatorStack  accumulatorStack;
     Eval::NNUE::AccumulatorCaches refreshTable;
+#endif
+#if defined(HORDE_V2_PERF)
+    Eval::NNUE::HordeV2::PerformanceStack hordeV2PerformanceStack;
+#endif
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;

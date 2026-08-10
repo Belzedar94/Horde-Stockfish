@@ -185,20 +185,43 @@ Search::Worker::Worker(SharedState&                    sharedState,
     options(sharedState.options),
     threads(sharedState.threads),
     tt(sharedState.tt),
-    network(sharedState.network),
-    refreshTable(network[token]) {
+    network(sharedState.network)
+#if defined(HORDE_V2_CANDIDATE)
+    , accumulatorStack(network)
+#else
+    , refreshTable(network[token])
+#endif
+#if defined(HORDE_V2_PERF)
+    , hordeV2PerformanceStack(Eval::NNUE::HordeV2::performance_network())
+#endif
+{
     clear();
 }
 
 void Search::Worker::ensure_network_replicated() {
+#if defined(HORDE_V2_CANDIDATE)
+    // The authenticated candidate network is process-wide and immutable while
+    // workers are searching.
+    (void) network;
+#else
     // Access once to force lazy initialization.
     // We do this because we want to avoid initialization during search.
     (void) (network[numaAccessToken]);
+#endif
 }
 
 void Search::Worker::start_searching() {
 
+#if defined(HORDE_V2_CANDIDATE)
+    if (accumulatorStack.reset(rootPos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#else
     accumulatorStack.reset();
+#endif
+#if defined(HORDE_V2_PERF)
+    if (hordeV2PerformanceStack.reset(rootPos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#endif
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -297,6 +320,174 @@ void Search::Worker::start_searching() {
     auto bestmove = UCIEngine::move(bestThread->rootMoves[0].pv[0], rootPos.is_chess960());
     main_manager()->updates.onBestmove(bestmove, ponder);
 }
+
+#ifdef HORDE_DATA_GENERATOR
+
+Search::TrainingSearchResult Search::Worker::training_search(Position&                    pos,
+                                                             const TrainingSearchRequest& request) {
+    // The generator advances the shared TT generation and clears stop once
+    // before dispatch. Repeating either action here would race other games.
+    TrainingSearchResult result;
+    accumulatorStack.reset();
+
+    LimitsType freshLimits;
+    freshLimits.startTime = now();
+    limits                = std::move(freshLimits);
+
+    // A negative value is outside the public UCI domain and marks a
+    // synchronous generator search so time and output callbacks stay dormant.
+    struct TrainingGuard {
+        explicit TrainingGuard(int& marker_) :
+            marker(marker_),
+            previous(marker_) {
+            assert(marker != -1);
+            marker = -1;
+        }
+        ~TrainingGuard() { marker = previous; }
+        int& marker;
+        int  previous;
+    } trainingGuard(limits.infinite);
+
+    nodes = tbHits = bestMoveChanges = 0;
+    nmpMinPly                        = 0;
+    rootDepth                        = 0;
+    rootDelta                        = 0;
+    selDepth                         = 0;
+    pvIdx = pvLast = 0;
+    rootMoves.clear();
+    lastIterationIdxPV.clear();
+    optimism[WHITE] = optimism[BLACK] = VALUE_ZERO;
+
+    if (const auto terminal = pos.outcome(0))
+    {
+        result.value = terminal->result;
+        return result;
+    }
+
+    Stack   stack[MAX_PLY + 10] = {};
+    Stack*  ss                  = stack + 7;
+    PVMoves pv;
+    for (int i = 7; i > 0; --i)
+    {
+        (ss - i)->continuationHistory           = &continuationHistory[0][0][NO_PIECE][0];
+        (ss - i)->continuationCorrectionHistory = &continuationCorrectionHistory[NO_PIECE][0];
+        (ss - i)->staticEval                    = VALUE_NONE;
+    }
+    for (int i = 0; i <= MAX_PLY + 2; ++i)
+        (ss + i)->ply = i;
+    ss->pv = &pv;
+
+    for (Move move : MoveList<LEGAL>(pos))
+        rootMoves.emplace_back(move);
+    if (rootMoves.empty())
+    {
+        result.value = VALUE_DRAW;
+        return result;
+    }
+
+    tbConfig = Tablebases::rank_root_moves(options, pos, rootMoves, true);
+
+    const Depth   targetDepth = std::clamp(request.depth, Depth(1), Depth(MAX_PLY - 1));
+    const usize   multiPV     = std::min(std::max(usize(1), request.multiPV), rootMoves.size());
+    constexpr u64 MaxU64      = ~u64(0);
+    const u64     nodeLimit   = !request.nodes                   ? 0
+                              : request.nodes > MaxU64 / multiPV ? MaxU64
+                                                                 : request.nodes * multiPV;
+
+    lowPlyHistory.fill(102);
+    for (Color c : {WHITE, BLACK})
+        for (int i = 0; i < UINT_16_HISTORY_SIZE; ++i)
+            mainHistory[c][i] = mainHistory[c][i] * 729 / 1024;
+
+    const Color us                       = pos.side_to_move();
+    auto        save_completed_iteration = [&]() {
+        result.lines.clear();
+        result.lines.reserve(multiPV);
+        for (usize i = 0; i < multiPV; ++i)
+            result.lines.push_back(
+              {rootMoves[i].score, rootMoves[i].pv, !rootMoves[i].score_is_bound()});
+        result.value = result.lines.front().value;
+        result.pv    = result.lines.front().pv;
+        result.depth = rootDepth;
+        result.exact = result.lines.front().exact;
+    };
+
+    while (rootDepth < targetDepth && rootDepth + 1 < MAX_PLY && !threads.stop
+           && (!nodeLimit || nodes.load(std::memory_order_relaxed) < nodeLimit))
+    {
+        ++rootDepth;
+        for (usize i = 0; i < rootMoves.size(); ++i)
+        {
+            rootMoves[i].previousScore      = rootMoves[i].score;
+            rootMoves[i].previousPV         = rootMoves[i].pv;
+            rootMoves[i].previousScoreExact = i < multiPV;
+        }
+
+        usize pvFirst           = 0;
+        pvLast                  = 0;
+        bool completedIteration = true;
+        for (pvIdx = 0; pvIdx < multiPV; ++pvIdx)
+        {
+            if (pvIdx == pvLast)
+            {
+                pvFirst = pvLast;
+                for (++pvLast; pvLast < rootMoves.size(); ++pvLast)
+                    if (rootMoves[pvLast].tbRank != rootMoves[pvFirst].tbRank)
+                        break;
+            }
+
+            lastIterationIdxPV = rootMoves[pvIdx].previousPV;
+            selDepth           = 0;
+            int   delta   = 5 + threadIdx % 8 + std::abs(rootMoves[pvIdx].meanSquaredScore) / 10193;
+            Value avg     = rootMoves[pvIdx].averageScore;
+            Value alpha   = std::max(avg - delta, -VALUE_INFINITE);
+            Value beta    = std::min(avg + delta, VALUE_INFINITE);
+            optimism[us]  = 114 * avg / (std::abs(avg) + 85);
+            optimism[~us] = -optimism[us];
+
+            int failedHighCnt = 0;
+            while (true)
+            {
+                const Depth adjustedDepth = std::max(1, rootDepth - failedHighCnt);
+                rootDelta                 = beta - alpha;
+                const Value bestValue = search<Root>(pos, ss, alpha, beta, adjustedDepth, false);
+                std::stable_sort(rootMoves.begin() + pvIdx, rootMoves.begin() + pvLast);
+                if (threads.stop)
+                {
+                    completedIteration = false;
+                    break;
+                }
+                if (bestValue <= alpha)
+                {
+                    beta          = alpha;
+                    alpha         = std::max(bestValue - delta, -VALUE_INFINITE);
+                    failedHighCnt = 0;
+                }
+                else if (bestValue >= beta)
+                {
+                    alpha = std::max(beta - delta, alpha);
+                    beta  = std::min(bestValue + delta, VALUE_INFINITE);
+                    ++failedHighCnt;
+                }
+                else
+                    break;
+                delta += 47 * delta / 128;
+                assert(alpha >= -VALUE_INFINITE && beta <= VALUE_INFINITE);
+            }
+            if (!completedIteration)
+                break;
+            std::stable_sort(rootMoves.begin() + pvFirst, rootMoves.begin() + pvIdx + 1);
+        }
+        if (!completedIteration)
+            break;
+        save_completed_iteration();
+    }
+
+    result.nodes = nodes.load(std::memory_order_relaxed);
+    return result;
+}
+
+#endif
 
 // Main iterative deepening loop. It calls search()
 // repeatedly with increasing depth until the allocated thinking time has been
@@ -679,8 +870,20 @@ void Search::Worker::do_move(
     bool capture = pos.capture_stage(move);
     ++nodes;
 
+#if defined(HORDE_V2_CANDIDATE)
+    Dirties dirties{};
+#else
     Dirties& dirties = accumulatorStack.push();
+#endif
     pos.do_move(move, st, givesCheck, dirties, &tt, &sharedHistory);
+#if defined(HORDE_V2_CANDIDATE)
+    if (accumulatorStack.push(dirties, pos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#endif
+#if defined(HORDE_V2_PERF)
+    if (hordeV2PerformanceStack.push(dirties, pos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#endif
 
     if (ss != nullptr)
     {
@@ -702,7 +905,16 @@ void Search::Worker::do_null_move(Position& pos, StateInfo& st, Stack* const ss)
 
 void Search::Worker::undo_move(Position& pos, const Move move) {
     pos.undo_move(move);
+#if defined(HORDE_V2_CANDIDATE)
+    if (!accumulatorStack.pop())
+        std::abort();
+#else
     accumulatorStack.pop();
+#endif
+#if defined(HORDE_V2_PERF)
+    if (!hordeV2PerformanceStack.pop())
+        std::abort();
+#endif
 }
 
 void Search::Worker::undo_null_move(Position& pos) { pos.undo_null_move(); }
@@ -732,7 +944,11 @@ void Search::Worker::clear() {
     for (usize i = 1; i < reductions.size(); ++i)
         reductions[i] = int(2872 / 128.0 * std::log(i));
 
+#if !defined(HORDE_V2_CANDIDATE)
     refreshTable.clear(network[numaAccessToken]);
+#else
+    accumulatorStack.clear();
+#endif
 }
 
 
@@ -811,7 +1027,11 @@ Value Search::Worker::search(
                         && (ss - 1)->currentMove == lastIterationIdxPV[ss->ply - 1]));
 
     // Check for the available remaining time
-    if (is_mainthread())
+    if (is_mainthread()
+#ifdef HORDE_DATA_GENERATOR
+        && limits.infinite != -1
+#endif
+    )
         main_manager()->check_time(*this);
 
     // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
@@ -970,7 +1190,11 @@ Value Search::Worker::search(
             TB::WDLScore   wdl = TB::probe_wdl(pos, &err);
 
             // Force check of time on the next occasion
-            if (is_mainthread())
+            if (is_mainthread()
+#ifdef HORDE_DATA_GENERATOR
+                && limits.infinite != -1
+#endif
+            )
                 main_manager()->callsCnt = 0;
 
             if (err != TB::ProbeState::FAIL)
@@ -1237,7 +1461,11 @@ moves_loop:  // When in check, search starts here
 
         ss->moveCount = ++moveCount;
 
-        if (rootNode && is_mainthread() && nodes > NODES_LIMIT_OUTPUT)
+        if (rootNode && is_mainthread() && nodes > NODES_LIMIT_OUTPUT
+#ifdef HORDE_DATA_GENERATOR
+            && limits.infinite != -1
+#endif
+        )
         {
             main_manager()->updates.onIter(
               {depth, UCIEngine::move(move, pos.is_chess960()), moveCount + pvIdx});
@@ -2197,8 +2425,27 @@ TimePoint Search::Worker::elapsed() const {
 }
 
 Value Search::Worker::evaluate(const Position& pos) {
+#if defined(HORDE_V2_CANDIDATE)
+    const auto result = accumulatorStack.evaluate(pos);
+    if (!result.valid())
+        std::abort();
+    #if defined(HORDE_V2_CANDIDATE_SHADOW)
+    const auto full =
+      network.evaluate_full_refresh(pos.piece_array(), pos.side_to_move(), pos.rule50_count());
+    if (!full.valid() || result.result.outputAffine != full.outputAffine
+        || result.result.preRule50Value != full.preRule50Value || result.result.value != full.value)
+        std::abort();
+    #endif
+    return result.result.value;
+#elif defined(HORDE_V2_PERF)
+    const auto result = hordeV2PerformanceStack.evaluate(pos);
+    if (!result.valid())
+        std::abort();
+    return result.result.value;
+#else
     return Eval::evaluate(network[numaAccessToken], pos, accumulatorStack, refreshTable,
                           optimism[pos.side_to_move()]);
+#endif
 }
 
 namespace {

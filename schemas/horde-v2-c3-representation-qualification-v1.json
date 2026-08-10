@@ -1,0 +1,269 @@
+{
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-v2-c3-representation-qualification-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "claims": {
+    "architecture_selected": false,
+    "playing_strength_evidence": false,
+    "production_network": false,
+    "recipe_already_qualified": true,
+    "run6b_production_path_changed": false
+  },
+  "confirmation_role": {
+    "embargo": {
+      "allowed_before_all_nine_runs_complete": [
+        "file integrity checks",
+        "schema validation",
+        "record-count checks",
+        "label-blind duplicate and overlap checks",
+        "label-blind feature coverage checks"
+      ],
+      "forbidden_before_all_nine_runs_complete": [
+        "candidate-network inference",
+        "candidate loss evaluation",
+        "candidate ranking",
+        "architecture selection"
+      ],
+      "release_condition": "all nine final checkpoints, canonical training receipts, exports and functional-health receipts exist and pass"
+    },
+    "generation": {
+      "book": {
+        "name": "validation.epd",
+        "sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A"
+      },
+      "candidate_output_name": "confirmation-candidate-262144.bin",
+      "candidate_records": 262144,
+      "configuration": {
+        "depth": 4,
+        "hash_mb": 16,
+        "max_game_ply": 300,
+        "nodes": 0,
+        "random_move_count": 4,
+        "random_move_max_ply": 16,
+        "random_move_min_ply": 4,
+        "random_multi_pv": 4,
+        "random_multi_pv_diff": 100,
+        "set_recommended_uci_options": true,
+        "threads": 1,
+        "write_max_ply": 200,
+        "write_min_ply": 5
+      },
+      "label_contract": {
+        "schema": "HORDE_LABEL_CONTRACT_V1",
+        "schema_sha256": "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"
+      },
+      "network": {
+        "schema": "HORDETEST_HP_LEGACY_V1",
+        "sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+      },
+      "producer": {
+        "sha256": "50B798908F24951B8BA6E1155FEF70C41AA4E860D319C0C65BC1E714FA9D2568",
+        "source_commit": "491e522718c2a0748d52d825f5c1fb0ce7d6c162"
+      },
+      "seed": 5901569341932596917,
+      "seed_derivation": "Clear the most significant bit of the unsigned big-endian integer formed from the first eight bytes of SHA-256('HORDE_V2_C3_CONFIRMATION_ROLE_V1:generator-seed').",
+      "seed_derivation_sha256": "D1E6960C733A6EB5DE26021384B6AEC32EEEECCBCB1A552A2E2F1BAE1DFA8C7B"
+    },
+    "selection": {
+      "candidate_order_key": "SHA-256('HORDE_V2_C3_CONFIRMATION_ROLE_V1:select:' || uint64be(local_record_index)), ascending digest then ascending local_record_index",
+      "excluded_roles": [
+        {
+          "file_sha256": "0BFEB566EC1587256DBDB6111689DF51EAFD3063C7D47A2120655B917E29AC6A",
+          "name": "train.bin",
+          "payload_sha256": "46280E89FEF9A5C58D31CBAC36B91E2D8F13954DF17F90E803E7D3237B39EFD4",
+          "records": 250000
+        },
+        {
+          "file_sha256": "945983D43EEB7D180110765A73DF8C3E6E71CB6E7FE3C575478549F11E7A3A70",
+          "name": "selected-records.bin",
+          "payload_sha256": "945983D43EEB7D180110765A73DF8C3E6E71CB6E7FE3C575478549F11E7A3A70",
+          "records": 250000
+        }
+      ],
+      "fail_closed_if_eligible_records_below": 250000,
+      "keys": {
+        "legacy_model_input": "SHA-256(white rows, black rows, side, material bucket, rule50)",
+        "physical": "SHA-256(board, side, castling, en-passant)"
+      },
+      "label_blind": true,
+      "output_name": "selected-records.bin",
+      "selected_records": 250000,
+      "selection_rules": [
+        "reject any record whose physical key occurs in either excluded role",
+        "reject any record whose legacy-model-input key occurs in either excluded role",
+        "retain only the first candidate occurrence of each physical key",
+        "retain only the first candidate occurrence of each legacy-model-input key",
+        "sort remaining records by the frozen candidate order key",
+        "materialize exactly the first 250000 records"
+      ]
+    },
+    "status": "preregistered_unmaterialized"
+  },
+  "dependencies": {
+    "book_split": {
+      "schema": "HORDE_TRAINING_BOOK_SPLIT_V2",
+      "sha256": "0301BAC3374D8DD4194E03686B27EEB1DBA2EAF0D8B09BD273EF04D33B715DD2"
+    },
+    "constant_baseline": {
+      "schema": "HORDE_V2_C2_CONSTANT_BASELINE_RECEIPT_V1",
+      "sha256": "0147F9155D270A7797A9C8BBD0DA71774407C52702A032197294309B89544E99"
+    },
+    "qualified_recipe": {
+      "arm": "dense_trunk_0p1",
+      "receipt_schema": "HORDE_V2_C2_QUALIFICATION_RECEIPT_V1",
+      "receipt_sha256": "A56B1F7938F202F83C40EB23260BAEB4F395E90C49C25A8DF84BAA62AD13CFEA"
+    },
+    "source": {
+      "clean": true,
+      "commit": "300c1283fc6c6d88d0b694d8fa7a531fcaf0c3a6"
+    },
+    "training_file": {
+      "file_sha256": "0BFEB566EC1587256DBDB6111689DF51EAFD3063C7D47A2120655B917E29AC6A",
+      "manifest_sha256": "374965FC3B06870FF6BA955746265DFBCA2B505FAA619345D4D9B7283333A8E4",
+      "payload_sha256": "46280E89FEF9A5C58D31CBAC36B91E2D8F13954DF17F90E803E7D3237B39EFD4",
+      "records": 250000,
+      "schema": "HORDE_BIN_V1"
+    },
+    "tuning_validation_role": {
+      "candidate_file_sha256": "0969B736005BFEB3F4434206E610DF541D454C0508154FEAA4F00613F72D0712",
+      "file_sha256": "945983D43EEB7D180110765A73DF8C3E6E71CB6E7FE3C575478549F11E7A3A70",
+      "receipt_sha256": "E1A3636F7B8CF53BBC83F5AF1FEE0BB840BD40255DC6FA8BC5A52CF7B0EEDC62",
+      "records": 250000,
+      "schema": "HORDE_TRAINING_SELECTED_ROLE_V1"
+    },
+    "wdl_calibration": {
+      "schema": "HORDE_WDL_CALIBRATION_V1",
+      "sha256": "37305639AEE6BC9885DAFC4E714367F7B973BDBAFFC81779BEC0C669B0F49479"
+    }
+  },
+  "evaluation": {
+    "arithmetic": "checkpoint float32 CPU forward, integer score truncation and rule-50 damping, frozen float32 WDL lookup, binary64 record-order reduction",
+    "constant_policy": "reuse the two training-fitted integer constants without refitting",
+    "lambda": 0.6,
+    "mate_policy": "exclude abs(teacher score) >= 31507 from the score term and retain every result term",
+    "objective_schema": "HORDE_WDL_HALF_BRIER_CANONICAL_CPU_V1",
+    "statistics": {
+      "architecture_summary": "arithmetic mean of the three frozen-seed composite losses, with every paired seed delta also reported",
+      "cluster_identity": "absent from HORDE_BIN_V1",
+      "confidence_interval": "none",
+      "iid_bootstrap": false,
+      "sample_identity": "(payload_sha256, local_record_index)",
+      "unit": "record"
+    }
+  },
+  "matrix": {
+    "architectures": [
+      {
+        "first_domain": "absolute_nonking",
+        "name": "v2-c1-abs64x192",
+        "parameter_count": 185730,
+        "schema": "V2_C1_ABS_NONKING_64X192",
+        "serialized_parameter_bytes": 362824,
+        "structural_sha256": "66538DB76A0248662A824545A2ECCD2AE84CD4805DDFCA206B5239FA3BDE45B6"
+      },
+      {
+        "first_domain": "royal_rank8",
+        "name": "v2-c1-rank8-64x192",
+        "parameter_count": 472450,
+        "schema": "V2_C1_ROYAL_RANK8_64X192",
+        "serialized_parameter_bytes": 936264,
+        "structural_sha256": "53A82F734EBCAD97508AD91D54027ADD10772A1DC85A612F5D395AEE08567083"
+      },
+      {
+        "first_domain": "royal",
+        "name": "v2-64x192",
+        "parameter_count": 1455490,
+        "schema": "V2_BASE_P0_64X192",
+        "serialized_parameter_bytes": 2902344,
+        "structural_sha256": "5360985A5B08E43A6F7C23E8601DF159BAEE38E9306C3652867AA93EEAD39862"
+      }
+    ],
+    "existing_complete_arm": {
+      "architecture": "v2-c1-abs64x192",
+      "evidence_receipt_sha256": "A56B1F7938F202F83C40EB23260BAEB4F395E90C49C25A8DF84BAA62AD13CFEA"
+    },
+    "frozen_seeds": [
+      7435908571601354096,
+      3557647045056828427,
+      4999335725889688378
+    ],
+    "pending_architectures": [
+      "v2-c1-rank8-64x192",
+      "v2-64x192"
+    ],
+    "run_count": 9
+  },
+  "schema_name": "HORDE_V2_C3_REPRESENTATION_QUALIFICATION_V1",
+  "selection": {
+    "diagnostic_screen": {
+      "eligible_architecture": "all three frozen-seed checkpoints must pass functional health and strictly beat the frozen constant baseline on the fresh confirmation role",
+      "loss_ranking_cannot_select_production": true,
+      "pareto_axes": [
+        "three-seed mean confirmation loss",
+        "serialized parameter bytes"
+      ],
+      "tie_break": "select the cheaper architecture"
+    },
+    "playing_gate": {
+      "baseline": "the cheapest eligible architecture",
+      "book": "the same paired Horde opening book for both networks",
+      "candidate_seed": 7435908571601354096,
+      "engine": "identical Horde-Stockfish source, search settings and binary except for the V2 network artifact",
+      "fixed_node_evidence": "diagnostic only",
+      "heavier_model_requirement": "positive Elo with LOS displayed as 100% at every equal-time control; otherwise retain the cheaper model",
+      "stopping_rule": "run each equal-time control until the displayed LOS reaches 0% or 100%",
+      "time_controls": [
+        "2+0.02",
+        "10+0.1",
+        "30+0.3"
+      ]
+    },
+    "production_gate": "architecture selection still requires the full technical parity, speed, three-time-control and release gates; Run 6B remains the production evaluator until then",
+    "speed_policy": "parameter count, serialized bytes and measured equal-time NPS are separate reported axes; a heavier network receives no credit for validation loss alone"
+  },
+  "status": "registered_before_remaining_training",
+  "training": {
+    "batch_size": 4096,
+    "block_size": 65536,
+    "device": {
+      "cpu_threads": 1,
+      "expected_name": "NVIDIA GeForce RTX 3080",
+      "type": "cuda"
+    },
+    "epochs": 8,
+    "held_constant": [
+      "training file and tuning-validation role",
+      "teacher labels and WDL calibration",
+      "optimizer and schedule",
+      "lambda and mate policy",
+      "64 first-domain lanes and 192 global lanes",
+      "dense trunk and side-to-move heads",
+      "paired seeds and sample order",
+      "export and functional-health procedure"
+    ],
+    "lambda": 0.6,
+    "learning_rate": 0.0015,
+    "optimizer": {
+      "betas": [
+        0.9,
+        0.999
+      ],
+      "dense_learning_rate_multiplier": 0.1,
+      "epsilon": 1e-07,
+      "foreach": false,
+      "gradient_centralization": false,
+      "lookahead": false,
+      "name": "torch.optim.RAdam",
+      "output_learning_rate_multiplier": 0.1,
+      "weight_decay": 0.0
+    },
+    "optimizer_steps": 496,
+    "samples_consumed_per_model": 2000000,
+    "scheduler": {
+      "gamma": 0.987,
+      "name": "StepLR",
+      "step_size_epochs": 1
+    },
+    "source_clean": true,
+    "source_commit": "300c1283fc6c6d88d0b694d8fa7a531fcaf0c3a6"
+  }
+}

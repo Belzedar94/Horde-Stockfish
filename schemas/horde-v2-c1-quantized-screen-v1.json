@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-v2-c1-quantized-screen-v1.json",
+  "title": "Horde V2 C1 quantized training screen V1",
+  "schema_name": "HORDE_V2_C1_QUANTIZED_SCREEN_V1",
+  "status": "registered_not_run",
+  "purpose": "Nominate at most one no-context C1 fixed-node pairing after all nine trained containers pass authenticated integer validation.",
+  "dependencies": {
+    "campaign_contract": {
+      "schema": "HORDE_V2_C1_CAMPAIGN_V1",
+      "sha256": "7B5BDA9DC20AB7CF55DE2964085D2ADBBED83137A3071B418439A5CF7DD939DA"
+    },
+    "coverage_addendum": {
+      "schema": "HORDE_V2_C1_COVERAGE_ADDENDUM_V1",
+      "sha256": "3103951AB8522238C23DBF83A3DEB0073D671024B0054ACBB75E1DC0C7C7D91B"
+    },
+    "effective_campaign_contract_sha256": "43484FDE0A783547CA8989B171D52628753D25897E42781E9E12124C74F2103D",
+    "campaign_plan_schema": "HORDE_V2_C1_CAMPAIGN_PLAN_V2",
+    "campaign_verification_schema": "HORDE_V2_C1_CAMPAIGN_VERIFICATION_V2",
+    "container_schema": "HORDE_V2_INTEGER_NETWORK_V1",
+    "dataset_schema": "HORDE_BIN_V1",
+    "dataset_schema_sha256": "B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4",
+    "teacher_network_sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7",
+    "wdl_calibration_schema": "HORDE_WDL_CALIBRATION_V1"
+  },
+  "evaluation": {
+    "dataset_role": "validation",
+    "records": 250000,
+    "batch_size": 4096,
+    "all_nine_quantized_containers_required": true,
+    "integer_forward": {
+      "sparse_accumulators": "signed int64",
+      "dense_affines": "exact integer products below 2^53",
+      "activation": "clip(max(value, 0) >> 6, 0, 127)",
+      "output_divisor": 16,
+      "rule50": "trunc_toward_zero(trunc_toward_zero(output / 16) * (100 - clamp(rule50, 0, 100)) / 100)",
+      "value_clip": [
+        -31506,
+        31506
+      ]
+    },
+    "objective": {
+      "schema": "HORDE_WDL_HALF_BRIER_V1",
+      "lambda": 0.6,
+      "calibration_parameters": "artifact IEEE-754 binary64",
+      "probability_arithmetic": "IEEE-754 binary64",
+      "teacher_mate_scores_masked_from_score_term": true,
+      "teacher_score_already_contains_rule50": true
+    },
+    "reported_slices": {
+      "overall": true,
+      "side_to_move": [
+        "white_to_move",
+        "black_to_move"
+      ],
+      "white_piece_bins": [
+        "1-4",
+        "5-8",
+        "9-16",
+        "17-24",
+        "25-30",
+        "31-36"
+      ]
+    },
+    "parameter_health": {
+      "minimum_weight_nonzero_fraction": 0.01,
+      "maximum_weight_dtype_boundary_fraction": 0.05,
+      "all_weight_sections_required": true
+    }
+  },
+  "comparisons": [
+    {
+      "id": "rank8_over_absolute",
+      "cheaper": "v2-c1-abs64x192",
+      "contender": "v2-c1-rank8-64x192"
+    },
+    {
+      "id": "royal32_over_rank8",
+      "cheaper": "v2-c1-rank8-64x192",
+      "contender": "v2-64x192"
+    },
+    {
+      "id": "royal32_over_absolute",
+      "cheaper": "v2-c1-abs64x192",
+      "contender": "v2-64x192"
+    }
+  ],
+  "gates": {
+    "paired_seed_count": 3,
+    "paired_t_critical_95_df2": 4.3026527297,
+    "quantized_overall_delta_contender_better_for_every_seed": true,
+    "paired_quantized_overall_lower_95_greater_than": 0.0,
+    "last_float_epochs_checked": 2,
+    "float_validation_delta_contender_better_for_every_seed_and_epoch": true,
+    "quantized_side_delta_contender_better_for_every_seed": true,
+    "integer_final_ranking_must_not_reverse_float_final_ranking": true,
+    "both_architectures_pass_parameter_health": true,
+    "ties_select_cheaper": true
+  },
+  "nomination": {
+    "predesignated_playing_seed_index": 0,
+    "maximum_pairings": 1,
+    "preference_order": [
+      "v2-64x192 versus v2-c1-rank8-64x192 when Royal-32 passes both nearer and absolute controls",
+      "v2-c1-rank8-64x192 versus v2-c1-abs64x192 when Rank-8 passes absolute",
+      "v2-64x192 versus v2-c1-abs64x192 when Royal-32 passes both controls but Rank-8 fails absolute"
+    ],
+    "next_gate": "paired fixed-node test with a 95% Elo lower bound greater than +2 before equal-time testing"
+  },
+  "claims": {
+    "validation_loss_selects_architecture": false,
+    "fixed_node_strength_measured": false,
+    "equal_time_strength_measured": false,
+    "architecture_selected": false,
+    "production_network": false,
+    "run6b_production_path_changed": false
+  }
+}

@@ -54,24 +54,28 @@ jobs:
       - name: Build and verify Horde-Stockfish
         run: |
           make -j2 -C src ARCH=${{ matrix.arch }} EXTRALDFLAGS=-static build
+          make -j2 -C src ARCH=${{ matrix.arch }} EXTRALDFLAGS=-static GIT_FULL_SHA=${{ github.sha }} GIT_DIFFINDEX= data-generator
           python3 tests/horde_rules.py src/stockfish
           python3 tests/horde_network_contract.py src/stockfish
           python3 tests/horde_bench.py src/stockfish --runs 1
           python3 tests/horde_genfens.py src/stockfish --book horde-book/HORDE_openings.epd
+          make -C src ARCH=${{ matrix.arch }} GIT_FULL_SHA=${{ github.sha }} GIT_DIFFINDEX= PYTHON=python3 horde-data-generator-tests
           file src/stockfish | grep 'statically linked'
-      - name: Stage the sole executable
+          file src/horde-stockfish-data-generator | grep 'statically linked'
+      - name: Stage role-specific executables
         run: |
-          mkdir artifact
-          install -m 0755 src/stockfish artifact/horde-stockfish
+          mkdir artifact-play artifact-datagen
+          install -m 0755 src/stockfish artifact-play/horde-stockfish
+          install -m 0755 src/horde-stockfish-data-generator artifact-datagen/horde-stockfish
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: horde-stockfish-linux-${{ matrix.simd }}-${{ matrix.bitops }}-play
-          path: artifact/horde-stockfish
+          path: artifact-play/horde-stockfish
           if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: horde-stockfish-linux-${{ matrix.simd }}-${{ matrix.bitops }}-datagen
-          path: artifact/horde-stockfish
+          path: artifact-datagen/horde-stockfish
           if-no-files-found: error
 
   windows:
@@ -125,22 +129,25 @@ jobs:
         shell: msys2 {0}
         run: |
           make -j2 -C src ARCH=${{ matrix.arch }} build
+          make -j2 -C src ARCH=${{ matrix.arch }} GIT_FULL_SHA=${{ github.sha }} GIT_DIFFINDEX= data-generator
           python tests/horde_rules.py src/stockfish.exe
           python tests/horde_network_contract.py src/stockfish.exe
           python tests/horde_bench.py src/stockfish.exe --runs 1
           python tests/horde_genfens.py src/stockfish.exe --book horde-book/HORDE_openings.epd
-      - name: Stage the sole executable
+          make -C src ARCH=${{ matrix.arch }} GIT_FULL_SHA=${{ github.sha }} GIT_DIFFINDEX= PYTHON=python horde-data-generator-tests
+      - name: Stage role-specific executables
         shell: msys2 {0}
         run: |
-          mkdir artifact
-          install -m 0755 src/stockfish.exe artifact/horde-stockfish.exe
+          mkdir artifact-play artifact-datagen
+          install -m 0755 src/stockfish.exe artifact-play/horde-stockfish.exe
+          install -m 0755 src/horde-stockfish-data-generator.exe artifact-datagen/horde-stockfish.exe
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: horde-stockfish-windows-${{ matrix.simd }}-${{ matrix.bitops }}-play
-          path: artifact/horde-stockfish.exe
+          path: artifact-play/horde-stockfish.exe
           if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: horde-stockfish-windows-${{ matrix.simd }}-${{ matrix.bitops }}-datagen
-          path: artifact/horde-stockfish.exe
+          path: artifact-datagen/horde-stockfish.exe
           if-no-files-found: error

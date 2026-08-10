@@ -1,0 +1,76 @@
+{
+  "bindings": {
+    "checkpoint_and_training_receipt": "same clean source, complete exposure, architecture, seed, optimizer arm, data receipt and checkpoint SHA-256",
+    "functional_health": "exact checkpoint SHA-256, architecture, seed, final exposure and selected validation identity",
+    "teacher": "constant baseline, selected validation role and every run use the same source commit, producer, Run 6B network and label contract",
+    "training": "constant-baseline training identity exactly matches every checkpoint and training receipt",
+    "validation": "every checkpoint, training receipt and functional-health receipt exactly match the authenticated selected-role identity",
+    "wdl_calibration": "constant baseline, calibration artifact, every checkpoint and every training receipt use the same artifact identity and lookup bytes"
+  },
+  "claims": {
+    "architecture_selection": false,
+    "playing_strength_evidence": false,
+    "recipe_qualification_only": true,
+    "run6b_production_path_changed": false
+  },
+  "evaluation": {
+    "arithmetic": "checkpoint float32 CPU forward, integer score truncation and rule-50 damping, frozen float32 WDL lookup, binary64 record-order reduction",
+    "batch_size": 4096,
+    "constant_policy": "reuse the two training-fitted integer constants without refitting",
+    "lambda": 0.6,
+    "mate_policy": "exclude abs(teacher score) >= 31507 from the score term and retain every result term",
+    "normalization": "divide every composite sum by all selected-role records",
+    "objective_schema": "HORDE_WDL_HALF_BRIER_CANONICAL_CPU_V1",
+    "paired_delta": "constant baseline mean minus checkpoint mean on the same records"
+  },
+  "gates": {
+    "all_checkpoint_deltas_strictly_positive": true,
+    "all_functional_health_receipts_pass": true,
+    "exact_final_exposure": {
+      "epochs": 8,
+      "optimizer_steps": 496,
+      "samples_consumed": 2000000
+    },
+    "exact_run_count": 3,
+    "source_clean": true
+  },
+  "inputs": {
+    "constant_baseline": "HORDE_V2_C2_CONSTANT_BASELINE_RECEIPT_V1 fitted on the authenticated training split",
+    "functional_health": "one passing HORDE_V2_FUNCTIONAL_HEALTH_RECEIPT_V1 per checkpoint",
+    "runs": "three complete final checkpoints and their canonical training receipts",
+    "validation": "one authenticated HORDE_TRAINING_SELECTED_ROLE_V1 receipt",
+    "wdl_calibration": "the exact HORDE_WDL_CALIBRATION_V1 used by the constant baseline and every checkpoint"
+  },
+  "matrix": {
+    "allowed_arms": {
+      "dense_trunk_0p1": {
+        "dense_trunk": 0.1,
+        "output": 0.1
+      },
+      "output_1p0": {
+        "dense_trunk": 1.0,
+        "output": 1.0
+      }
+    },
+    "architecture": {
+      "name": "v2-c1-abs64x192",
+      "schema": "V2_C1_ABS_NONKING_64X192",
+      "structural_sha256": "66538DB76A0248662A824545A2ECCD2AE84CD4805DDFCA206B5239FA3BDE45B6"
+    },
+    "frozen_seeds": [
+      7435908571601354096,
+      3557647045056828427,
+      4999335725889688378
+    ],
+    "one_factor_only": "each arm differs from the frozen optimizer recipe in exactly one learning-rate multiplier"
+  },
+  "schema_name": "HORDE_V2_C2_QUALIFICATION_V1",
+  "statistics": {
+    "cluster_identity": "absent from HORDE_BIN_V1",
+    "confidence_interval": "none",
+    "iid_bootstrap": false,
+    "sample_identity": "(payload_sha256, local_record_index)",
+    "unit": "record",
+    "warning": "game_ply and record adjacency must not be used to reconstruct unauthenticated game clusters"
+  }
+}

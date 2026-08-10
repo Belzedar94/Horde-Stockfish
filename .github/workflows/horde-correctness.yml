@@ -8,6 +8,22 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      v2_width_benchmark:
+        description: Run the paired Horde V2 width benchmark
+        required: false
+        default: false
+        type: boolean
+      v2_width_rounds:
+        description: Paired rounds per V2 width
+        required: false
+        default: "12"
+        type: string
+      v2_width_depth:
+        description: Horde benchmark depth
+        required: false
+        default: "13"
+        type: string
 
 permissions:
   contents: read
@@ -39,6 +55,36 @@ jobs:
         run: make -j2 ARCH=x86-64 ${{ matrix.make_args }} build
       - name: Verify frozen artifacts
         run: python3 scripts/horde/verify_baseline.py
+      - name: Verify experimental V2 feature contracts
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_features.cpp -o /tmp/horde-v2-features
+          /tmp/horde-v2-features
+          python3 tests/horde_v2_trainer_parity.py /tmp/horde-v2-features
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_widths.cpp -o /tmp/horde-v2-widths
+          /tmp/horde-v2-widths
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_backend.cpp -o /tmp/horde-v2-backend
+          /tmp/horde-v2-backend
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 \
+            tests/horde_v2_backend.cpp -o /tmp/horde-v2-backend-avx2
+          /tmp/horde-v2-backend-avx2
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o /tmp/horde-v2-container
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o /tmp/horde-v2-container-avx2
+          make -j2 -C src ARCH=x86-64 ${{ matrix.make_args }} horde-v2-position-test-bin
+          python3 tests/horde_v2_container_parity.py \
+            --oracle /tmp/horde-v2-container \
+            --oracle /tmp/horde-v2-container-avx2 \
+            --position-oracle src/horde-v2-position-test
+      - name: Verify experimental V2 real Position stack
+        run: |
+          make -j2 -C src ARCH=x86-64 ${{ matrix.make_args }} horde-v2-position-test-bin
+          src/horde-v2-position-test
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
       - name: Verify material corpus
@@ -58,8 +104,113 @@ jobs:
           tests/horde_network_contract.py
           tests/horde_bench.py
           tests/horde_genfens.py
+          tests/horde_v2_trainer_parity.py
+          tests/horde_v2_engine_widths.py
+          tests/horde_v2_container_parity.py
+          tests/horde_v2_candidate_engine.py
+          tests/horde_v2_c1_campaign.py
+          tests/horde_v2_c1_coverage.py
+          tests/horde_v2_c1_screen.py
+          tests/horde_v2_c2_constant_baseline.py
+          tests/horde_v2_c2_qualification.py
+          tests/horde_v2_c3_confirmation_role.py
+          tests/horde_v2_c3_qualification.py
+          tests/horde_v2_functional_health.py
+          tests/horde_v2_integer_eval.py
+          tests/horde_v2_export.py
           tests/horde_nnue_parity.py
           tests/horde_nnue_determinism.py
+          tests/horde_legacy_trainer_replay.py
+          tests/horde_data_generator.py
+          tests/horde_training_book_split.py
+          tests/horde_training_c0.py
+          tests/horde_training_control.py
+          tests/horde_training_resume.py
+          tests/horde_training_selected_role.py
+          tests/horde_wdl_calibration.py
+          tools/horde_bin_v1.py
+          tools/horde_compare_training_checkpoints.py
+          tools/horde_fit_wdl.py
+          tools/horde_run6b.py
+          tools/horde_split_training_book.py
+          tools/horde_training_c0.py
+          tools/horde_training_control.py
+          tools/horde_training_decoder.py
+          tools/horde_training_models.py
+          tools/horde_training_selected_role.py
+          tools/horde_training_split_audit.py
+          tools/horde_training_microfit.py
+          tools/horde_wdl.py
+          tools/horde_v2_container.py
+          tools/horde_v2_c1_campaign.py
+          tools/horde_v2_c1_screen.py
+          tools/horde_v2_c2_constant_baseline.py
+          tools/horde_v2_c2_objective.py
+          tools/horde_v2_c2_qualification.py
+          tools/horde_v2_c3_confirmation_role.py
+          tools/horde_v2_c3_qualification.py
+          tools/horde_v2_export.py
+          tools/horde_v2_functional_health.py
+          tools/horde_v2_integer_eval.py
+      - name: Verify deterministic training-book split
+        run: python3 tests/horde_training_book_split.py
+
+  training-reference:
+    name: ${{ matrix.name }} trainer reference
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+          - name: Windows
+            os: windows-2025
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install pinned trainer dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check
+          numpy==2.2.6
+          torch==2.7.1
+          --index-url https://download.pytorch.org/whl/cpu
+          --extra-index-url https://pypi.org/simple
+      - name: Verify Horde WDL calibration
+        run: python tests/horde_wdl_calibration.py
+      - name: Verify Horde legacy and V2 trainers
+        run: python tests/horde_training_control.py
+      - name: Verify Horde V2 C0 split equality
+        run: python tests/horde_training_c0.py
+      - name: Verify authenticated Horde V2 checkpoint export
+        run: python tests/horde_v2_export.py
+      - name: Verify frozen Horde V2 C1 campaign
+        run: python tests/horde_v2_c1_campaign.py
+      - name: Verify Horde V2 C1 coverage semantics
+        run: python tests/horde_v2_c1_coverage.py
+      - name: Verify selected C1 validation role
+        run: python tests/horde_training_selected_role.py
+      - name: Verify Horde V2 integer batch evaluation
+        run: python tests/horde_v2_integer_eval.py
+      - name: Verify frozen Horde V2 C1 quantized screen
+        run: python tests/horde_v2_c1_screen.py
+      - name: Verify Horde V2 functional-health gate
+        run: python tests/horde_v2_functional_health.py
+      - name: Verify Horde V2 C2 constant baseline
+        run: python tests/horde_v2_c2_constant_baseline.py
+      - name: Verify Horde V2 C2 qualification gate
+        run: python tests/horde_v2_c2_qualification.py
+      - name: Verify fresh Horde V2 C3 confirmation role
+        run: python tests/horde_v2_c3_confirmation_role.py
+      - name: Verify Horde V2 C3 representation qualification gate
+        run: python tests/horde_v2_c3_qualification.py
+      - name: Verify interrupted trainer resume parity
+        run: python tests/horde_training_resume.py
 
   sanitizers:
     name: Linux ASan and UBSan
@@ -73,6 +224,31 @@ jobs:
         run: >-
           make -j2 ARCH=x86-64 sanitize="address undefined" debug=yes optimize=no
           EXTRACXXFLAGS="-O1 -fno-inline" build
+      - name: Verify experimental V2 scalar reference with sanitizers
+        run: |
+          c++ -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            tests/horde_v2_features.cpp -o /tmp/horde-v2-features-sanitize
+          /tmp/horde-v2-features-sanitize
+          python3 tests/horde_v2_trainer_parity.py /tmp/horde-v2-features-sanitize
+          c++ -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            tests/horde_v2_widths.cpp -o /tmp/horde-v2-widths-sanitize
+          /tmp/horde-v2-widths-sanitize
+          c++ -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            tests/horde_v2_backend.cpp -o /tmp/horde-v2-backend-sanitize
+          /tmp/horde-v2-backend-sanitize
+          c++ -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS \
+            -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o /tmp/horde-v2-container-sanitize
+          make -j2 -C src ARCH=x86-64 sanitize="address undefined" debug=yes optimize=no \
+            EXTRACXXFLAGS="-O1 -fno-inline" horde-v2-position-test-bin
+          python3 tests/horde_v2_container_parity.py \
+            --oracle /tmp/horde-v2-container-sanitize \
+            --position-oracle src/horde-v2-position-test
+          src/horde-v2-position-test
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
       - name: Verify material corpus
@@ -134,6 +310,11 @@ jobs:
           make -C src clean
           make -j2 -C src ARCH=x86-64-bmi2 build
           cp src/stockfish horde-stockfish-bmi2
+      - name: Verify trainer-side Run 6B replay
+        run: >-
+          python3 tests/horde_legacy_trainer_replay.py
+          --engine horde-stockfish-bmi2
+          --positions 512
       - name: Verify 100,000-position raw and final parity
         run: >-
           python3 tests/horde_nnue_parity.py
@@ -167,12 +348,165 @@ jobs:
         shell: msys2 {0}
         run: |
           make -j2 -C src ARCH=x86-64 build
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_features.cpp -o horde-v2-features.exe
+          ./horde-v2-features.exe
+          python tests/horde_v2_trainer_parity.py ./horde-v2-features.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_widths.cpp -o horde-v2-widths.exe
+          ./horde-v2-widths.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/horde_v2_backend.cpp -o horde-v2-backend.exe
+          ./horde-v2-backend.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 \
+            tests/horde_v2_backend.cpp -o horde-v2-backend-avx2.exe
+          ./horde-v2-backend-avx2.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o horde-v2-container.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o horde-v2-container-avx2.exe
+          make -j2 -C src ARCH=x86-64 horde-v2-position-test-bin
+          python tests/horde_v2_container_parity.py \
+            --oracle ./horde-v2-container.exe \
+            --oracle ./horde-v2-container-avx2.exe \
+            --position-oracle src/horde-v2-position-test.exe
+          src/horde-v2-position-test.exe
           python scripts/horde/verify_baseline.py
           python tests/horde_rules.py src/stockfish.exe
           python tests/horde_material_corpus.py src/stockfish.exe
           python tests/horde_network_contract.py src/stockfish.exe
           python tests/horde_bench.py src/stockfish.exe
           python tests/horde_genfens.py src/stockfish.exe
+
+  v2-candidate-linux:
+    name: Linux Horde V2 candidate dispatch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Create an authenticated Rank8 fixture
+        run: >-
+          python3 tests/horde_v2_candidate_engine.py fixture
+          /tmp/horde-v2-rank8.hsv2
+          --architecture v2-c1-rank8-64x192
+      - name: Reject contradictory build dispatch
+        shell: bash
+        run: |
+          if make -s -C src help HORDE_V2_CANDIDATE=no EVALFILE=/tmp/horde-v2-rank8.hsv2; then
+            echo "A .hsv2 container bypassed the candidate dispatch" >&2
+            exit 1
+          fi
+          if make -s -C src help HORDE_V2_CANDIDATE=yes EVALFILE=/tmp/not-a-container.nnue; then
+            echo "Candidate dispatch accepted a non-.hsv2 artifact" >&2
+            exit 1
+          fi
+      - name: Build the validating AVX2 candidate
+        run: >-
+          make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no
+          EVALFILE=/tmp/horde-v2-rank8.hsv2
+          EXTRACXXFLAGS=-DHORDE_V2_CANDIDATE_SHADOW build
+      - name: Verify integer parity, search stack, determinism, and fail-closed loading
+        run: >-
+          python3 tests/horde_v2_candidate_engine.py verify
+          src/stockfish /tmp/horde-v2-rank8.hsv2
+
+  v2-candidate-windows:
+    name: Windows Horde V2 candidate dispatch
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c # v2.31.1
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-python
+      - name: Create an authenticated Rank8 fixture
+        shell: msys2 {0}
+        run: >-
+          python tests/horde_v2_candidate_engine.py fixture
+          "$PWD/horde-v2-rank8.hsv2"
+          --architecture v2-c1-rank8-64x192
+      - name: Reject contradictory build dispatch
+        shell: msys2 {0}
+        run: |
+          if make -s -C src help HORDE_V2_CANDIDATE=no EVALFILE="$PWD/horde-v2-rank8.hsv2"; then
+            echo "A .hsv2 container bypassed the candidate dispatch" >&2
+            exit 1
+          fi
+          if make -s -C src help HORDE_V2_CANDIDATE=yes EVALFILE="$PWD/not-a-container.nnue"; then
+            echo "Candidate dispatch accepted a non-.hsv2 artifact" >&2
+            exit 1
+          fi
+      - name: Build the validating AVX2 candidate
+        shell: msys2 {0}
+        run: >-
+          make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no
+          EVALFILE="$PWD/horde-v2-rank8.hsv2"
+          EXTRACXXFLAGS=-DHORDE_V2_CANDIDATE_SHADOW build
+      - name: Verify integer parity, search stack, determinism, and fail-closed loading
+        shell: msys2 {0}
+        run: >-
+          python tests/horde_v2_candidate_engine.py verify
+          src/stockfish.exe "$PWD/horde-v2-rank8.hsv2"
+
+  v2-width-benchmark:
+    name: Paired AVX2 Horde V2 width benchmark
+    if: github.event_name == 'workflow_dispatch' && inputs.v2_width_benchmark
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Build value-identical width binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p v2-bin receipts
+
+          build_width() {
+            local name="$1"
+            local royal="$2"
+            local global="$3"
+            EXTRACXXFLAGS="-DHORDE_V2_PERF -DHORDE_V2_PERF_ROYAL_WIDTH=${royal} -DHORDE_V2_PERF_GLOBAL_WIDTH=${global}" \
+              make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no build
+            mv src/stockfish "v2-bin/${name}"
+            make -C src objclean
+          }
+
+          build_width 256x256 256 256
+          build_width 128x256 128 256
+          build_width 128x128 128 128
+          build_width 64x192 64 192
+          sha256sum v2-bin/* | tee receipts/binaries.sha256
+          lscpu > receipts/lscpu.txt
+      - name: Run paired search benchmark
+        run: |
+          python3 tests/horde_v2_engine_widths.py \
+            --engine 256x256=v2-bin/256x256 \
+            --engine 128x256=v2-bin/128x256 \
+            --engine 128x128=v2-bin/128x128 \
+            --engine 64x192=v2-bin/64x192 \
+            --rounds "${{ inputs.v2_width_rounds }}" \
+            --depth "${{ inputs.v2_width_depth }}" \
+            --output receipts/width-benchmark.json
+      - name: Upload raw benchmark receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: horde-v2-width-benchmark-${{ github.sha }}
+          path: receipts/
+          if-no-files-found: error
+          retention-days: 30
 
   release-contract:
     name: Release contract tooling

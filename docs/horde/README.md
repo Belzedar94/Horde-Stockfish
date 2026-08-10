@@ -19,6 +19,45 @@ Horde-Stockfish without losing rule, source or network provenance.
   Run 6B parity, incremental, determinism and benchmark evidence.
 - [Search telemetry](search-telemetry.md) — opt-in Horde pruning and branching
   counters for instrumented builds.
+- [NNUE V2 design](nnue-v2-design.md) — fixed-role, dual-domain architecture
+  and the orthogonal feature-ablation ladder.
+- [NNUE V2 width receipt](nnue-v2-width-receipt.json) - value-identical AVX2
+  search NPS, confidence intervals and the first training-width gate.
+- [NNUE V2 integer-container receipt](nnue-v2-integer-container-receipt.json) -
+  authenticated checkpoint export, C++ full refresh and scalar/AVX2/Python
+  parity for the first two registered experimental schemas.
+- [NNUE V2 incremental-container receipt](nnue-v2-incremental-container-receipt.json) -
+  lazy real-`Position` make/undo/null integration, domain-specific delta and
+  refresh parity, sanitizer coverage and exact-source width evidence.
+- [NNUE V2 Rank-8 control receipt](nnue-v2-rank8-control-receipt.json) -
+  compact Royal topology, three-schema container parity and the frozen
+  ABS/Rank-8/Royal-32 comparison gate.
+- [NNUE V2 representation selection](nnue-v2-representation-selection.json) -
+  manual selection of Rank-8 over the absolute control, with the exact local
+  three-time-control snapshot and explicit limitations.
+- [NNUE V2 Rank-8 scale contract](../../schemas/horde-v2-rank8-scale-v1.json) -
+  the first 50M-position selected-architecture campaign, including its 1M
+  validation candidate, fixed recipe, checkpoints and downstream gates.
+- [NNUE V2 C1 campaign contract](../../schemas/horde-v2-c1-campaign-v1.json) -
+  authenticated 250k/250k split, coverage audit, paired-seed training matrix
+  and fail-closed pre-selection evidence for ABS, Rank-8 and Royal-32.
+- [NNUE V2 C1 data-repair addendum](../../schemas/horde-v2-c1-data-repair-v1.json) -
+  frozen overproduction and label-blind first-eligible selection of the exact
+  250,000-record validation role after the direct split exposed transpositions.
+- [NNUE V2 C1 coverage addendum](../../schemas/horde-v2-c1-coverage-addendum-v1.json) -
+  pre-training, exact-data amendment that preserves the failed V1 preflight and
+  gates ABS, Rank-8 and Royal-32 on structural keys, roles and seen row mass.
+- [NNUE V2 C1 quantized screen](../../schemas/horde-v2-c1-quantized-screen-v1.json) -
+  exact integer validation, paired three-seed stability gates and deterministic
+  nomination of at most one subsequent fixed-node comparison.
+- [Training-data contract V1](datagen-v1.md) — the isolated generator,
+  physical-position wire format and G0 audit boundary.
+- [Horde WDL calibration V1](wdl-calibration-v1.md) defines the frozen
+  side-specific Davidson link and half-Brier training objective.
+- [Fresh legacy-control V3 canary receipt](fresh-legacy-control-v3-canary-receipt.json)
+  freezes authenticated labels, WDL calibration and byte-identical training.
+- [Fresh legacy-control canary receipt](fresh-legacy-control-canary-receipt.json)
+  preserves the original scalar-loss plumbing as historical evidence.
 - [Fixtures](fixtures/README.md) — pinned Lichess perft and its exact HordeTest
   `P`-to-`H` translation.
 

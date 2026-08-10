@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-label-contract-v1.json",
+  "title": "Horde training label contract V1",
+  "schema_name": "HORDE_LABEL_CONTRACT_V1",
+  "score": {
+    "kind": "completed_iterative_deepening_root_search_value",
+    "bound_policy": "exact_only",
+    "perspective": "side_to_move",
+    "unit": "Stockfish::Value",
+    "domain": "root_search_value_with_rule50_and_terminal_logic_already_applied",
+    "teacher_rule50_policy": "already_incorporated_by_search; never reapply to the stored score",
+    "prediction_rule50_postprocessor": {
+      "schema": "HORDE_RULE50_LINEAR_V1",
+      "formula": "clamp(trunc_toward_zero(trunc_toward_zero(v0) * (100 - min(rule50, 100)) / 100), -31506, 31506)"
+    },
+    "tablebase_safe_static_range": [
+      -31506,
+      31506
+    ],
+    "mate_threshold": 31507,
+    "mate_policy": "exclude from score-derived targets; retain the result-derived target"
+  },
+  "result": {
+    "perspective": "side_to_move",
+    "provenance": "completed self-play game resolved by Position::outcome",
+    "derivation": "compare the stored position side to move with the authenticated terminal winner",
+    "mapping": {
+      "-1": "loss",
+      "0": "draw",
+      "1": "win"
+    }
+  },
+  "terminal_matrix": {
+    "CHECKMATE": [
+      -1,
+      1
+    ],
+    "EXTINCTION": [
+      -1,
+      1
+    ],
+    "STALEMATE": [
+      0
+    ],
+    "HORDE_FORTRESS": [
+      0
+    ],
+    "FIFTY_MOVE": [
+      0
+    ],
+    "FIVEFOLD_REPETITION": [
+      0
+    ]
+  },
+  "sampling": {
+    "result_resampling": "none",
+    "class_weighting": "none",
+    "truncated_games": "discarded without labels",
+    "record_selection": "configured write-ply window with cross-game Position::key deduplication"
+  }
+}

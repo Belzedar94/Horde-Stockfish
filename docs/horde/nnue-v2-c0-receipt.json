@@ -1,0 +1,166 @@
+{
+  "common": {
+    "final_optimizer_sha256": "B77C9355894D81F5A2ED7D51D67DB75A01F52C9F22E835858F73B2C57D5E9CA5",
+    "final_parameter_sha256": "A1AE87218D9C18D15CEDD600F77796E9AF437D941F005C011608944F0D9FE497",
+    "fixture_sha256": "0B2844F0FCA016BFA2E0549B38B36C21167944CC68FCAB4EE2D92F2320A552C4",
+    "initial_output_sha256": "5D548B08E7CE216052D946851A5F64CD55EA8F69AA0DBE32C504BF47DE0B9F97",
+    "initial_parameter_sha256": "9EEF246454FFD7C0773DCA7353DD006CB1C424AB827B4ABAF17B1B9713C355E1",
+    "integer_export": {
+      "framed_payload_bytes": 371238,
+      "maximum_absolute_affine": {
+        "accumulator": 5268,
+        "hidden0_affine": 3221,
+        "hidden1_affine": 1947,
+        "output_affine": 78
+      },
+      "parameter_bytes": 371016,
+      "payload_sha256": "0D3DA00CC9E441030DE2BFD9D1B7EE4FA7DB82926BD30EAA3316D3B1F3C58461",
+      "schema": "HORDE_V2_C0_G0_256_INTEGER_PAYLOAD_V1",
+      "trace_sha256": "4E45E11904A624CFB5099B385E79BAED522423293ABB98FA72C20558056CCC69",
+      "value_sha256": "6848C7C85CA20C95F9EEB89E7C9F31F5D41F6029683F9CCF96C95A133BF450BC",
+      "values": [
+        4,
+        -4,
+        4,
+        -4,
+        -4,
+        4,
+        -4,
+        4,
+        4,
+        -4,
+        4,
+        -4,
+        -4,
+        4,
+        -4,
+        4,
+        4,
+        -4,
+        4,
+        -4,
+        -4,
+        4,
+        -4,
+        4,
+        4,
+        -4,
+        4,
+        -4,
+        -4,
+        4,
+        -4,
+        4
+      ]
+    },
+    "sample_count": 32,
+    "steps": [
+      {
+        "gradient_sha256": "2BF5207398B868A8A05741C97E413FCEBAE575EFB16E689E1ECFD0762C68383A",
+        "loss": 0.0890289917588234,
+        "optimizer_sha256": "149A925EAAE0192F6EA8F591923B6B56B254AC8E8D7782E88187B082337086C6",
+        "output_sha256": "5D548B08E7CE216052D946851A5F64CD55EA8F69AA0DBE32C504BF47DE0B9F97",
+        "parameter_sha256": "40FF62B31786DC459E05508BC516C166C7F6CD70C9E3AFBF98F5C0BAD7BFCFA7",
+        "step": 1
+      },
+      {
+        "gradient_sha256": "128F4411072ECFAE2ACC3CFE4D09FD803C1516D80877802E6CAC3DAF8907F999",
+        "loss": 0.08901841938495636,
+        "optimizer_sha256": "572E3FB50AD2F9B5EF225ECD7581A8C36D3A01C0ED643A7202561832C0D70174",
+        "output_sha256": "1AE3B35E342337A94C94C711068FF8A68BCEEB7849EE6EF57EA8DDC65C87CC41",
+        "parameter_sha256": "188568535199F0346809F542B453F644F77A55D4A9A708067DE49641D68607F1",
+        "step": 2
+      },
+      {
+        "gradient_sha256": "CA9709DC4DB528151EA0B8B56EF8D22EE5BCD5E8D429436D783867D7231501D9",
+        "loss": 0.08900785446166992,
+        "optimizer_sha256": "194D867903F4033DB1A2A91BE1852813CE40C4DAAAB78BC57D94B04C7F700D01",
+        "output_sha256": "A14E4DDF2C43CAA54E5148623A0153465D47D9D1E721167490539CE550F5C700",
+        "parameter_sha256": "F3730893EC9CD69FAD128FC183BAAF85F5FDA17F8D1D2BD2E2AA0E423102781A",
+        "step": 3
+      },
+      {
+        "gradient_sha256": "7FA8B72F790704C27D501AFC92B3BD102AEB5AFE01516324A02972B4F4ACE957",
+        "loss": 0.08899728208780289,
+        "optimizer_sha256": "B77C9355894D81F5A2ED7D51D67DB75A01F52C9F22E835858F73B2C57D5E9CA5",
+        "output_sha256": "1F2EED9F590060FB82A40C032FB6194EC0FAF2079466FB946F858E2E88735A47",
+        "parameter_sha256": "A1AE87218D9C18D15CEDD600F77796E9AF437D941F005C011608944F0D9FE497",
+        "step": 4
+      }
+    ]
+  },
+  "control": {
+    "feature_content": "the same complete absolute G0 rows in every domain",
+    "learning_rate": 0.0015,
+    "model_seed": 6211131578276333360,
+    "optimizer": "torch.optim.RAdam",
+    "single": "G0_SINGLE_256",
+    "splits": [
+      "G0_SPLIT_64_192",
+      "G0_SPLIT_128_128"
+    ],
+    "steps": 4
+  },
+  "cross_split_exact": true,
+  "implementation": {
+    "control_sha256": "F6542C1C4CA07C93C38435C31272A4B444832AF413B4779A20F84AE56A35BBE7",
+    "models_sha256": "27E4430A9FA78539C7BA8A8BE5F27D605760597F081E6D649F3C4C4409AD9CA4"
+  },
+  "integer_contract": {
+    "activation_max": 127,
+    "activation_shift": 6,
+    "byte_order": "little-endian",
+    "dense_scale": 64,
+    "ft_scale": 8128,
+    "output_divisor": 16,
+    "parameter_bytes": 371016,
+    "production_schema": false,
+    "rounding": "round to nearest, ties to even via torch.round",
+    "rule50_count": 0,
+    "schema": "HORDE_V2_C0_G0_256_INTEGER_PAYLOAD_V1",
+    "types": {
+      "affine_sums": "signed int64 engineering oracle",
+      "dense_weights": "signed int8",
+      "feature_and_dense_biases": "signed int32",
+      "feature_weights": "signed int16"
+    }
+  },
+  "purpose": "engineering equality control; no architecture or strength claim",
+  "runtime": {
+    "cuda_available_but_unused": true,
+    "float_receipt_scope": "exact only within one pinned runtime",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "python": "3.12.0",
+    "torch": "2.7.1+cu118"
+  },
+  "schema": "HORDE_V2_C0_EQUALITY_RECEIPT_V1",
+  "strength_evidence": false,
+  "variants": [
+    {
+      "equalities": {
+        "float_forward": true,
+        "gradients_after_reassembly": true,
+        "integer_layer_trace": true,
+        "integer_payload_after_reassembly": true,
+        "optimizer_state_after_reassembly": true,
+        "parameters_after_reassembly": true
+      },
+      "first_lanes": 64,
+      "name": "G0_SPLIT_64_192",
+      "second_lanes": 192
+    },
+    {
+      "equalities": {
+        "float_forward": true,
+        "gradients_after_reassembly": true,
+        "integer_layer_trace": true,
+        "integer_payload_after_reassembly": true,
+        "optimizer_state_after_reassembly": true,
+        "parameters_after_reassembly": true
+      },
+      "first_lanes": 128,
+      "name": "G0_SPLIT_128_128",
+      "second_lanes": 128
+    }
+  ]
+}
