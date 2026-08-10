@@ -98,6 +98,8 @@ class Engine {
     // utility functions
 
     void trace_eval() const;
+    Eval::NNUE::RawNetworkOutput raw_evaluation() const;
+    Value                        static_evaluation() const;
 
     const OptionsMap& get_options() const;
     OptionsMap&       get_options();
@@ -105,6 +107,7 @@ class Engine {
     int get_hashfull(int maxAge = 0) const;
 
     std::string                          fen() const;
+    bool                                 side_has_insufficient_winning_material(Color c) const;
     std::optional<PositionSetError>      flip();
     std::string                          visualize() const;
     std::vector<std::pair<usize, usize>> get_bound_thread_count_by_numa_node() const;

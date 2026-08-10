@@ -34,6 +34,7 @@
 
 #include "benchmark.h"
 #include "engine.h"
+#include "genfens.h"
 #include "memory.h"
 #include "movegen.h"
 #include "position.h"
@@ -158,6 +159,35 @@ void UCIEngine::loop() {
             benchmark(is);
         else if (token == "d")
             sync_cout << engine.visualize() << sync_endl;
+        else if (token == "horde-material")
+        {
+            std::string side;
+            is >> side;
+            const Color color = side == "white" ? WHITE : side == "black" ? BLACK : COLOR_NB;
+            if (color == COLOR_NB)
+                print_info_string("Usage: horde-material <white|black>");
+            else
+                sync_cout << "horde-material " << side << " "
+                          << (engine.side_has_insufficient_winning_material(color) ? "insufficient"
+                                                                                   : "sufficient")
+                          << sync_endl;
+        }
+        else if (token == "horde-raw-eval")
+        {
+            const auto [psqt, positional] = engine.raw_evaluation();
+            sync_cout << "horde-raw-eval " << psqt << " " << positional << " " << psqt + positional
+                      << sync_endl;
+        }
+        else if (token == "horde-eval-debug")
+        {
+            const Value value = engine.static_evaluation();
+            sync_cout << "horde-eval-debug eval=" << int(value) << sync_endl;
+        }
+        else if (token == "genfens")
+        {
+            if (auto error = GenFens::run(is, std::cout))
+                print_info_string("genfens error: " + *error);
+        }
         else if (token == "eval")
             engine.trace_eval();
         else if (token == "compiler")
@@ -486,7 +516,10 @@ void UCIEngine::setoption(std::istringstream& is) {
 }
 
 u64 UCIEngine::perft(const Search::LimitsType& limits) {
-    auto result = engine.perft(engine.fen(), limits.perft, engine.get_options()["UCI_Chess960"]);
+    // Horde has a fixed board layout and never accepts Chess960 semantics.
+    // The option is retained only so GUIs receive an explicit rejection when
+    // they try to enable it; it must not affect any position consumer.
+    auto result = engine.perft(engine.fen(), limits.perft, false);
     if (auto err = std::get_if<PositionSetError>(&result))
         terminate_on_critical_error(err->what());
 

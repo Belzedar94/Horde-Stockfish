@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+.DEFAULT_GOAL := build
 
 ### ==========================================================================
 ### Section 1. General Configuration
@@ -76,21 +77,21 @@ BINDIR = $(PREFIX)/bin
 PGOBENCH = $(RUN_PREFIX) ./$(EXE) bench
 
 ### Source and object files
-SRCS = attacks.cpp benchmark.cpp bitboard.cpp evaluate.cpp main.cpp \
+SRCS = attacks.cpp benchmark.cpp bitboard.cpp evaluate.cpp genfens.cpp main.cpp \
 	misc.cpp movegen.cpp movepick.cpp position.cpp \
 	search.cpp thread.cpp timeman.cpp tt.cpp uci.cpp ucioption.cpp tune.cpp syzygy/tbprobe.cpp \
-	nnue/nnue_accumulator.cpp nnue/nnue_misc.cpp nnue/network.cpp \
+	nnue/nnue_accumulator.cpp nnue/nnue_misc.cpp nnue/network.cpp nnue/horde_legacy_network.cpp \
 	nnue/features/half_ka_v2_hm.cpp nnue/features/full_threats.cpp nnue/features/pp_3wide.cpp \
 	engine.cpp score.cpp memory.cpp
 
 OTHER_SRCS = universal/entry_x86.cpp universal/entry_arm64.cpp universal/entry_riscv64.cpp universal/nnue_embed.cpp
 
-HEADERS = attacks.h benchmark.h bitboard.h evaluate.h misc.h movegen.h movepick.h history.h \
+HEADERS = attacks.h benchmark.h bitboard.h evaluate.h genfens.h misc.h movegen.h movepick.h history.h \
 		nnue/nnue_misc.h nnue/features/half_ka_v2_hm.h nnue/features/full_threats.h \
 		nnue/features/pp_3wide.h nnue/layers/affine_transform.h nnue/layers/affine_transform_sparse_input.h \
 		nnue/layers/clipped_relu.h nnue/layers/sqr_clipped_relu.h nnue/nnue_accumulator.h \
 		nnue/nnue_architecture.h nnue/nnue_common.h nnue/nnue_feature_transformer.h nnue/simd.h \
-		nnue/nnz_helper.h position.h search.h syzygy/tbprobe.h thread.h thread_native.h timeman.h \
+		nnue/nnz_helper.h nnue/horde_legacy_network.h position.h search.h syzygy/tbprobe.h thread.h thread_native.h timeman.h \
 		tt.h tune.h types.h uci.h ucioption.h perft.h nnue/network.h engine.h score.h numa.h memory.h shm.h shm_unix.h
 
 OBJS = $(notdir $(SRCS:.cpp=.o))
@@ -1118,7 +1119,7 @@ profile-build: net config-sanity objclean profileclean
 endif
 
 # Default network filename, read from evaluate.h's EvalFileDefaultName.
-macos-lipo: NNUE_NET = $(shell grep -oE 'nn-[0-9a-f]+\.nnue' $(CURDIR)/evaluate.h | head -1)
+macos-lipo: NNUE_NET = $(shell sed -n 's|.*EvalFileDefaultName[[:space:]]*"\([^"]*\.nnue\)".*|\1|p' $(CURDIR)/evaluate.h | head -1)
 macos-lipo:
 	@echo ""
 	@echo "Step 1/4. Building x86-64 slice (network shared from Apple-silicon slice) ..."

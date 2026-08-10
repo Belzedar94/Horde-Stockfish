@@ -39,6 +39,7 @@ namespace Stockfish::Eval::NNUE {
 struct alignas(CacheLineSize) Accumulator;
 
 class FeatureTransformer;
+class HordeLegacyNetwork;
 
 // Class that holds the result of affine transformation of input features,
 // combined HalfKA + Threats
@@ -105,6 +106,12 @@ class AccumulatorStack {
                   const FeatureTransformer& featureTransformer,
                   // Silence spurious warning on GCC 10
                   [[maybe_unused]] AccumulatorCaches& cache) noexcept;
+
+    // The legacy HordeTest schema is king-independent and fits in the first
+    // 512 lanes of the existing accumulator storage. Reusing that storage keeps
+    // the per-thread search stack unchanged while giving Run 6B a true
+    // make/undo incremental path.
+    void evaluate_horde_legacy(const Position& pos, const HordeLegacyNetwork& network) noexcept;
 
    private:
     [[nodiscard]] AccumulatorState& mut_latest() noexcept;

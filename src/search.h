@@ -32,6 +32,9 @@
 #include <cstring>
 
 #include "history.h"
+#if defined(HORDE_SEARCH_TELEMETRY)
+#include "horde_search_telemetry.h"
+#endif
 #include "misc.h"
 #include "nnue/nnue_accumulator.h"
 #include "numa.h"
@@ -412,6 +415,11 @@ class Worker {
     // Used by NNUE
     Eval::NNUE::AccumulatorStack  accumulatorStack;
     Eval::NNUE::AccumulatorCaches refreshTable;
+
+#if defined(HORDE_SEARCH_TELEMETRY)
+    HordeSearchTelemetry hordeTelemetry;
+    u64                  hordeExperimentMask = 0;
+#endif
 
     friend class Stockfish::ThreadPool;
     friend class SearchManager;

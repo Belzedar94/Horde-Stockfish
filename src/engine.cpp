@@ -111,7 +111,13 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
 
     options.add("nodestime", Option(0, 0, 10000));
 
-    options.add("UCI_Chess960", Option(false));
+    options.add("UCI_Chess960", Option(false, [](const Option& o) {
+                    return int(o) ? std::optional<std::string>(
+                                      "UCI_Chess960=true is unsupported for Horde.")
+                                  : std::nullopt;
+                }));
+
+    options.add("UCI_Variant", Option("horde var horde", "horde"));
 
     options.add("UCI_LimitStrength", Option(false));
 
@@ -121,17 +127,21 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
 
     options.add("UCI_ShowWDL", Option(false));
 
+#if defined(HORDE_SEARCH_TELEMETRY)
+    options.add("HordeSearchTelemetry", Option(false));
+    options.add("HordeSearchExperimentMask", Option(0, 0, Search::HordeExperimentMaskMax));
+#endif
+
     options.add(  //
-      "SyzygyPath", Option("", [](const Option& o) {
-          Tablebases::init(o);
-          return std::nullopt;
-      }));
+      "SyzygyPath",
+      Option("", [](const Option&) { return "Syzygy tablebases are disabled for Horde."; }));
 
     options.add("SyzygyProbeDepth", Option(1, 1, 100));
 
     options.add("Syzygy50MoveRule", Option(true));
 
-    options.add("SyzygyProbeLimit", Option(7, 0, 7));
+    // Orthodox tablebases do not model Horde's kingless side or extinction win.
+    options.add("SyzygyProbeLimit", Option(0, 0, 0));
 
     options.add(  //
       "EvalFile", Option(EvalFileDefaultName, [this](const Option& o) {
@@ -148,7 +158,8 @@ std::variant<u64, PositionSetError>
 Engine::perft(const std::string& fen, Depth depth, bool isChess960) {
     verify_network();
 
-    return Benchmark::perft(fen, depth, isChess960);
+    (void) isChess960;
+    return Benchmark::perft(fen, depth, false);
 }
 
 void Engine::go(Search::LimitsType& limits) {
@@ -166,7 +177,7 @@ void Engine::search_clear() {
     threads.clear();
 
     // TODO: does not work with multiple instances
-    Tablebases::init(options["SyzygyPath"]);  // Free mapped files
+    Tablebases::init("");  // Free any mapped files without loading orthodox tables
 }
 
 void Engine::set_on_update_no_moves(std::function<void(const Engine::InfoShort&)>&& f) {
@@ -197,7 +208,7 @@ std::optional<PositionSetError> Engine::set_position(const std::string&         
                                                      const std::vector<std::string>& moves) {
     // Drop the old state and create a new one
     states   = StateListPtr(new std::deque<StateInfo>(1));
-    auto err = pos.set(fen, options["UCI_Chess960"], &states->back());
+    auto err = pos.set(fen, false, &states->back());
     if (err.has_value())
         return err;
 
@@ -311,6 +322,10 @@ std::unique_ptr<Eval::NNUE::Network> Engine::get_default_network() {
 void Engine::load_network(const std::filesystem::path& file) {
     network.modify_and_replicate(
       [this, &file](NN::Network& network_) { network_.load(binaryDirectory, file, networkFile); });
+
+    // A schema or network transition must not reuse evaluations derived from
+    // the previous artifact. Thread clear resets accumulator refresh caches.
+    tt.clear(threads);
     threads.clear();
     threads.ensure_network_replicated();
 }
@@ -325,17 +340,37 @@ void Engine::save_network(const std::optional<std::filesystem::path>& file) {
 void Engine::trace_eval() const {
     StateListPtr trace_states(new std::deque<StateInfo>(1));
     Position     p;
-    p.set(pos.fen(), options["UCI_Chess960"], &trace_states->back());
+    p.set(pos.fen(), false, &trace_states->back());
 
     verify_network();
 
     sync_cout << "\n" << Eval::trace(p, *network) << sync_endl;
 }
 
+Eval::NNUE::RawNetworkOutput Engine::raw_evaluation() const {
+    auto accumulators = std::make_unique<Eval::NNUE::AccumulatorStack>();
+    auto caches       = std::make_unique<Eval::NNUE::AccumulatorCaches>(*network);
+
+    verify_network();
+    return network->evaluate_raw(pos, *accumulators, *caches);
+}
+
+Value Engine::static_evaluation() const {
+    auto accumulators = std::make_unique<Eval::NNUE::AccumulatorStack>();
+    auto caches       = std::make_unique<Eval::NNUE::AccumulatorCaches>(*network);
+
+    verify_network();
+    return Eval::evaluate(*network, pos, *accumulators, *caches, VALUE_ZERO);
+}
+
 const OptionsMap& Engine::get_options() const { return options; }
 OptionsMap&       Engine::get_options() { return options; }
 
 std::string Engine::fen() const { return pos.fen(); }
+
+bool Engine::side_has_insufficient_winning_material(Color c) const {
+    return pos.side_has_insufficient_winning_material(c);
+}
 
 std::optional<PositionSetError> Engine::flip() { return pos.flip(); }
 

@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "baseline_id": "horde-fsf-c19-run6b-e37-l06",
+  "status": "frozen",
+  "frozen_on": "2026-08-06",
+  "engine": {
+    "formal_source": {
+      "name": "Fairy-Stockfish",
+      "repository": "https://github.com/fairy-stockfish/Fairy-Stockfish",
+      "commit": "c19b5f6c66894fdb0e88d0dd100e3885f744760a",
+      "commit_url": "https://github.com/fairy-stockfish/Fairy-Stockfish/commit/c19b5f6c66894fdb0e88d0dd100e3885f744760a",
+      "commit_date": "2026-07-23T17:20:28Z",
+      "license": "GPL-3.0-only",
+      "pinned_files": [
+        {
+          "path": "src/variant.cpp",
+          "size": 96042,
+          "git_blob_sha": "e722d2593893ea174e6e7dfed0fcd74c65b8ae80",
+          "sha256": "14f6a10b72b9e5371c95e7912165fb411a3d686ac2448e97d85fc9474803982",
+          "url": "https://github.com/fairy-stockfish/Fairy-Stockfish/blob/c19b5f6c66894fdb0e88d0dd100e3885f744760a/src/variant.cpp"
+        },
+        {
+          "path": "src/variants.ini",
+          "size": 69030,
+          "git_blob_sha": "5d330f7a608ed45d4e2816c01bee9015b2336710",
+          "sha256": "1510a42b09b476e360337c7309908de55213f2dbb4c2732deb943155270d2669",
+          "url": "https://github.com/fairy-stockfish/Fairy-Stockfish/blob/c19b5f6c66894fdb0e88d0dd100e3885f744760a/src/variants.ini"
+        }
+      ]
+    },
+    "formal_build_receipt": {
+      "id": "FSF_HORDETEST_RUN6B_BASELINE_V1",
+      "source_clean": true,
+      "build_command": "make -C src -j2 build ARCH=x86-64-bmi2 COMP=mingw",
+      "compiler": "x86_64-w64-mingw32-g++ 15.2.0 (MSYS2 Rev8)",
+      "make": "GNU Make 4.4.1",
+      "architecture": "x86-64-bmi2",
+      "linkage": "static",
+      "binary": {
+        "filename": "stockfish.exe",
+        "size": 4460585,
+        "sha256": "5d3b320b9fc8282997243b2ffc340fc5fcb52f88b63d7f4c9d3ff2afaa2497bc"
+      },
+      "uci": {
+        "VariantPath": "docs/horde/fixtures/variants.ini",
+        "UCI_Variant": "hordetest",
+        "EvalFile": "networks/hordetest_run6b_e37_l06.nnue",
+        "Threads": 1,
+        "Hash": 16
+      },
+      "depth_8_receipt": {
+        "position": "startpos",
+        "score_cp": 153,
+        "nodes": 1722,
+        "seldepth": 12,
+        "bestmove": "a4a5",
+        "ponder": "e7e6"
+      }
+    },
+    "diagnostic_raw_oracle": {
+      "formal_baseline": false,
+      "source_commit": "c19b5f6c66894fdb0e88d0dd100e3885f744760a",
+      "patch": {
+        "path": "docs/horde/fixtures/fsf-c19b5f6c-raw-oracle.patch",
+        "size": 2944,
+        "sha256": "b0f1e98b958e0c44fc9cdbd4ac2d60b7f85accb90a69a512c8bc37419227595d"
+      },
+      "binary": {
+        "filename": "stockfish.exe",
+        "size": 4463235,
+        "sha256": "82d051d82df0c27f56e1d5011ff3911cb76b1009b89d6dee62d09bfe9cc58866"
+      },
+      "purpose": "Expose unscaled PSQT and positional outputs for differential tests only"
+    },
+    "historical_oracle_binary": {
+      "filename": "stockfish_x86-64-bmi2_all_26082025.exe",
+      "size": 1692672,
+      "sha256": "3501bd84eea8a08938df8d1998976aeb496673f9fdcb8bfcf1e9b06e894c3ad3",
+      "role": "oracle-only",
+      "formal_baseline": false,
+      "release_artifact": false,
+      "distribution_allowed_by_this_manifest": false
+    }
+  },
+  "rule_profile": {
+    "name": "lichess-horde-with-hordetest-feature-encoding",
+    "human_reference": "https://lichess.org/variant/horde",
+    "executable_reference": {
+      "name": "lichess-org/scalachess",
+      "repository": "https://github.com/lichess-org/scalachess",
+      "commit": "d5d47c16f65a005ca68e19bab702b02f66dd888c",
+      "commit_url": "https://github.com/lichess-org/scalachess/commit/d5d47c16f65a005ca68e19bab702b02f66dd888c",
+      "commit_date": "2026-08-04T21:43:09Z",
+      "license": "MIT",
+      "pinned_files": [
+        {
+          "path": "core/src/main/scala/variant/Horde.scala",
+          "size": 13017,
+          "git_blob_sha": "c4601ec8d39c5d1738c7d91be7f8d6593b788ca7",
+          "sha256": "03be7ea401bcce05595780b35c1b9d749578a1bf8ef2563a69f996dd4bd79bcc",
+          "url": "https://github.com/lichess-org/scalachess/blob/d5d47c16f65a005ca68e19bab702b02f66dd888c/core/src/main/scala/variant/Horde.scala"
+        },
+        {
+          "path": "test-kit/src/test/resources/horde.perft",
+          "size": 387,
+          "git_blob_sha": "87bffeda33976a06089b8eefb0bbe5c30911b38f",
+          "sha256": "291e1a9010c3694232cd9b1e12a06026023ffa27b188bd44e14732a8c7990e8d",
+          "url": "https://github.com/lichess-org/scalachess/blob/d5d47c16f65a005ca68e19bab702b02f66dd888c/test-kit/src/test/resources/horde.perft"
+        }
+      ]
+    },
+    "standard_start_fen": "rnbqkbnr/pppppppp/8/1PP2PP1/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP w kq - 0 1",
+    "hordetest_start_fen": "rnbqkbnr/pppppppp/8/1HH2HH1/HHHHHHHH/HHHHHHHH/HHHHHHHH/HHHHHHHH w kq - 0 1",
+    "variant_name": "hordetest",
+    "base_variant": "horde",
+    "custom_piece": {
+      "letter": "h",
+      "betza": "fmWfceFifmnD",
+      "pawn_types": "ph",
+      "white_double_step_region": "*1 *2"
+    },
+    "local_fixtures": [
+      {
+        "path": "docs/horde/fixtures/variants.ini",
+        "size": 377,
+        "sha256": "f54ca573221d5e32ea80c8ca3ee3ad8b97da6dc9b481bea877bb27195332af24"
+      },
+      {
+        "path": "docs/horde/fixtures/lichess-horde.perft",
+        "size": 387,
+        "sha256": "291e1a9010c3694232cd9b1e12a06026023ffa27b188bd44e14732a8c7990e8d"
+      },
+      {
+        "path": "docs/horde/fixtures/hordetest.perft",
+        "size": 387,
+        "sha256": "607a7726882e18a60457bd5b2658bea1c90f9028184905cc4311c839e44348d6"
+      }
+    ]
+  },
+  "network": {
+    "path": "networks/hordetest_run6b_e37_l06.nnue",
+    "filename": "hordetest_run6b_e37_l06.nnue",
+    "size": 1088416,
+    "sha256": "b71108587968ac544eb2e62c2333feca880da5aca52866787f1402163444adf7",
+    "spdx_license": "CC0-1.0",
+    "credit": "Belzedar",
+    "license_notice": {
+      "path": "networks/CC0-1.0-NOTICE.md",
+      "size": 483,
+      "sha256": "6939193be7565b8c48604bd03e47e19a07e870210959962ece8eddd9dcb34820"
+    },
+    "variant_prefix": "hordetest",
+    "role": "canonical-baseline-network"
+  },
+  "historical_opening_book": {
+    "repository": "https://github.com/fairy-stockfish/books",
+    "path": "horde.epd",
+    "url": "https://github.com/fairy-stockfish/books/blob/master/horde.epd",
+    "git_blob_sha": "bd0e510e745f5ade30aaf8a9d8b7b6376db129ef",
+    "size": 196008,
+    "sha256": "93e97b27d5df054b8a649b8be92a0a8b058384dae35bad142f9a610896eb6958",
+    "last_content_commit": "1b0cf1f9473b5412e1631a9327098ac1b38b096b",
+    "last_content_commit_date": "2016-12-03T00:46:18Z",
+    "position_lines": 2486,
+    "unique_position_lines": 1413,
+    "role": "historical-reference-only"
+  }
+}

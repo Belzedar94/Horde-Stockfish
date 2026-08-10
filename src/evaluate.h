@@ -29,11 +29,9 @@ class Position;
 
 namespace Eval {
 
-// The default net name MUST follow the format nn-[SHA256 first 12 digits].nnue
-// for the build process (profile-build and fishtest) to work. Do not change the
-// name of the macro or the location where this macro is defined, as it is used
-// in the Makefile/Fishtest.
-#define EvalFileDefaultName "nn-ab28990d4ea3.nnue"
+// Run 6B is the only registered V1.1 evaluation artifact. Release builds embed
+// this exact file and the loader independently verifies its full SHA-256.
+#define EvalFileDefaultName "../networks/hordetest_run6b_e37_l06.nnue"
 
 namespace NNUE {
 class Network;
