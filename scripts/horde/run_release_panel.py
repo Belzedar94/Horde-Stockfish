@@ -28,6 +28,9 @@ from typing import Iterable
 
 
 RUN6B_SHA256 = "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
+OFFICIAL_HORDE_SHA256 = (
+    "28173DDCCABE12306D02AFA1156DED2B6A69C6A8DB909895DB6E955F8B4AD6A6"
+)
 CANDIDATE_NAME = "Horde-Stockfish-release"
 BASELINE_NAME = "Fairy-Stockfish-dev"
 
@@ -630,9 +633,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--baseline-sha256", required=True, type=checked_sha)
     parser.add_argument("--baseline-commit", required=True, type=checked_commit)
     parser.add_argument("--baseline-network", required=True, type=path_arg)
-    parser.add_argument(
-        "--baseline-network-sha256", required=True, type=checked_sha
-    )
     parser.add_argument("--referee", required=True, type=path_arg)
     parser.add_argument("--referee-sha256", required=True, type=checked_sha)
     parser.add_argument("--referee-commit", required=True, type=checked_commit)
@@ -649,6 +649,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     args.candidate_network_sha256 = RUN6B_SHA256
+    args.baseline_network_sha256 = OFFICIAL_HORDE_SHA256
     if args.concurrency_per_tc <= 0:
         parser.error("--concurrency-per-tc must be positive")
     if args.move_overhead_ms < 0 or args.time_margin_ms < 0:

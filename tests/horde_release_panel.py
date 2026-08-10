@@ -76,6 +76,14 @@ class TrackerTests(unittest.TestCase):
 class ContractTests(unittest.TestCase):
     def test_panel_shape_is_frozen(self) -> None:
         self.assertEqual(
+            panel.RUN6B_SHA256,
+            "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7",
+        )
+        self.assertEqual(
+            panel.OFFICIAL_HORDE_SHA256,
+            "28173DDCCABE12306D02AFA1156DED2B6A69C6A8DB909895DB6E955F8B4AD6A6",
+        )
+        self.assertEqual(
             [(spec.label, spec.tc, spec.hash_mb, spec.games) for spec in panel.PANEL_SPECS],
             [
                 ("VSTC", "2+0.02", 16, 600),
