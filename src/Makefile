@@ -150,6 +150,10 @@ ifeq ($(ARCH),)
    ARCH = native
 endif
 
+# Orthodox Syzygy tables do not implement Horde rules. Keep the unsupported
+# backend out of every Horde-Stockfish build instead of carrying its dead code.
+override syzygy := no
+
 ifeq ($(ARCH), native)
    override ARCH := $(shell $(SHELL) ../scripts/get_native_properties.sh | cut -d " " -f 1)
 endif
