@@ -173,3 +173,22 @@ jobs:
           python tests/horde_network_contract.py src/stockfish.exe
           python tests/horde_bench.py src/stockfish.exe
           python tests/horde_genfens.py src/stockfish.exe
+
+  release-contract:
+    name: Release contract tooling
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Authenticate frozen Horde inputs
+        run: python3 scripts/horde/verify_baseline.py
+      - name: Exercise manifest and provenance contracts
+        run: python3 tests/horde_release_contract.py
+      - name: Verify release tooling syntax
+        run: |
+          bash -n scripts/horde/build_native_release.sh
+          python3 -m py_compile \
+            scripts/horde/release_manifest.py \
+            scripts/horde/release_provenance.py \
+            tests/horde_release_contract.py
