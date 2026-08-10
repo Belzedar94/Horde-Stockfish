@@ -170,12 +170,15 @@ and it combines the two independently measurable White-mobility call sites
 now isolated above. It may be rebuilt as a merge-confirmation test only after
 both orthogonal components pass independently.
 
-Second wave consists of zero-game structural candidates with green artifact
-CI: `test/horde-material-correction` and `test/white-piece-count-see-guard`. The
-last branch now points to
-`dfa4746188baaaebad4fe675ed0f10f692293e74`; its previous CI failure was only a
-stale deterministic-bench receipt, and all four artifact jobs pass on the new
-head.
+The second wave now includes `test/horde-material-correction` at
+`10409b93f430c183e1729afbebcac43f315204b1`, registered as
+[test 341](https://belzedar.duckdns.org/test/341/) with the definitive V3 book.
+The earlier test 303 was stopped at zero games because its Dev Bench was
+incorrectly set to the option-enabled 398,170-node result; the OpenBench build
+gate correctly checks the default-off 315,576-node bench. The separate
+`test/white-piece-count-see-guard` candidate was rejected locally before
+OpenBench because its 18% tree expansion reinforced an orthodox premise that
+does not transfer to Horde.
 
 Third wave keeps four additional ideas orthogonal: exact promotion SEE at
 `11e9cad9c2d7525383d6d1842b6fd410a16e6a8a`, exact en-passant SEE at
@@ -252,6 +255,17 @@ the Black-to-move fortress loop from different directions. After the first
 accepted integration, any still-relevant sibling must be rebuilt against the
 new development baseline before its result can be interpreted; the current
 diffs must not be stacked as independent gains.
+
+Correction-history experiment:
+
+- `test/horde-material-correction` at
+  `10409b93f430c183e1729afbebcac43f315204b1`, [test 341](https://belzedar.duckdns.org/test/341/):
+  replace only the existing White non-pawn correction-history key with the
+  complete Horde material key under a default-off UCI switch. The valid STC
+  declares the default 315,576-node build bench and enables
+  `HordeMaterialCorrection=true` only in Dev Options. Both sides use Run 6B,
+  V3, `8.0+0.08`, priority 301, workload 32, and no Syzygy. Snapshot: zero
+  games. This is independent of the outcome and fortress fast paths.
 
 Qsearch frontier and capture-selection experiments:
 
@@ -922,6 +936,13 @@ Main-search selectivity experiments:
   positions at depth 7 against a depth-10 baseline reference, the changed
   moves matched the reference 29 times and the baseline moves 34 times. Node
   ratios were 0.974 and 1.074 on the two shards.
+- OpenBench receipt: the initial test 303 declared 398,170 as Dev Bench and was
+  stopped at zero games by the worker's correct 315,576-node build-gate result.
+  The replacement [test 341](https://belzedar.duckdns.org/test/341/) declares
+  315,576 for both builds and applies `HordeMaterialCorrection=true` only when
+  playing. It is active at priority 301 with the definitive V3 book. For an
+  option whose committed default is off, the declared OpenBench bench must be
+  the default-off result even when Dev Options change the playing tree.
 - Decision: retain only in the second OpenBench wave. The local proxy is
   neutral to slightly negative, so it does not displace candidates with a more
   concentrated signal and should be stopped promptly if STC stays neutral.
