@@ -111,6 +111,24 @@ The opening-book SHA-256, runner commit, candidate commit, Fairy-Stockfish
 commit and any other moving input remain `TBD` until the final panel is frozen.
 Release notes must record those full identifiers before presenting scores.
 
+[`scripts/horde/run_release_panel.py`](../../scripts/horde/run_release_panel.py)
+implements this exact panel. It authenticates the two executables, two
+networks, Horde referee and opening book before starting; rejects a book with
+fewer than 300 positions; runs the three paired time controls concurrently;
+and prints the complete WDL, pentanomial, Elo, confidence interval and LOS
+table every five minutes. Any missing game, incomplete pair, crash, illegal
+move, disconnect, stall or time loss writes `INVALID.json` and invalidates the
+entire panel. It does not enable draw or resignation adjudication.
+
+Before consuming machine time, invoke the runner with `--dry-run` and all
+complete 40-character commits and 64-character SHA-256 values. Review the
+three emitted cutechess commands, then repeat the same invocation without
+`--dry-run` in an empty output directory. A valid completion produces the
+original PGNs and logs plus `manifest.json`, one `result.json` per time
+control, and `panel-receipt.json` with authenticated output hashes. The
+candidate network SHA defaults to the frozen Run 6B hash; every other moving
+asset hash must be supplied explicitly.
+
 ## Creating a candidate artifact
 
 From GitHub Actions, run **Horde release candidate** with:
