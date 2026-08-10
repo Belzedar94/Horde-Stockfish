@@ -73,6 +73,42 @@ micro-fit input path, not a throughput claim for a full 50-million-position
 training run. Any future compiled loader must reproduce its sparse receipt
 exactly before replacing it in large-scale training.
 
+## Authenticated chunk sets
+
+Large OpenBench roles remain collections of complete `HORDE_BIN_V1` files.
+[`tools/horde_training_chunk_set.py`](../../tools/horde_training_chunk_set.py)
+binds those files into one logical random-access dataset without synthesizing a
+single-file generation manifest. It derives chunk order from the decimal seed,
+requires every index in the campaign range exactly once, and authenticates the
+file, header, manifest, and payload hashes of every member. Source, teacher,
+book, label, and search settings must match the campaign contract. Thread count
+is deliberately retained per chunk because different workers may produce the
+same role.
+
+The receipt records global record ranges and two independent aggregate
+identities. `logical_payload_sha256` is the SHA-256 of the exact record bytes
+concatenated in canonical chunk order; `chunk_set_sha256` hashes the canonical
+campaign, role, common-manifest, and ordered per-chunk identities. Paths are
+relative to the receipt and may not escape its directory. Files can therefore
+be renamed without changing dataset identity, while byte or ordering drift
+still fails closed.
+
+Create and re-authenticate a training-role receipt with:
+
+```console
+python tools/horde_training_chunk_set.py assemble \
+  --contract schemas/horde-v2-rank8-scale-v1.json \
+  --role training --chunks-dir data/train \
+  --output data/train/chunk-set.json
+python tools/horde_training_chunk_set.py verify data/train/chunk-set.json \
+  --contract schemas/horde-v2-rank8-scale-v1.json
+```
+
+The logical reader preserves sample provenance as
+`(chunk_payload_sha256, chunk_local_record_index)` and permits batches to cross
+physical chunk boundaries using the exact logical payload identity. It does not
+copy or rewrite the chunk payloads.
+
 [`tools/horde_run6b.py`](../../tools/horde_run6b.py) then reads only the
 registered Run 6B artifact and replays its integer network directly from those
 legacy sparse rows. Its independent implementation covers feature-transformer
