@@ -169,3 +169,67 @@ constant, all three checkpoints, their training receipts, their
 functional-health receipts, the selected validation role, the teacher identity
 and the WDL lookup must agree exactly. A clean but unrelated receipt or a run
 trained on another byte stream is not admissible evidence.
+
+## C3 representation qualification
+
+After one C2 recipe qualifies on the absolute control, C3 compares exactly
+three representations under that same recipe: absolute non-king, Royal rank-8,
+and full Royal-32. Each representation uses the three frozen seeds, producing a
+complete 3-by-3 matrix. The contract is frozen in
+`schemas/horde-v2-c3-representation-qualification-v1.json`.
+
+C3 is deliberately separate from the original C1 campaign verifier. It accepts
+nine explicit run directories and authenticates every final checkpoint,
+training receipt, integer export, functional-health receipt, training-source
+identity, optimizer multiplier, dataset identity, WDL calibration, exposure,
+and model-state shape. The three absolute runs must also match the exact
+checkpoint and receipt identities that qualified the C2 recipe. A run does not
+become admissible merely because it has the same architecture name or aggregate
+loss.
+
+The confirmation role is selected with label-blind physical and legacy-input
+keys. Its materialization, integrity checks, overlap audit, duplicate audit, and
+canonical-selection verification may happen while training is pending. Network
+inference, loss evaluation, ranking, or architecture selection remain forbidden
+until all nine final artifact sets pass preflight. The canonical verification
+is reproduced with:
+
+```console
+python tools/horde_v2_c3_confirmation_role.py verify \
+  CONFIRMATION-CANDIDATE.bin TRAIN.bin \
+  TUNING-VALIDATION/receipt.json CONFIRMATION/receipt.json \
+  --output CONFIRMATION/verification.json
+```
+
+Only after the complete artifact preflight may the fresh role be opened by the
+qualifier:
+
+```console
+python tools/horde_v2_c3_qualification.py \
+  C2-QUALIFICATION.json C2-CONSTANT-BASELINE.json \
+  TUNING-VALIDATION/receipt.json CONFIRMATION/receipt.json \
+  CONFIRMATION/verification.json WDL-CALIBRATION.json \
+  --run-directory ABS-SEED-1 \
+  --run-directory ABS-SEED-2 \
+  --run-directory ABS-SEED-3 \
+  --run-directory RANK8-SEED-1 \
+  --run-directory RANK8-SEED-2 \
+  --run-directory RANK8-SEED-3 \
+  --run-directory ROYAL32-SEED-1 \
+  --run-directory ROYAL32-SEED-2 \
+  --run-directory ROYAL32-SEED-3 \
+  --output C3-QUALIFICATION.json --require-pass
+```
+
+An architecture is confirmation-eligible only when all three final-seed
+checkpoints pass functional health and each has strictly lower canonical loss
+than the frozen constant on the fresh role. Because `HORDE_BIN_V1` has no
+authenticated game or opening identity, the receipt reports exact paired
+record deltas but no confidence interval or IID-bootstrap claim.
+
+Fresh-role loss and the loss/serialized-size Pareto frontier are diagnostics,
+not an architecture decision. The cheapest eligible architecture is the
+playing baseline. A heavier candidate must show positive Elo with LOS displayed
+as 100% at each of `2+0.02`, `10+0.1`, and `30+0.3` under identical engine and
+opening conditions. Run 6B remains the production evaluator until the complete
+technical, speed, playing-strength, and release gates pass.
