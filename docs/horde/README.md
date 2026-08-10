@@ -32,6 +32,12 @@ Horde-Stockfish without losing rule, source or network provenance.
 - [NNUE V2 Rank-8 control receipt](nnue-v2-rank8-control-receipt.json) -
   compact Royal topology, three-schema container parity and the frozen
   ABS/Rank-8/Royal-32 comparison gate.
+- [NNUE V2 representation selection](nnue-v2-representation-selection.json) -
+  manual selection of Rank-8 over the absolute control, with the exact local
+  three-time-control snapshot and explicit limitations.
+- [NNUE V2 Rank-8 scale contract](../../schemas/horde-v2-rank8-scale-v1.json) -
+  the first 50M-position selected-architecture campaign, including its 1M
+  validation candidate, fixed recipe, checkpoints and downstream gates.
 - [NNUE V2 C1 campaign contract](../../schemas/horde-v2-c1-campaign-v1.json) -
   authenticated 250k/250k split, coverage audit, paired-seed training matrix
   and fail-closed pre-selection evidence for ABS, Rank-8 and Royal-32.

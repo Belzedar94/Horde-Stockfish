@@ -993,3 +993,23 @@ tested only after both individual receipts exist.
 
 These questions are resolved through isolated technical and strength receipts,
 not by changing the production Run 6B path.
+
+## Selected Rank-8 scale campaign
+
+Rank-8 is the selected V2 first-domain representation. The selection receipt
+records a manual architecture decision from the local three-time-control
+comparison against the absolute non-king control; it is not a formal release
+gate and does not claim that the 250,000-position network beats Run 6B.
+
+The next training rung is frozen separately in
+`schemas/horde-v2-rank8-scale-v1.json`. It changes data scale only: the Rank-8
+topology, seed, labels, optimizer, widths, quantization and teacher recipe stay
+fixed. The first run consumes one deterministic 50,000,000-position pass. A
+separate 1,000,000-position candidate from the held-out V3 book supplies a
+label-blind 250,000-position validation role after exact physical and legacy
+input collisions with the completed training role are removed.
+
+No contextual pawn, count, phase, frontier or relational feature enters this
+run. After authenticated training, the predesignated seed must pass integer
+export, native parity, NPS/latency and equal-time play against Run 6B before a
+new feature ablation starts.
