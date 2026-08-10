@@ -58,11 +58,19 @@ try:
         RoyalRank8V2Model,
         V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
+    from .horde_training_chunk_set import HordeChunkSetDataset
     from .horde_training_split_audit import audit_pair
     from .horde_training_selected_role import (
         SelectedRoleDataset,
         SelectedRoleError,
         validate_selected_role_binding,
+    )
+    from .horde_training_scale_selected_role import (
+        CONTRACT_SCHEMA as SCALE_CONTRACT_SCHEMA,
+        CONTRACT_SHA256 as SCALE_CONTRACT_SHA256,
+        ScaleSelectedRoleDataset,
+        ScaleSelectedRoleError,
+        load_contract as load_scale_contract,
     )
     from .horde_wdl import (
         CalibrationError,
@@ -93,11 +101,19 @@ except ImportError:
         RoyalRank8V2Model,
         V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
+    from horde_training_chunk_set import HordeChunkSetDataset
     from horde_training_split_audit import audit_pair
     from horde_training_selected_role import (
         SelectedRoleDataset,
         SelectedRoleError,
         validate_selected_role_binding,
+    )
+    from horde_training_scale_selected_role import (
+        CONTRACT_SCHEMA as SCALE_CONTRACT_SCHEMA,
+        CONTRACT_SHA256 as SCALE_CONTRACT_SHA256,
+        ScaleSelectedRoleDataset,
+        ScaleSelectedRoleError,
+        load_contract as load_scale_contract,
     )
     from horde_wdl import (
         CalibrationError,
@@ -116,6 +132,7 @@ V2_CHECKPOINT_SCHEMA = "HORDE_V2_BASE_CHECKPOINT_V1"
 V2_FEATURE_SCHEMA = "V2_BASE_P0"
 C1_PLAN_SCHEMA = "HORDE_V2_C1_CAMPAIGN_PLAN_V2"
 C1_BINDING_SCHEMA = "HORDE_V2_C1_TRAINER_BINDING_V1"
+SCALE_BINDING_SCHEMA = "HORDE_V2_RANK8_SCALE_TRAINER_BINDING_V1"
 C1_PARENT_CONTRACT_SCHEMA = "HORDE_V2_C1_CAMPAIGN_V1"
 C1_PARENT_CONTRACT_SHA256 = (
     "7B5BDA9DC20AB7CF55DE2964085D2ADBBED83137A3071B418439A5CF7DD939DA"
@@ -339,6 +356,11 @@ class MetricAccumulator:
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise TrainingError(message)
+
+
+def _mapping(value: object, label: str) -> Mapping[str, Any]:
+    _require(isinstance(value, dict), f"{label} is not an object")
+    return value
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -739,6 +761,58 @@ def _generation_contract(manifest: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in manifest["generation"].items() if key not in ignored}
 
 
+def _book_split_identity(
+    split_receipt_path: Path,
+    train_book_sha256: str,
+    validation_book_sha256: str,
+) -> dict[str, object]:
+    split_path = split_receipt_path.expanduser().resolve()
+    split_payload = split_path.read_bytes()
+    try:
+        split = json.loads(split_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise TrainingError(f"book split receipt is invalid JSON: {error}") from error
+    _require(isinstance(split, dict), "book split receipt root is not an object")
+    _require(split.get("schema") in BOOK_SPLIT_SCHEMAS, "book split receipt schema mismatch")
+    _require(split.get("disjoint_position_keys") is True, "book split is not position-disjoint")
+    _require(split.get("complete_partition") is True, "book split is not a complete partition")
+    split_source = split.get("source")
+    split_train = split.get("train")
+    split_validation = split.get("validation")
+    split_assignment = split.get("assignment")
+    _require(
+        isinstance(split_source, dict)
+        and isinstance(split_train, dict)
+        and isinstance(split_validation, dict)
+        and isinstance(split_assignment, dict),
+        "book split receipt sections are missing",
+    )
+    _require(
+        split_train.get("sha256") == train_book_sha256,
+        "training book hash does not match the split receipt",
+    )
+    _require(
+        split_validation.get("sha256") == validation_book_sha256,
+        "validation book hash does not match the split receipt",
+    )
+    _require(
+        type(split_source.get("records")) is int
+        and type(split_train.get("records")) is int
+        and type(split_validation.get("records")) is int
+        and split_source["records"] == split_train["records"] + split_validation["records"],
+        "book split receipt record counts do not form a complete partition",
+    )
+    return {
+        "receipt_name": split_path.name,
+        "receipt_sha256": _sha256_bytes(split_payload),
+        "schema": split["schema"],
+        "source": split_source,
+        "assignment": split_assignment,
+        "disjoint_position_keys": True,
+        "complete_partition": True,
+    }
+
+
 def validate_dataset_pair(
     train_path: Path,
     validation_path: Path,
@@ -775,42 +849,6 @@ def validate_dataset_pair(
         "training and validation generation settings differ",
     )
 
-    split_path = split_receipt_path.expanduser().resolve()
-    split_payload = split_path.read_bytes()
-    try:
-        split = json.loads(split_payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise TrainingError(f"book split receipt is invalid JSON: {error}") from error
-    _require(isinstance(split, dict), "book split receipt root is not an object")
-    _require(split.get("schema") in BOOK_SPLIT_SCHEMAS, "book split receipt schema mismatch")
-    _require(split.get("disjoint_position_keys") is True, "book split is not position-disjoint")
-    _require(split.get("complete_partition") is True, "book split is not a complete partition")
-    split_source = split.get("source")
-    split_train = split.get("train")
-    split_validation = split.get("validation")
-    split_assignment = split.get("assignment")
-    _require(
-        isinstance(split_source, dict)
-        and isinstance(split_train, dict)
-        and isinstance(split_validation, dict)
-        and isinstance(split_assignment, dict),
-        "book split receipt sections are missing",
-    )
-    _require(
-        split_train.get("sha256") == train_manifest["book_sha256"],
-        "training book hash does not match the split receipt",
-    )
-    _require(
-        split_validation.get("sha256") == validation_manifest["book_sha256"],
-        "validation book hash does not match the split receipt",
-    )
-    _require(
-        type(split_source.get("records")) is int
-        and type(split_train.get("records")) is int
-        and type(split_validation.get("records")) is int
-        and split_source["records"] == split_train["records"] + split_validation["records"],
-        "book split receipt record counts do not form a complete partition",
-    )
     return {
         "train_file": {
             "name": train_resolved.name,
@@ -835,15 +873,11 @@ def validate_dataset_pair(
             "label_contract": train_manifest["label_contract"],
             "generation": _generation_contract(train_manifest),
         },
-        "book_split": {
-            "receipt_name": split_path.name,
-            "receipt_sha256": _sha256_bytes(split_payload),
-            "schema": split["schema"],
-            "source": split_source,
-            "assignment": split_assignment,
-            "disjoint_position_keys": True,
-            "complete_partition": True,
-        },
+        "book_split": _book_split_identity(
+            split_receipt_path,
+            train_manifest["book_sha256"],
+            validation_manifest["book_sha256"],
+        ),
     }
 
 
@@ -879,6 +913,147 @@ def validate_selected_dataset_pair(
     data["validation_candidate"] = candidate_identity
     data["validation_selection"] = selected_identity["selected_role"]
     return data
+
+
+def _scale_chunk_identity(dataset: HordeChunkSetDataset) -> dict[str, object]:
+    identity = dataset.identity()
+    return {
+        "receipt_name": dataset.path.name,
+        "receipt_sha256": dataset.receipt_sha256,
+        "chunk_set_sha256": dataset.chunk_set_sha256,
+        "logical_payload_sha256": dataset.logical_payload_sha256,
+        "record_count": len(dataset),
+        "book_sha256": dataset.manifest["book_sha256"],
+        "role": dataset.receipt["role"],
+        "sample_identity": dataset.receipt["identity"]["sample_identity"],
+        "chunks": identity["chunks"],
+        "manifest": dataset.manifest,
+    }
+
+
+def _scale_training_file_identity(dataset: HordeChunkSetDataset) -> dict[str, object]:
+    return {
+        "name": dataset.path.name,
+        "sha256": dataset.receipt_sha256,
+        "payload_sha256": dataset.logical_payload_sha256,
+        "manifest_sha256": dataset.manifest_sha256,
+        "records": len(dataset),
+        "book_sha256": dataset.manifest["book_sha256"],
+        "chunk_set_sha256": dataset.chunk_set_sha256,
+        "chunks": dataset.identity()["chunks"],
+    }
+
+
+def validate_scale_dataset_pair(
+    train_dataset: HordeChunkSetDataset,
+    candidate_dataset: HordeChunkSetDataset,
+    validation_dataset: ScaleSelectedRoleDataset,
+    split_receipt_path: Path,
+    *,
+    allow_fixture: bool = False,
+) -> dict[str, object]:
+    """Bind the Rank8 scale train, candidate and selected validation roles."""
+
+    _require(train_dataset.receipt["role"] == "training", "scale training role drifted")
+    _require(
+        candidate_dataset.receipt["role"] == "validation_candidate",
+        "scale validation-candidate role drifted",
+    )
+    _require(
+        train_dataset.chunk_set_sha256 != candidate_dataset.chunk_set_sha256,
+        "scale training and candidate chunk sets match",
+    )
+    for field in (
+        "source_commit",
+        "source_dirty",
+        "producer_sha256",
+        "network",
+        "label_contract",
+        "generation",
+    ):
+        _require(
+            train_dataset.manifest[field] == candidate_dataset.manifest[field],
+            f"scale training and candidate field {field} differs",
+        )
+    _require(
+        train_dataset.manifest["book_sha256"]
+        != candidate_dataset.manifest["book_sha256"],
+        "scale training and candidate use the same opening book",
+    )
+
+    receipt = validation_dataset.receipt
+    train_reference = _scale_chunk_identity(train_dataset)
+    candidate_reference = _scale_chunk_identity(candidate_dataset)
+    _require(
+        receipt.get("training_reference") == train_reference,
+        "scale selected role training reference drifted",
+    )
+    _require(
+        receipt.get("candidate_source") == candidate_reference,
+        "scale selected role candidate reference drifted",
+    )
+    selector_source = receipt.get("selector_source")
+    _require(
+        isinstance(selector_source, dict)
+        and isinstance(selector_source.get("commit"), str)
+        and len(selector_source["commit"]) == 40
+        and selector_source.get("dirty") is False
+        and isinstance(selector_source.get("file_sha256"), str)
+        and len(selector_source["file_sha256"]) == 64,
+        "scale selector source identity is invalid",
+    )
+    claims = receipt.get("claims", {})
+    _require(
+        isinstance(claims, dict)
+        and claims.get("bounded_memory_exact_membership") is True
+        and (
+            (allow_fixture and claims.get("fixture_mode") is True)
+            or (not allow_fixture and claims.get("eligible_validation_role") is True)
+        ),
+        "scale selected role is not training-eligible",
+    )
+    _require(
+        receipt.get("postconditions")
+        == {
+            "physical_cross_role_overlap_samples": 0,
+            "legacy_cross_role_overlap_samples": 0,
+            "physical_validation_duplicate_samples": 0,
+            "legacy_validation_duplicate_samples": 0,
+        },
+        "scale selected-role postconditions drifted",
+    )
+
+    selected_identity = validation_dataset.identity()
+    return {
+        "train_file": _scale_training_file_identity(train_dataset),
+        "validation_file": selected_identity,
+        "validation_candidate": _scale_training_file_identity(candidate_dataset),
+        "validation_selection": selected_identity["selected_role"],
+        "teacher": {
+            "source_commit": train_dataset.manifest["source_commit"],
+            "producer_sha256": train_dataset.manifest["producer_sha256"],
+            "network": train_dataset.manifest["network"],
+            "label_contract": train_dataset.manifest["label_contract"],
+            "generation": train_dataset.manifest["generation"],
+        },
+        "book_split": _book_split_identity(
+            split_receipt_path,
+            train_dataset.manifest["book_sha256"],
+            candidate_dataset.manifest["book_sha256"],
+        ),
+        "decoder": {
+            "train": train_dataset.identity(),
+            "validation": validation_dataset.identity(),
+            "mode": "authenticated chunk-set random access",
+        },
+        "overlap_audit": {
+            "schema": "HORDE_TRAINING_ROLE_OVERLAP_AUDIT_V1",
+            "source": "selected-role exact membership receipt",
+            "physical": {"cross_role_overlap_samples": 0},
+            "legacy_model_input": {"cross_role_overlap_samples": 0},
+            "zero_cross_role_overlap": True,
+        },
+    }
 
 
 def _repository_identity(repo_root: Path) -> dict[str, object]:
@@ -1067,6 +1242,116 @@ def _finalize_campaign_binding(
     }
 
 
+def _load_scale_binding(
+    args: argparse.Namespace,
+    architecture: str,
+) -> tuple[dict[str, Any], str] | None:
+    argument = getattr(args, "scale_contract", None)
+    if argument is None:
+        return None
+    _require(
+        getattr(args, "campaign_plan", None) is None
+        and getattr(args, "campaign_run_id", None) is None,
+        "--scale-contract cannot be combined with a C1 campaign plan",
+    )
+    allow_fixture = bool(getattr(args, "scale_contract_fixture", False))
+    try:
+        contract, digest = load_scale_contract(argument, allow_fixture=allow_fixture)
+    except ScaleSelectedRoleError as error:
+        raise TrainingError(f"Rank8 scale contract is invalid: {error}") from error
+    training = _mapping(contract.get("training"), "scale training contract")
+    architecture_contract = _mapping(
+        training.get("architecture"), "scale architecture contract"
+    )
+    _require(
+        architecture == "v2-c1-rank8-64x192"
+        and architecture_contract.get("name") == architecture
+        and architecture_contract.get("schema") == _architecture_schema(architecture),
+        "scale contract does not select the Rank8 architecture",
+    )
+    return contract, digest
+
+
+def _finalize_scale_binding(
+    bundle: tuple[dict[str, Any], str] | None,
+    args: argparse.Namespace,
+    data_receipt: Mapping[str, Any],
+    train_records: int,
+    validation_records: int,
+    target_steps: int,
+) -> dict[str, object] | None:
+    if bundle is None:
+        return None
+    contract, contract_sha256 = bundle
+    generation = _mapping(contract.get("generation"), "scale generation")
+    generation_train = _mapping(generation.get("training"), "scale training generation")
+    selection = _mapping(contract.get("validation_selection"), "scale validation selection")
+    recipe = _mapping(contract.get("training"), "scale training recipe")
+    device = _mapping(recipe.get("device"), "scale training device")
+    dense_multiplier, output_multiplier = _optimizer_learning_rate_multipliers(args)
+    _require(
+        train_records == generation_train.get("records")
+        and validation_records == selection.get("target_records"),
+        "scale dataset dimensions differ from the contract",
+    )
+    _require(
+        args.seed == recipe.get("seed")
+        and args.epochs == recipe.get("epochs")
+        and train_records * args.epochs == recipe.get("training_example_exposures")
+        and args.batch_size == recipe.get("batch_size")
+        and args.block_size == recipe.get("block_size")
+        and args.lambda_value == recipe.get("lambda")
+        and args.learning_rate == recipe.get("learning_rate")
+        and dense_multiplier == recipe.get("dense_learning_rate_multiplier")
+        and output_multiplier == recipe.get("output_learning_rate_multiplier")
+        and args.scheduler_gamma == recipe.get("scheduler_gamma")
+        and target_steps == recipe.get("optimizer_steps"),
+        "scale trainer recipe differs from the contract",
+    )
+    _require(
+        recipe.get("optimizer") == "torch.optim.RAdam"
+        and device.get("type") == args.device
+        and device.get("cpu_threads") == args.cpu_threads,
+        "scale optimizer or device differs from the contract",
+    )
+    if args.device == "cuda" and not bool(getattr(args, "scale_contract_fixture", False)):
+        _require(
+            torch.cuda.get_device_name(torch.cuda.current_device()) == device.get("expected_name"),
+            "scale CUDA device differs from the contract",
+        )
+    checkpoints = recipe.get("checkpoint_steps")
+    _require(
+        isinstance(checkpoints, list)
+        and all(type(step) is int and 0 < step <= target_steps for step in checkpoints),
+        "scale checkpoint schedule is invalid",
+    )
+    _require(
+        args.stop_after_steps is None
+        or args.stop_after_steps == target_steps
+        or args.stop_after_steps in checkpoints,
+        "scale stop step is outside the frozen checkpoint schedule",
+    )
+    train_file = _mapping(data_receipt.get("train_file"), "scale train identity")
+    validation_file = _mapping(
+        data_receipt.get("validation_file"), "scale validation identity"
+    )
+    candidate = _mapping(
+        data_receipt.get("validation_candidate"), "scale candidate identity"
+    )
+    return {
+        "schema": SCALE_BINDING_SCHEMA,
+        "contract": {"schema": SCALE_CONTRACT_SCHEMA, "sha256": contract_sha256},
+        "campaign_id": contract["openbench"]["campaign_id"],
+        "cohort": contract["openbench"]["cohort"],
+        "train_chunk_set_sha256": train_file["chunk_set_sha256"],
+        "validation_candidate_chunk_set_sha256": candidate["chunk_set_sha256"],
+        "selected_validation_receipt_sha256": validation_file["selected_role"][
+            "receipt_sha256"
+        ],
+        "checkpoint_steps": checkpoints,
+    }
+
+
 def _device_receipt(device: torch.device, cpu_threads: int) -> dict[str, object]:
     receipt: dict[str, object] = {
         "type": device.type,
@@ -1191,13 +1476,26 @@ def _make_optimizer(
     )
 
 
-def _load_sparse_batch(dataset: HordeBinV1Dataset, indices: Sequence[int]) -> SparseBatch:
+def _dataset_payload_identity(dataset: Any) -> str:
+    value = dataset.manifest.get("payload_sha256")
+    if value is None:
+        value = dataset.manifest.get("logical_payload_sha256")
+    _require(
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in value),
+        "dataset payload identity is invalid",
+    )
+    return value.upper()
+
+
+def _load_sparse_batch(dataset: Any, indices: Sequence[int]) -> SparseBatch:
     return make_sparse_batch(tuple(dataset.record(index) for index in indices))
 
 
 def _evaluate(
     model: nn.Module,
-    dataset: HordeBinV1Dataset,
+    dataset: Any,
     batch_size: int,
     device: torch.device,
     lambda_value: float,
@@ -1417,6 +1715,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
     source = _repository_identity(repo_root)
     _require(args.allow_dirty or not source["dirty"], "trainer source tree is dirty")
     campaign_bundle = _load_campaign_plan(args, architecture, source)
+    scale_bundle = _load_scale_binding(args, architecture)
     try:
         wdl_payload, wdl_parameters, wdl_sha256 = load_wdl_artifact(args.wdl_calibration)
     except CalibrationError as error:
@@ -1446,17 +1745,52 @@ def train(args: argparse.Namespace) -> dict[str, object]:
     selected_validation = bool(getattr(args, "validation_selected_role", False))
     candidate_argument = getattr(args, "validation_candidate", None)
     selected_fixture = bool(getattr(args, "selected_role_fixture", False))
-    _require(
-        selected_validation or candidate_argument is None,
-        "--validation-candidate requires --validation-selected-role",
-    )
-    _require(
-        not selected_validation or candidate_argument is not None,
-        "selected validation requires --validation-candidate",
-    )
+    scale_mode = scale_bundle is not None
+    if scale_mode:
+        _require(
+            candidate_argument is not None,
+            "Rank8 scale training requires --validation-candidate",
+        )
+        _require(
+            not selected_validation,
+            "--scale-contract already selects the scale validation role",
+        )
+    else:
+        _require(
+            selected_validation or candidate_argument is None,
+            "--validation-candidate requires --validation-selected-role",
+        )
+        _require(
+            not selected_validation or candidate_argument is not None,
+            "selected validation requires --validation-candidate",
+        )
     with ExitStack() as stack:
-        train_dataset = stack.enter_context(HordeBinV1Dataset(train_path))
-        if selected_validation:
+        if scale_mode:
+            scale_contract_path = args.scale_contract.expanduser().resolve()
+            train_dataset = stack.enter_context(
+                HordeChunkSetDataset(train_path, scale_contract_path)
+            )
+            candidate_path = candidate_argument.expanduser().resolve()
+            candidate_dataset = stack.enter_context(
+                HordeChunkSetDataset(candidate_path, scale_contract_path)
+            )
+            validation_dataset = stack.enter_context(
+                ScaleSelectedRoleDataset(
+                    validation_path,
+                    scale_contract_path,
+                    _allow_fixture=bool(getattr(args, "scale_contract_fixture", False)),
+                )
+            )
+            data_receipt = validate_scale_dataset_pair(
+                train_dataset,
+                candidate_dataset,
+                validation_dataset,
+                args.book_split_receipt,
+                allow_fixture=bool(getattr(args, "scale_contract_fixture", False)),
+            )
+        else:
+            train_dataset = stack.enter_context(HordeBinV1Dataset(train_path))
+        if selected_validation and not scale_mode:
             candidate_path = candidate_argument.expanduser().resolve()
             candidate_dataset = stack.enter_context(HordeBinV1Dataset(candidate_path))
             validation_dataset = stack.enter_context(SelectedRoleDataset(validation_path))
@@ -1484,7 +1818,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 source_override=selected_source_override,
             )
             validation_factory = SelectedRoleDataset
-        else:
+        elif not scale_mode:
             validation_dataset = stack.enter_context(HordeBinV1Dataset(validation_path))
             data_receipt = validate_dataset_pair(
                 train_path,
@@ -1494,21 +1828,22 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 args.book_split_receipt,
             )
             validation_factory = HordeBinV1Dataset
-        data_receipt["decoder"] = {
-            "train": dataset_receipt(train_path, args.batch_size),
-            "validation": dataset_receipt(
+        if not scale_mode:
+            data_receipt["decoder"] = {
+                "train": dataset_receipt(train_path, args.batch_size),
+                "validation": dataset_receipt(
+                    validation_path,
+                    args.batch_size,
+                    dataset_factory=validation_factory,
+                ),
+            }
+            data_receipt["overlap_audit"] = audit_pair(
+                train_path,
                 validation_path,
-                args.batch_size,
-                dataset_factory=validation_factory,
-            ),
-        }
-        data_receipt["overlap_audit"] = audit_pair(
-            train_path,
-            validation_path,
-            example_limit=8,
-            require_zero=True,
-            validation_factory=validation_factory,
-        )
+                example_limit=8,
+                require_zero=True,
+                validation_factory=validation_factory,
+            )
         _require(
             args.allow_legacy_book_split_v1
             or data_receipt["book_split"]["schema"] == "HORDE_TRAINING_BOOK_SPLIT_V2",
@@ -1539,6 +1874,8 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             "eligible_records_sha256": wdl_payload["selection"]["eligible_records_sha256"],
         }
 
+        batches_per_epoch = (len(train_dataset) + args.batch_size - 1) // args.batch_size
+        target_steps = args.epochs * batches_per_epoch
         campaign_binding = _finalize_campaign_binding(
             campaign_bundle,
             args,
@@ -1547,9 +1884,20 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             len(train_dataset),
             len(validation_dataset),
         )
-
-        batches_per_epoch = (len(train_dataset) + args.batch_size - 1) // args.batch_size
-        target_steps = args.epochs * batches_per_epoch
+        scale_binding = _finalize_scale_binding(
+            scale_bundle,
+            args,
+            data_receipt,
+            len(train_dataset),
+            len(validation_dataset),
+            target_steps,
+        )
+        _require(
+            campaign_binding is None or scale_binding is None,
+            "C1 and scale campaign bindings cannot both be active",
+        )
+        if scale_binding is not None:
+            campaign_binding = scale_binding
         stop_at_step = args.stop_after_steps or target_steps
         _require(stop_at_step <= target_steps, "stop-after-steps exceeds the target run")
 
@@ -1671,7 +2019,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
 
         output.mkdir()
         training_stopped = False
-        payload_identity = train_dataset.manifest["payload_sha256"]
+        payload_identity = _dataset_payload_identity(train_dataset)
 
         for epoch in range(next_epoch, args.epochs):
             start_batch = next_batch if epoch == next_epoch else 0
@@ -1967,9 +2315,13 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 },
             },
             "claims": {
-                "purpose": "real-data-integration-canary",
-                "integration_only": True,
-                "strength_eligible": False,
+                "purpose": (
+                    "rank8-50m-scale-training"
+                    if scale_mode
+                    else "real-data-integration-canary"
+                ),
+                "integration_only": not scale_mode,
+                "strength_eligible": scale_mode and complete,
                 "strength_evidence": False,
                 "production_network": False,
             },
@@ -2009,6 +2361,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--campaign-run-id",
         help="exact run id selected from --campaign-plan",
+    )
+    parser.add_argument(
+        "--scale-contract",
+        type=Path,
+        help=(
+            "authenticate train/candidate chunk sets and the selected validation role "
+            "against HORDE_V2_RANK8_SCALE_V1"
+        ),
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
@@ -2053,6 +2413,7 @@ if __name__ == "__main__":
         OSError,
         RuntimeError,
         SelectedRoleError,
+        ScaleSelectedRoleError,
         subprocess.SubprocessError,
         TrainingError,
     ) as error:
