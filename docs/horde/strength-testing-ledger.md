@@ -525,7 +525,8 @@ Main-search selectivity experiments:
 
 - Branch: `test/fixed-role-do-move-checkers`
 - Commit: `61a9a2d3c963975fce05288b7c6a698df35b319d`
-- OpenBench: [test 227](https://belzedar.duckdns.org/test/227/)
+- Historical OpenBench: [test 227](https://belzedar.duckdns.org/test/227/),
+  subsequently invalidated by the V1 book and clock-safety reset.
 - Hypothesis: avoid a dynamic king-presence lookup in the per-move checkers
   update by using Horde's fixed White-Horde and Black-Royal roles.
 - Scope: `src/position.cpp`, two insertions and one deletion.
@@ -534,7 +535,8 @@ Main-search selectivity experiments:
   `fe9a5001c1997125ce34bf0ef119eab44570f5f363227bd4bab8e0db1f4e8592`.
 - Local speed screen: approximately +1.1% geometric mean over 24 alternating
   depth-16 pairs, 1,710,990 nodes per run.
-- Decision: registered for STC `[1.00, 6.00]`.
+- Decision: the historical sample is not promotion evidence. The definitive V3
+  rerun is recorded below.
 
 ## Local rejects
 
@@ -819,16 +821,26 @@ Main-search selectivity experiments:
   change.
 - Validation: a clean GCC 16 AVX2 build passed Horde rules, the Run 6B
   contract, and three deterministic 315,576-node benches with the accepted
-  best-move digest.
+  best-move digest. GitHub Actions run `31201637849` passed all four
+  Windows/Linux PEXT/POPCNT artifact jobs on the exact commit.
 - Local speed screen: the raw geometric ratios were `0.993936` over 48
   start-position pairs and `1.017472` over a separate 32-pair ten-position
   bench, but each suite contained a large host pause. The robust trimmed ratios
   were `1.000365` and `0.989420`; bench favored the candidate only 10/32 times.
-- Decision: rejected locally as neutral or negative after robust trimming; no
-  OpenBench workload.
-- Learning: specializing this single bookkeeping expression does not remove a
-  measurable hot-path cost and its layout perturbation is at least as large as
-  the saved generic tests.
+- OpenBench receipt: [test 296](https://belzedar.duckdns.org/test/296/) is the
+  definitive distributed rerun with Run 6B on both sides,
+  `HORDE_openings_v3.epd`, `8.0+0.08`, SPRT `[1.00, 6.00]`, priority 301, and
+  no adjudication. Its first 156 games had LLR `+0.16` with no reported
+  defect.
+- Interaction note: this commit and pending winner `69e52de5` both modify
+  `Position::do_move()`, but their hunks are separate. If the accepted
+  development baseline changes before a positive STC boundary, LTC must test
+  a freshly validated rebased commit rather than the stale standalone SHA.
+- Decision: active STC despite the inconclusive local layout screen; promote
+  only on a clean positive boundary.
+- Learning: specializing this bookkeeping expression has no stable local
+  speed signal, so the definitive V3 SPRT must decide whether the structural
+  simplification affects playing strength.
 
 ### 2026-08-08 - White legal-generation early return
 
