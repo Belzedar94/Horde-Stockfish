@@ -1087,3 +1087,43 @@ Main-search selectivity experiments:
   perturbs the optimized binary enough to lose more than the eliminated store
   saves. Further accumulator work should target representation or evaluated
   arithmetic rather than isolated constructor deletion.
+
+### 2026-08-10 - Remove redundant legacy transform clear
+
+- Branch: `lab/legacy-transform-no-zero-init`, commit
+  `047fd875d68ddb15a5c3aa9b7932ef2091fea607`; parent
+  `cee98c4d2f41295378c9cc02a9fb5153ae956d73`.
+- Hypothesis: `HordeLegacyNetwork::propagate()` value-initialized its complete
+  1,024-byte transformed-feature buffer even though the following two fixed
+  loops overwrite every byte before the first affine layer reads it.
+- Scope: remove only the value-initialization braces from that fully written
+  buffer. Feature orientation, clamping, accumulator updates, affine layers,
+  evaluation, rules, and search policy are unchanged.
+- Assembly receipt: the accepted GCC 16 AVX2 baseline emitted a call to
+  `memset` inside the legacy propagation function before the 1,024-byte
+  clamp-and-pack. The candidate's GCC 16 LTO assembly contains no `memset` in
+  the same function, proving that the source change removes real runtime work
+  rather than merely expressing an optimization the compiler already made.
+- Correctness: a clean GCC 16.1 AVX2 build passed Horde rules, the fail-closed
+  Run 6B network contract, and three deterministic benches at 315,576 nodes
+  with best-move digest
+  `fe9a5001c1997125ce34bf0ef119eab44570f5f363227bd4bab8e0db1f4e8592`.
+- Local speed screen 1: 48 alternating depth-16 pairs at 112,153 fixed nodes
+  measured `1.039227` geometric, `1.020488` median, and `1.042538` geometric
+  after dropping four ratios from each tail; 27/48 ratios favored the
+  candidate. The shared-host range was `0.517241` to `1.975002`.
+- Local speed screen 2: 24 alternating depth-18 pairs at 444,054 fixed nodes
+  measured `1.098283` geometric, `1.067062` median, and `1.083775` geometric
+  after dropping two ratios from each tail. Twelve of 24 individual ratios
+  and nine of twelve complete ABBA blocks favored the candidate; the range was
+  `0.681050` to `2.034844` under the live T24 worker load.
+- Publication receipt: the isolated branch is pushed and GitHub Actions run
+  `31351691037` started on the exact commit. No OpenBench workload was created
+  while the existing priority-301 Horde queue remains broad.
+- Decision: retain as a prepared high-confidence speed candidate. After CI is
+  green, schedule one isolated STC when the queue has room, rebasing onto the
+  accepted development baseline first if test 331 changes it.
+- Learning: unlike earlier explicit-SIMD and sidecar-layout experiments, this
+  one-line change removes an observed hot-path library call while preserving
+  the exact generated feature bytes and search tree. The local magnitude is
+  noisy, but both ABBA screens support testing it rather than discarding it.
