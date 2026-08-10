@@ -201,6 +201,15 @@ Use at least one fast and one slower time control. Historical cross-list Elo
 claims are context, not acceptance evidence. A direct match cannot be compared
 numerically with a rating-list delta without explaining the different baseline.
 
+The formal Horde V1 publication panel is fixed at 600 paired games at
+2s + 0.02s, 400 at 10s + 0.1s, and 200 at 30s + 0.3s. It compares the latest
+reviewed Horde-Stockfish `main` candidate with the Run 6B bytes distributed as
+`Horde_v1.nnue` against a Fairy-Stockfish development build using
+`horde-28173ddccabe.nnue`. The full candidate commit, Fairy-Stockfish commit,
+competing-network SHA-256, book SHA-256 and runner commit remain `TBD` until
+the panel is frozen; all must be recorded before the scores become release
+evidence.
+
 ## 10. Gate I: packaging and release
 
 A release candidate must include or link to:
@@ -213,6 +222,11 @@ A release candidate must include or link to:
 - rule fixture provenance;
 - test report satisfying the gates above; and
 - known limitations and compatibility notes.
+
+The production package name for the unchanged Run 6B bytes is
+`Horde_v1.nnue`. This distribution alias does not authorize renaming the
+tracked source file or changing `EvalFileDefaultName` as part of release
+packaging.
 
 Never ship the historical oracle executable as the candidate. Never claim the
 experimental Run 6B network is the current official Fairy-Stockfish Horde net;
