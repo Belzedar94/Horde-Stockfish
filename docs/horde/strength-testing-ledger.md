@@ -1039,3 +1039,25 @@ Main-search selectivity experiments:
 - Learning: replacing a piece-count query is semantically cleaner, but this
   call site is too rare for the measured layout-dependent signal to qualify as
   low-hanging fruit.
+
+### 2026-08-10 - Skip legacy dirty-sidecar initialization
+
+- Hypothesis: after the `legacy-dirty-piece-only` change, Run 6B no longer
+  reads the standard-NNUE threat and pawn-pair sidecars, so their per-ply
+  placement construction might be removable from `AccumulatorStack::push()`.
+- Scope: remove only the two sidecar placement constructions, on top of commit
+  `69e52de5aebe2733862de5d75e17dd951e5495a2`; accumulator dimensions, dirty-piece
+  tracking, evaluation, search, and all move handling remained unchanged.
+- Validation: a clean GCC 16 AVX2 build passed Horde rules, the fail-closed Run
+  6B contract, and three deterministic 315,576-node benches with the accepted
+  ten-best-move digest.
+- Local speed screen: 48 alternating start-position depth-16 pairs measured
+  `0.971207` geometric, `0.980044` median, `0.974123` trimmed geometric, and
+  only 20/48 favorable. Host noise ranged from `0.522169` to `1.573658`, but
+  all robust aggregates were negative.
+- Decision: rejected locally; no commit, push, or OpenBench workload. The
+  source change was reverted.
+- Learning: the remaining sidecar initialization is small, and removing it
+  perturbs the optimized binary enough to lose more than the eliminated store
+  saves. Further accumulator work should target representation or evaluated
+  arithmetic rather than isolated constructor deletion.
