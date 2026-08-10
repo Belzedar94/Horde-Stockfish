@@ -74,6 +74,46 @@ class TrackerTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_network_hashes_are_fixed_by_the_runner(self) -> None:
+        args = panel.parse_args(
+            [
+                "--candidate",
+                "candidate.exe",
+                "--candidate-sha256",
+                "0" * 64,
+                "--candidate-commit",
+                "0" * 40,
+                "--candidate-network",
+                "Horde_v1.nnue",
+                "--baseline",
+                "fairy-stockfish.exe",
+                "--baseline-sha256",
+                "1" * 64,
+                "--baseline-commit",
+                "1" * 40,
+                "--baseline-network",
+                "horde-28173ddccabe.nnue",
+                "--referee",
+                "cutechess-cli.exe",
+                "--referee-sha256",
+                "2" * 64,
+                "--referee-commit",
+                "2" * 40,
+                "--book",
+                "HORDE_openings_v3.epd",
+                "--book-sha256",
+                "3" * 64,
+                "--runner-commit",
+                "3" * 40,
+                "--output-root",
+                "release-panel-output",
+            ]
+        )
+        self.assertEqual(args.candidate_network_sha256, panel.RUN6B_SHA256)
+        self.assertEqual(
+            args.baseline_network_sha256, panel.OFFICIAL_HORDE_SHA256
+        )
+
     def test_panel_shape_is_frozen(self) -> None:
         self.assertEqual(
             panel.RUN6B_SHA256,
