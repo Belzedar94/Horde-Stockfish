@@ -1018,3 +1018,24 @@ Main-search selectivity experiments:
 - Learning: removing a dead subsystem is semantically safe and materially
   reduces binary size, but its speed effect is dominated by platform-specific
   layout and must be settled by the distributed time-controlled test.
+
+### 2026-08-10 - Fixed-role en-passant discovery gate
+
+- Hypothesis: Horde's fixed roles can replace the runtime king-count query
+  used when deciding whether a newly created en-passant square needs the royal
+  discovered-check test.
+- Scope: replace only `!has_king(them)` with `them == WHITE` in the double-pawn
+  push path of `Position::do_move()`; no en-passant geometry, legality, search,
+  evaluation, or ordering behavior changed.
+- Validation: Horde rules, the fail-closed Run 6B contract, and the complete
+  deterministic bench passed at exactly 315,576 nodes with the accepted ten
+  best moves.
+- Local speed screen: twelve alternating depth-16 pairs measured `+1.95%`
+  geometric, `+0.69%` median, and 8/12 favorable, with individual ratios from
+  `-8.61%` to `+14.39%` under the shared-host load.
+- Decision: rejected locally; no commit, push, or OpenBench workload. The
+  branch affects only the rare case where a double pawn push leaves an enemy
+  pawn adjacent, while the robust speed estimate remained below one percent.
+- Learning: replacing a piece-count query is semantically cleaner, but this
+  call site is too rare for the measured layout-dependent signal to qualify as
+  low-hanging fruit.
