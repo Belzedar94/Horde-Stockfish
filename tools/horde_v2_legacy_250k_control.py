@@ -201,8 +201,12 @@ def _repository_identity() -> dict[str, object]:
 def _identity_matches(observed: Mapping[str, Any], expected: Mapping[str, Any]) -> bool:
     """Compare the stable data fields while allowing a rematerialized receipt."""
 
-    fields = ("sha256", "payload_sha256", "records", "book_sha256", "seed")
-    return all(observed.get(field) == expected.get(field) for field in fields)
+    required = ("sha256", "payload_sha256", "records")
+    optional = ("book_sha256", "seed")
+    return all(
+        field in observed and field in expected and observed[field] == expected[field]
+        for field in required
+    ) and all(field not in expected or observed.get(field) == expected[field] for field in optional)
 
 
 @dataclass(slots=True)
@@ -288,8 +292,8 @@ def _prepare_legacy_run(
         data.get("validation_file"), "legacy checkpoint validation file"
     )
     _require(
-        dict(observed_training) == dict(expected_training)
-        and dict(observed_validation) == dict(expected_validation)
+        _identity_matches(observed_training, expected_training)
+        and _identity_matches(observed_validation, expected_validation)
         and data.get("teacher") == dict(expected_teacher),
         f"legacy checkpoint data identity drifted: {resolved}",
     )

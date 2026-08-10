@@ -36,6 +36,34 @@ def _legacy(seed: int, tuning: float, confirmation: float) -> dict[str, object]:
 
 
 def main() -> int:
+    stable_identity = {
+        "sha256": "A" * 64,
+        "payload_sha256": "B" * 64,
+        "records": 250_000,
+    }
+    observed_identity = {
+        **stable_identity,
+        "book_sha256": "C" * 64,
+        "seed": "2026080801",
+        "name": "selected-records.bin",
+        "selected_role": {"receipt_sha256": "D" * 64},
+    }
+    if not control._identity_matches(observed_identity, stable_identity):
+        raise AssertionError("stable identity rejected additional provenance")
+    expected_with_optional = {
+        **stable_identity,
+        "book_sha256": "C" * 64,
+        "seed": "2026080801",
+    }
+    if not control._identity_matches(observed_identity, expected_with_optional):
+        raise AssertionError("stable identity rejected matching optional provenance")
+    drifted_identity = {**stable_identity, "sha256": "E" * 64}
+    if control._identity_matches(observed_identity, drifted_identity):
+        raise AssertionError("stable identity accepted byte drift")
+    drifted_optional = {**expected_with_optional, "seed": "2026080803"}
+    if control._identity_matches(observed_identity, drifted_optional):
+        raise AssertionError("stable identity accepted optional provenance drift")
+
     seeds = control.EXPECTED_SEEDS
     rank8 = [
         _rank8(seeds[0], 0.140, 0.141),
@@ -81,7 +109,8 @@ def main() -> int:
 
     print(
         "Horde V2 legacy 250k control tests passed: paired seed accounting, "
-        "delta direction, three-seed consistency and mixed-direction handling"
+        "stable rematerialized identity, delta direction, three-seed consistency "
+        "and mixed-direction handling"
     )
     return 0
 
