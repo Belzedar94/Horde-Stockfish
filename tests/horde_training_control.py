@@ -253,6 +253,36 @@ def test_optimizer_learning_rate_arms() -> None:
     else:
         raise AssertionError("combined optimizer-factor experiment was accepted")
 
+    legacy_model = control._make_model(control.LEGACY_ARCHITECTURE, 0xC0FFEE)
+    legacy_dense_ids = {
+        id(getattr(legacy_model, name))
+        for name in (
+            "hidden0_weights",
+            "hidden0_bias",
+            "hidden1_weights",
+            "hidden1_bias",
+        )
+    }
+    legacy_output_ids = {
+        id(legacy_model.output_weights),
+        id(legacy_model.output_bias),
+    }
+    legacy_dense_arm = control._make_optimizer(
+        legacy_model,
+        learning_rate,
+        dense_learning_rate_multiplier=0.1,
+    )
+    if [group["lr"] for group in legacy_dense_arm.param_groups] != [
+        learning_rate,
+        learning_rate * 0.1,
+        learning_rate * control.DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+    ]:
+        raise AssertionError("legacy dense-rate control changed another learning rate")
+    if _parameter_ids(legacy_dense_arm.param_groups[1]) != legacy_dense_ids:
+        raise AssertionError("legacy dense-rate control did not isolate the dense trunk")
+    if _parameter_ids(legacy_dense_arm.param_groups[2]) != legacy_output_ids:
+        raise AssertionError("legacy dense-rate control changed the output parameter group")
+
 
 def test_v2_gradient_path() -> None:
     fixture, _ = microfit.make_fixture_batch()

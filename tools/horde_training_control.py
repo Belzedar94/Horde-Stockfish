@@ -1403,14 +1403,6 @@ def train(args: argparse.Namespace) -> dict[str, object]:
     _require(args.block_size >= args.batch_size, "shuffle block size is too small")
     _require(0.0 <= args.lambda_value <= 1.0, "lambda is outside [0, 1]")
     _require(args.learning_rate > 0.0, "learning rate must be positive")
-    _require(
-        architecture != LEGACY_ARCHITECTURE
-        or (
-            dense_learning_rate_multiplier == DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER
-            and output_learning_rate_multiplier == DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER
-        ),
-        "optimizer learning-rate experiments require a V2 architecture",
-    )
     _require(0.0 < args.scheduler_gamma <= 1.0, "scheduler gamma is outside (0, 1]")
     _require(
         args.stop_after_steps is None or args.stop_after_steps > 0,
@@ -2029,13 +2021,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--dense-learning-rate-multiplier",
         type=float,
         default=DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER,
-        help="V2-only multiplier for hidden0/hidden1 weights and biases",
+        help="multiplier for hidden0/hidden1 weights and biases",
     )
     parser.add_argument(
         "--output-learning-rate-multiplier",
         type=float,
         default=DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
-        help="V2-only multiplier for the side-to-move output weights and biases",
+        help="multiplier for the output weights and biases",
     )
     parser.add_argument("--scheduler-gamma", type=float, default=DEFAULT_SCHEDULER_GAMMA)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
