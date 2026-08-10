@@ -103,13 +103,32 @@ The public strength panel is frozen to this comparison contract:
 - candidate: the latest reviewed Horde-Stockfish `main` commit, full commit
   `TBD`, with the Run 6B bytes distributed as `Horde_v1.nnue`;
 - baseline: the Fairy-Stockfish development revision frozen at test start,
-  full commit `TBD`, with `horde-28173ddccabe.nnue` (full SHA-256 `TBD`);
+  full commit `TBD`, with `horde-28173ddccabe.nnue` (full SHA-256
+  `28173DDCCABE12306D02AFA1156DED2B6A69C6A8DB909895DB6E955F8B4AD6A6`);
 - paired game counts: 600 at 2s + 0.02s, 400 at 10s + 0.1s, and 200 at
   30s + 0.3s.
 
 The opening-book SHA-256, runner commit, candidate commit, Fairy-Stockfish
 commit and any other moving input remain `TBD` until the final panel is frozen.
 Release notes must record those full identifiers before presenting scores.
+
+[`scripts/horde/run_release_panel.py`](../../scripts/horde/run_release_panel.py)
+implements this exact panel. It authenticates the two executables, two
+networks, Horde referee and opening book before starting; rejects a book with
+fewer than 300 positions; runs the three paired time controls concurrently;
+and prints the complete WDL, pentanomial, Elo, confidence interval and LOS
+table every five minutes. Any missing game, incomplete pair, crash, illegal
+move, disconnect, stall or time loss writes `INVALID.json` and invalidates the
+entire panel. It does not enable draw or resignation adjudication.
+
+Before consuming machine time, invoke the runner with `--dry-run`, complete
+40-character commits and every requested 64-character SHA-256 value. Review
+the three emitted cutechess commands, then repeat the same invocation without
+`--dry-run` in an empty output directory. A valid completion produces the
+original PGNs and logs plus `manifest.json`, one `result.json` per time
+control, and `panel-receipt.json` with authenticated output hashes. The two
+network hashes are fixed in the runner; every moving asset hash must be
+supplied explicitly.
 
 ## Creating a candidate artifact
 

@@ -12,9 +12,10 @@ and NNUE evaluation.
 
 The formal panel compares the latest reviewed Horde-Stockfish `main` candidate
 (full commit `TBD`) with `Horde_v1.nnue` against Fairy-Stockfish dev (full
-commit `TBD`) with `horde-28173ddccabe.nnue` (full SHA-256 `TBD`). The opening
-book SHA-256 and match-runner commit are also `TBD` until the panel inputs are
-frozen.
+commit `TBD`) with `horde-28173ddccabe.nnue` (full SHA-256
+`28173DDCCABE12306D02AFA1156DED2B6A69C6A8DB909895DB6E955F8B4AD6A6`).
+The opening book SHA-256 and match-runner commit are also `TBD` until the panel
+inputs are frozen.
 
 Insert only results produced by that exact comparison. Include W/L/D, Elo with
 confidence interval, LOS, crashes and time losses.
@@ -57,8 +58,8 @@ HordeTest network currently recorded in `BASELINE_MANIFEST.json`, authored by
 Belzedar and made available under CC0-1.0. The source/default filename remains
 unchanged; `Horde_v1.nnue` is the release-package alias.
 
-The competing Fairy-Stockfish network is `horde-28173ddccabe.nnue`; record its
-authenticated full SHA-256 as `TBD` when the formal panel inputs are frozen.
+The competing Fairy-Stockfish network is `horde-28173ddccabe.nnue`, SHA-256
+`28173DDCCABE12306D02AFA1156DED2B6A69C6A8DB909895DB6E955F8B4AD6A6`.
 Do not describe Run 6B as the official Fairy-Stockfish Horde network.
 
 ## Checksums (SHA-256)

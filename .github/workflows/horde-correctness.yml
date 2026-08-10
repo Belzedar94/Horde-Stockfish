@@ -530,10 +530,14 @@ jobs:
         run: python3 scripts/horde/verify_baseline.py
       - name: Exercise manifest and provenance contracts
         run: python3 tests/horde_release_contract.py
+      - name: Exercise fixed release-panel contract
+        run: python3 tests/horde_release_panel.py
       - name: Verify release tooling syntax
         run: |
           bash -n scripts/horde/build_native_release.sh
           python3 -m py_compile \
             scripts/horde/release_manifest.py \
             scripts/horde/release_provenance.py \
+            scripts/horde/run_release_panel.py \
+            tests/horde_release_panel.py \
             tests/horde_release_contract.py
