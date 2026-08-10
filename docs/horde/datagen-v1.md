@@ -139,6 +139,33 @@ archived or removed only after the selected receipt and materialized records
 have been sealed. The canonical receipt binds both parent chunk sets, the
 bucket inventories, every selection decision and the final record order.
 
+Fit the frozen side-specific WDL link from the exact logical training payload,
+then dispatch the registered Rank-8 scale recipe directly from the chunk sets:
+
+```console
+python tools/horde_fit_wdl.py data/train/chunk-set.json \
+  --chunk-set --contract schemas/horde-v2-rank8-scale-v1.json \
+  --output data/train/wdl-calibration.json
+python tools/horde_training_control.py \
+  data/train/chunk-set.json data/validation-selected/receipt.json \
+  --validation-candidate data/validation-candidate/chunk-set.json \
+  --scale-contract schemas/horde-v2-rank8-scale-v1.json \
+  --architecture v2-c1-rank8-64x192 \
+  --book-split-receipt data/book-split-receipt.json \
+  --wdl-calibration data/train/wdl-calibration.json \
+  --output runs/rank8-50m --seed 7435908571601354096 \
+  --epochs 1 --batch-size 4096 --block-size 65536 \
+  --lambda 0.6 --learning-rate 0.0015 \
+  --dense-learning-rate-multiplier 0.1 \
+  --output-learning-rate-multiplier 0.1 \
+  --scheduler-gamma 0.987 --device cuda --cpu-threads 1
+```
+
+The trainer uses `logical_payload_sha256` for deterministic sample-order and
+resume chains. It reauthenticates all chunk and selected-role identities but
+does not perform a second 50-million-record feature audit before training; the
+exact selector receipt already supplies the cross-role and duplicate gates.
+
 [`tools/horde_run6b.py`](../../tools/horde_run6b.py) then reads only the
 registered Run 6B artifact and replays its integer network directly from those
 legacy sparse rows. Its independent implementation covers feature-transformer
