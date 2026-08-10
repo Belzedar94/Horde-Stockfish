@@ -109,6 +109,36 @@ The logical reader preserves sample provenance as
 physical chunk boundaries using the exact logical payload identity. It does not
 copy or rewrite the chunk payloads.
 
+The 50-million-record role is too large for the original in-memory validation
+selector. [`tools/horde_training_scale_selected_role.py`](../../tools/horde_training_scale_selected_role.py)
+therefore partitions the two exact SHA-256 key families by their first digest
+byte. Only one of 256 buckets is resident at a time. Candidate queries retain
+their global logical index, so the accepted sequence remains exactly "chunk
+index ascending, then local record index ascending". This is an exact external
+membership index, not a Bloom filter: it cannot silently discard a position
+through a false positive.
+
+Create the label-blind 250,000-record validation role with an explicit scratch
+directory:
+
+```console
+python tools/horde_training_scale_selected_role.py create \
+  data/train/chunk-set.json data/validation-candidate/chunk-set.json \
+  --contract schemas/horde-v2-rank8-scale-v1.json \
+  --scratch data/selection-scratch \
+  --output data/validation-selected
+python tools/horde_training_scale_selected_role.py verify \
+  data/train/chunk-set.json data/validation-candidate/chunk-set.json \
+  data/validation-selected/receipt.json \
+  --contract schemas/horde-v2-rank8-scale-v1.json
+```
+
+The scratch directory contains authenticated bucket, query, key and rejection
+streams. It is deliberately outside the selected-role identity and may be
+archived or removed only after the selected receipt and materialized records
+have been sealed. The canonical receipt binds both parent chunk sets, the
+bucket inventories, every selection decision and the final record order.
+
 [`tools/horde_run6b.py`](../../tools/horde_run6b.py) then reads only the
 registered Run 6B artifact and replays its integer network directly from those
 legacy sparse rows. Its independent implementation covers feature-transformer

@@ -124,6 +124,7 @@ jobs:
           tests/horde_data_generator.py
           tests/horde_training_book_split.py
           tests/horde_training_chunk_set.py
+          tests/horde_training_scale_selected_role.py
           tests/horde_training_c0.py
           tests/horde_training_control.py
           tests/horde_training_resume.py
@@ -136,6 +137,7 @@ jobs:
           tools/horde_split_training_book.py
           tools/horde_training_c0.py
           tools/horde_training_chunk_set.py
+          tools/horde_training_scale_selected_role.py
           tools/horde_training_control.py
           tools/horde_training_decoder.py
           tools/horde_training_models.py
@@ -189,6 +191,8 @@ jobs:
         run: python tests/horde_training_control.py
       - name: Verify authenticated Horde training chunk sets
         run: python tests/horde_training_chunk_set.py
+      - name: Verify bounded-memory scale validation selection
+        run: python tests/horde_training_scale_selected_role.py
       - name: Verify Horde V2 C0 split equality
         run: python tests/horde_training_c0.py
       - name: Verify authenticated Horde V2 checkpoint export
