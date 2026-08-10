@@ -62,8 +62,8 @@
       "source_commit": "c19b5f6c66894fdb0e88d0dd100e3885f744760a",
       "patch": {
         "path": "docs/horde/fixtures/fsf-c19b5f6c-raw-oracle.patch",
-        "size": 2719,
-        "sha256": "d5a7f753137518d1610d12b9f35483c9d85592b1ba0900066d72a113d9ad52d3"
+        "size": 2944,
+        "sha256": "b0f1e98b958e0c44fc9cdbd4ac2d60b7f85accb90a69a512c8bc37419227595d"
       },
       "binary": {
         "filename": "stockfish.exe",
