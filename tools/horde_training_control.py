@@ -969,12 +969,16 @@ def validate_scale_dataset_pair(
         "producer_sha256",
         "network",
         "label_contract",
-        "generation",
     ):
         _require(
             train_dataset.manifest[field] == candidate_dataset.manifest[field],
             f"scale training and candidate field {field} differs",
         )
+    _require(
+        _generation_contract(train_dataset.manifest)
+        == _generation_contract(candidate_dataset.manifest),
+        "scale training and candidate generation settings differ",
+    )
     _require(
         train_dataset.manifest["book_sha256"]
         != candidate_dataset.manifest["book_sha256"],
@@ -1034,7 +1038,7 @@ def validate_scale_dataset_pair(
             "producer_sha256": train_dataset.manifest["producer_sha256"],
             "network": train_dataset.manifest["network"],
             "label_contract": train_dataset.manifest["label_contract"],
-            "generation": train_dataset.manifest["generation"],
+            "generation": _generation_contract(train_dataset.manifest),
         },
         "book_split": _book_split_identity(
             split_receipt_path,
