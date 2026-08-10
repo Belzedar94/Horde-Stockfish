@@ -226,12 +226,32 @@ Outcome and fortress speed-path experiments:
   is the exact green-CI commit from zero-game interim-book test 284. The
   combined ten-position local screen measured about `+5.4%`, with one hotspot
   sample reaching about `+8.4%`. Snapshot: zero games.
+- `test/fortress-pawn-mobility-reject` at
+  `50b743a871f5709c2e893b72432d82206a44cdfa`, [test 340](https://belzedar.duckdns.org/test/340/):
+  skip the complete Black-move fortress scan only when at least two physical
+  White pawns have distinct legal single-push destinations. One ordinary
+  Black move cannot remove or occupy both; the committed debug assertion
+  independently verifies every legal Black reply before accepting the
+  shortcut. A deterministic 100,000-position corpus produced 49,640 eligible
+  Black roots and completed all of their depth-two searches with no assertion
+  failure. The eligible roots included 8,917 castling-right states and 80
+  en-passant states; the FEN stream SHA-256 is
+  `D5F500D43995FA4E757A8ECC94A3F0A87398D560376F8353D12360AF7D14D2E9`.
+  Default-off and enabled release modes both retained the exact 315,576-node
+  bench and best-move digest. Twelve alternating fixed-work depth-16 pairs
+  measured `+8.22%` geometric speed, `+7.83%` median speed, and 11/12
+  favorable pairs. Horde rules, the Run 6B contract, triple default and
+  triple enabled benches passed; all four artifact jobs passed in GitHub
+  Actions run `31344448862`. Snapshot: zero games.
 
-All three replacements use `HORDE_openings_v3.epd`, Run 6B for both engines,
+Tests 337 through 340 use `HORDE_openings_v3.epd`, Run 6B for both engines,
 priority 301, workload 32, no Syzygy adjudication, and the active `Stop`
-control. They are orthogonal by call site, but overlap in source layout; after
-the first accepted integration, any still-relevant sibling must be rebuilt
-against the new development baseline before its result can be interpreted.
+control. They are orthogonal by predicate or call site, but overlap in the
+same `Position::outcome()` source region. Tests 339 and 340 both accelerate
+the Black-to-move fortress loop from different directions. After the first
+accepted integration, any still-relevant sibling must be rebuilt against the
+new development baseline before its result can be interpreted; the current
+diffs must not be stacked as independent gains.
 
 Qsearch frontier and capture-selection experiments:
 
