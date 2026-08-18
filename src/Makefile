@@ -116,6 +116,14 @@ HORDE_BIN_V1_TEST_EXE = horde-bin-v1-tests$(if $(filter yes,$(target_windows)),.
 HORDE_BIN_V1_TEST_OBJS = $(filter-out main.o,$(OBJS)) horde_data_generator_sha256.o \
 	horde_data_generator_horde_bin_v1.o horde_bin_v1_tests.o
 
+# OpenBench generic DATAGEN builds pass OPENBENCH_DATAGEN=1 and bench the
+# resulting binary, so the main EXE must carry the in-engine generator:
+# swap search.o/uci.o for their generator-enabled twins and link the data
+# sources, exactly like the standalone data-generator target.
+ifeq ($(OPENBENCH_DATAGEN),1)
+OBJS := $(HORDE_DATA_GENERATOR_OBJS)
+endif
+
 VPATH = syzygy:nnue:nnue/features
 
 ### ==========================================================================
