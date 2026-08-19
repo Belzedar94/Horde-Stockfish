@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Train the fresh legacy H/P control from disjoint HORDE_BIN_V1 files.
+"""Train Horde NNUE controls from disjoint HORDE_BIN_V1 files.
 
 This is the deterministic reference trainer for the first Horde NNUE training
 control.  It deliberately trains the exact serialized Run 6B topology without
 the historical training-only layer factorizer.  The same optimizer, schedule,
-label policy, and batching contract can therefore be reused by later
-architecture ablations without giving one topology hidden parameters.
+label policy, and batching contract are also used by the no-context V2 width
+survivors so architecture comparisons do not receive hidden training changes.
 """
 
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import dataclass
 import hashlib
 import json
@@ -22,7 +23,7 @@ import platform
 import struct
 import subprocess
 import sys
-from typing import Any, Iterator, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 
 # Required by PyTorch for deterministic CUDA matrix multiplications.  It must
 # be present before the first cuBLAS handle is created.
@@ -39,15 +40,38 @@ try:
         BLACK,
         HordeBinV1Dataset,
         SparseBatch,
+        V2_GLOBAL_DIMENSIONS,
+        V2_ROYAL_RANK8_DIMENSIONS,
+        V2_ROYAL_DIMENSIONS,
         WHITE,
+        dataset_receipt,
         make_sparse_batch,
     )
-    from .horde_training_microfit import (
+    from .horde_training_models import (
+        AbsoluteNonKingV2Model,
+        HIDDEN0_LANES,
+        HIDDEN1_LANES,
+        HordeV2Model,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
+        RoyalRank8V2Model,
+        V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
+    from .horde_training_chunk_set import HordeChunkSetDataset
     from .horde_training_split_audit import audit_pair
+    from .horde_training_selected_role import (
+        SelectedRoleDataset,
+        SelectedRoleError,
+        validate_selected_role_binding,
+    )
+    from .horde_training_scale_selected_role import (
+        CONTRACT_SCHEMA as SCALE_CONTRACT_SCHEMA,
+        CONTRACT_SHA256 as SCALE_CONTRACT_SHA256,
+        ScaleSelectedRoleDataset,
+        ScaleSelectedRoleError,
+        load_contract as load_scale_contract,
+    )
     from .horde_wdl import (
         CalibrationError,
         LINK_SCHEMA as WDL_LINK_SCHEMA,
@@ -59,15 +83,38 @@ except ImportError:
         BLACK,
         HordeBinV1Dataset,
         SparseBatch,
+        V2_GLOBAL_DIMENSIONS,
+        V2_ROYAL_RANK8_DIMENSIONS,
+        V2_ROYAL_DIMENSIONS,
         WHITE,
+        dataset_receipt,
         make_sparse_batch,
     )
-    from horde_training_microfit import (
+    from horde_training_models import (
+        AbsoluteNonKingV2Model,
+        HIDDEN0_LANES,
+        HIDDEN1_LANES,
+        HordeV2Model,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
+        RoyalRank8V2Model,
+        V2_ABSOLUTE_NONKING_DIMENSIONS,
     )
+    from horde_training_chunk_set import HordeChunkSetDataset
     from horde_training_split_audit import audit_pair
+    from horde_training_selected_role import (
+        SelectedRoleDataset,
+        SelectedRoleError,
+        validate_selected_role_binding,
+    )
+    from horde_training_scale_selected_role import (
+        CONTRACT_SCHEMA as SCALE_CONTRACT_SCHEMA,
+        CONTRACT_SHA256 as SCALE_CONTRACT_SHA256,
+        ScaleSelectedRoleDataset,
+        ScaleSelectedRoleError,
+        load_contract as load_scale_contract,
+    )
     from horde_wdl import (
         CalibrationError,
         LINK_SCHEMA as WDL_LINK_SCHEMA,
@@ -79,6 +126,52 @@ except ImportError:
 SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_TRAINING_V3"
 CHECKPOINT_SCHEMA = "HORDE_FRESH_LEGACY_CONTROL_CHECKPOINT_V3"
 ARCHITECTURE_SCHEMA = "HORDETEST_HP_FRESH_CONTROL_V1"
+LEGACY_ARCHITECTURE = "fresh-legacy-hp"
+V2_TRAINING_SCHEMA = "HORDE_V2_BASE_TRAINING_V1"
+V2_CHECKPOINT_SCHEMA = "HORDE_V2_BASE_CHECKPOINT_V1"
+V2_FEATURE_SCHEMA = "V2_BASE_P0"
+C1_PLAN_SCHEMA = "HORDE_V2_C1_CAMPAIGN_PLAN_V2"
+C1_BINDING_SCHEMA = "HORDE_V2_C1_TRAINER_BINDING_V1"
+SCALE_BINDING_SCHEMA = "HORDE_V2_RANK8_SCALE_TRAINER_BINDING_V1"
+C1_PARENT_CONTRACT_SCHEMA = "HORDE_V2_C1_CAMPAIGN_V1"
+C1_PARENT_CONTRACT_SHA256 = (
+    "7B5BDA9DC20AB7CF55DE2964085D2ADBBED83137A3071B418439A5CF7DD939DA"
+)
+C1_COVERAGE_ADDENDUM_SCHEMA = "HORDE_V2_C1_COVERAGE_ADDENDUM_V1"
+C1_COVERAGE_ADDENDUM_SHA256 = (
+    "3103951AB8522238C23DBF83A3DEB0073D671024B0054ACBB75E1DC0C7C7D91B"
+)
+V2_ARCHITECTURES = {
+    "v2-64x192": {
+        "schema": "V2_BASE_P0_64X192",
+        "first_domain": "royal",
+        "first_lanes": 64,
+        "global_lanes": 192,
+        "serialized_parameter_bytes": 2_902_344,
+    },
+    "v2-128x128": {
+        "schema": "V2_BASE_P0_128X128",
+        "first_domain": "royal",
+        "first_lanes": 128,
+        "global_lanes": 128,
+        "serialized_parameter_bytes": 5_433_672,
+    },
+    "v2-c1-abs64x192": {
+        "schema": "V2_C1_ABS_NONKING_64X192",
+        "first_domain": "absolute_nonking",
+        "first_lanes": 64,
+        "global_lanes": 192,
+        "serialized_parameter_bytes": 362_824,
+    },
+    "v2-c1-rank8-64x192": {
+        "schema": "V2_C1_ROYAL_RANK8_64X192",
+        "first_domain": "royal_rank8",
+        "first_lanes": 64,
+        "global_lanes": 192,
+        "serialized_parameter_bytes": 936_264,
+    },
+}
+ARCHITECTURE_CHOICES = (LEGACY_ARCHITECTURE, *V2_ARCHITECTURES)
 BOOK_SPLIT_SCHEMAS = {
     "HORDE_TRAINING_BOOK_SPLIT_V1",
     "HORDE_TRAINING_BOOK_SPLIT_V2",
@@ -87,6 +180,8 @@ MATE_SCORE_THRESHOLD = 31_507  # VALUE_TB_WIN_IN_MAX_PLY at MAX_PLY=246.
 DEFAULT_LAMBDA = 0.6
 DEFAULT_LEARNING_RATE = 1.5e-3
 DEFAULT_SCHEDULER_GAMMA = 0.987
+DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER = 1.0
+DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER = 0.1
 MASK_POLICY = "exclude abs(score) >= 31507 from score-derived WDL term; retain result WDL term"
 U64_MASK = (1 << 64) - 1
 
@@ -95,13 +190,67 @@ class TrainingError(ValueError):
     """Raised when a training input or requested run violates the contract."""
 
 
+def _validate_optimizer_learning_rate_multipliers(
+    dense: float,
+    output: float,
+) -> tuple[float, float]:
+    _require(
+        math.isfinite(dense) and dense > 0.0,
+        "dense learning-rate multiplier must be positive",
+    )
+    _require(
+        math.isfinite(output) and output > 0.0,
+        "output learning-rate multiplier must be positive",
+    )
+    _require(
+        dense == DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER
+        or output == DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+        "optimizer experiments may change only one learning-rate multiplier",
+    )
+    return dense, output
+
+
+def _optimizer_learning_rate_multipliers(
+    args: argparse.Namespace,
+) -> tuple[float, float]:
+    return _validate_optimizer_learning_rate_multipliers(
+        float(
+            getattr(
+                args,
+                "dense_learning_rate_multiplier",
+                DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER,
+            )
+        ),
+        float(
+            getattr(
+                args,
+                "output_learning_rate_multiplier",
+                DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+            )
+        ),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class LegacyBatch:
     legacy_white: Tensor
     legacy_black: Tensor
-    piece_offsets: Tensor
+    legacy_piece_offsets: Tensor
     side_to_move: Tensor
     piece_buckets: Tensor
+    rule50_count: Tensor
+    scores: Tensor
+    results: Tensor
+    score_eligible: Tensor
+
+
+@dataclass(frozen=True, slots=True)
+class V2Batch:
+    v2_global: Tensor
+    v2_royal: Tensor
+    global_offsets: Tensor
+    royal_offsets: Tensor
+    side_to_move: Tensor
     rule50_count: Tensor
     scores: Tensor
     results: Tensor
@@ -209,6 +358,11 @@ def _require(condition: bool, message: str) -> None:
         raise TrainingError(message)
 
 
+def _mapping(value: object, label: str) -> Mapping[str, Any]:
+    _require(isinstance(value, dict), f"{label} is not an object")
+    return value
+
+
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest().upper()
 
@@ -235,6 +389,108 @@ def _compact_json(payload: object) -> bytes:
         ensure_ascii=True,
         allow_nan=False,
     ).encode("utf-8")
+
+
+def _architecture_name(args: argparse.Namespace) -> str:
+    name = getattr(args, "architecture", LEGACY_ARCHITECTURE)
+    _require(name in ARCHITECTURE_CHOICES, f"unknown training architecture: {name}")
+    return str(name)
+
+
+def _architecture_schema(name: str) -> str:
+    return ARCHITECTURE_SCHEMA if name == LEGACY_ARCHITECTURE else str(
+        V2_ARCHITECTURES[name]["schema"]
+    )
+
+
+def _training_schema(name: str) -> str:
+    return SCHEMA if name == LEGACY_ARCHITECTURE else V2_TRAINING_SCHEMA
+
+
+def _checkpoint_schema(name: str) -> str:
+    return CHECKPOINT_SCHEMA if name == LEGACY_ARCHITECTURE else V2_CHECKPOINT_SCHEMA
+
+
+def _v2_structure(name: str) -> dict[str, object]:
+    config = V2_ARCHITECTURES[name]
+    first_domain = str(config["first_domain"])
+    first_lanes = int(config["first_lanes"])
+    global_lanes = int(config["global_lanes"])
+    transformed = first_lanes + global_lanes
+    if first_domain == "royal":
+        first_domain_receipt: dict[str, object] = {
+            "name": "royal",
+            "dimensions": V2_ROYAL_DIMENSIONS,
+            "lanes": first_lanes,
+            "black_king_buckets": 32,
+            "horizontal_mirror": "black king canonicalized to files E-H",
+            "includes_black_king": False,
+        }
+    elif first_domain == "royal_rank8":
+        first_domain_receipt = {
+            "name": "royal_rank8",
+            "dimensions": V2_ROYAL_RANK8_DIMENSIONS,
+            "lanes": first_lanes,
+            "black_king_buckets": 8,
+            "bucket_map": "black king rank",
+            "horizontal_mirror": "black king canonicalized to files E-H",
+            "refresh_key": "black king rank plus horizontal mirror bit",
+            "includes_black_king": False,
+        }
+    elif first_domain == "absolute_nonking":
+        first_domain_receipt = {
+            "name": "absolute_nonking",
+            "dimensions": V2_ABSOLUTE_NONKING_DIMENSIONS,
+            "lanes": first_lanes,
+            "fixed_roles": 10,
+            "orientation": "absolute A1-H8",
+            "source_projection": "G0 rows 0-639; Black king row omitted",
+            "includes_black_king": False,
+        }
+    else:  # pragma: no cover - static architecture table
+        raise TrainingError(f"unknown V2 first domain: {first_domain}")
+    structure: dict[str, object] = {
+        "schema": config["schema"],
+        "feature_schema": V2_FEATURE_SCHEMA,
+        "feature_order": "physical squares A1 through H8",
+        "domains": [
+            first_domain_receipt,
+            {
+                "name": "global",
+                "dimensions": V2_GLOBAL_DIMENSIONS,
+                "lanes": global_lanes,
+                "fixed_roles": 11,
+                "includes_black_king": True,
+            },
+        ],
+        "transformed_lanes": transformed,
+        "dense_lanes": [transformed, HIDDEN0_LANES, HIDDEN1_LANES, 2],
+        "side_to_move_heads": {"white": WHITE, "black": BLACK},
+        "contextual_features": [],
+        "phase_buckets": 1,
+        "training_activation": "clamp(x, 0, 1)",
+        "network_to_score": NNUE_TO_SCORE,
+        "serialized_parameter_bytes": int(config["serialized_parameter_bytes"]),
+    }
+    return {
+        **structure,
+        "structural_sha256": _sha256_bytes(_compact_json(structure)),
+    }
+
+
+def _make_model(name: str, seed: int) -> nn.Module:
+    if name == LEGACY_ARCHITECTURE:
+        return LegacyHPModel(seed)
+    config = V2_ARCHITECTURES[name]
+    first_lanes = int(config["first_lanes"])
+    global_lanes = int(config["global_lanes"])
+    if config["first_domain"] == "royal":
+        return HordeV2Model(first_lanes, global_lanes, seed)
+    if config["first_domain"] == "royal_rank8":
+        return RoyalRank8V2Model(first_lanes, global_lanes, seed)
+    if config["first_domain"] == "absolute_nonking":
+        return AbsoluteNonKingV2Model(first_lanes, global_lanes, seed)
+    raise TrainingError(f"unknown V2 first domain: {config['first_domain']}")
 
 
 def _splitmix64(state: int) -> tuple[int, int]:
@@ -314,10 +570,7 @@ def _schedule_sha256(batches: Sequence[Sequence[int]]) -> str:
 
 
 def _torch_batch(sparse: SparseBatch, device: torch.device) -> LegacyBatch:
-    piece_counts = [
-        sparse.piece_offsets[index + 1] - sparse.piece_offsets[index]
-        for index in range(len(sparse))
-    ]
+    piece_counts = list(sparse.physical_piece_count)
     _require(all(1 <= count <= 52 for count in piece_counts), "invalid legacy piece count")
     piece_buckets = [
         min((count - 1) * LEGACY_BUCKETS // 52, LEGACY_BUCKETS - 1)
@@ -327,13 +580,65 @@ def _torch_batch(sparse: SparseBatch, device: torch.device) -> LegacyBatch:
     return LegacyBatch(
         legacy_white=torch.tensor(sparse.legacy_white, dtype=torch.long, device=device),
         legacy_black=torch.tensor(sparse.legacy_black, dtype=torch.long, device=device),
-        piece_offsets=torch.tensor(sparse.piece_offsets, dtype=torch.long, device=device),
+        legacy_piece_offsets=torch.tensor(
+            sparse.legacy_piece_offsets,
+            dtype=torch.long,
+            device=device,
+        ),
         side_to_move=torch.tensor(sparse.side_to_move, dtype=torch.long, device=device),
         piece_buckets=torch.tensor(piece_buckets, dtype=torch.long, device=device),
         rule50_count=torch.tensor(sparse.rule50_count, dtype=torch.long, device=device),
         scores=scores,
         results=torch.tensor(sparse.results, dtype=torch.long, device=device),
         score_eligible=torch.abs(scores) < MATE_SCORE_THRESHOLD,
+    )
+
+
+def _torch_v2_batch(sparse: SparseBatch, device: torch.device) -> V2Batch:
+    piece_counts = list(sparse.physical_piece_count)
+    global_counts = [
+        sparse.global_offsets[index + 1] - sparse.global_offsets[index]
+        for index in range(len(sparse))
+    ]
+    royal_counts = [
+        sparse.royal_offsets[index + 1] - sparse.royal_offsets[index]
+        for index in range(len(sparse))
+    ]
+    _require(all(1 <= count <= 52 for count in piece_counts), "invalid V2 piece count")
+    _require(
+        all(
+            global_count >= pieces
+            for global_count, pieces in zip(global_counts, piece_counts, strict=True)
+        ),
+        "V2 Global rows omit a physical G0 row",
+    )
+    _require(
+        all(royal == pieces - 1 for royal, pieces in zip(royal_counts, piece_counts, strict=True)),
+        "V2 Royal rows do not exclude exactly the Black king",
+    )
+    scores = torch.tensor(sparse.scores, dtype=torch.float32, device=device)
+    return V2Batch(
+        v2_global=torch.tensor(sparse.v2_global, dtype=torch.long, device=device),
+        v2_royal=torch.tensor(sparse.v2_royal, dtype=torch.long, device=device),
+        global_offsets=torch.tensor(sparse.global_offsets, dtype=torch.long, device=device),
+        royal_offsets=torch.tensor(sparse.royal_offsets, dtype=torch.long, device=device),
+        side_to_move=torch.tensor(sparse.side_to_move, dtype=torch.long, device=device),
+        rule50_count=torch.tensor(sparse.rule50_count, dtype=torch.long, device=device),
+        scores=scores,
+        results=torch.tensor(sparse.results, dtype=torch.long, device=device),
+        score_eligible=torch.abs(scores) < MATE_SCORE_THRESHOLD,
+    )
+
+
+def _model_batch(
+    architecture: str,
+    sparse: SparseBatch,
+    device: torch.device,
+) -> LegacyBatch | V2Batch:
+    return (
+        _torch_batch(sparse, device)
+        if architecture == LEGACY_ARCHITECTURE
+        else _torch_v2_batch(sparse, device)
     )
 
 
@@ -380,7 +685,7 @@ def _wdl_probabilities(
 
 def loss_terms(
     output: Tensor,
-    batch: LegacyBatch,
+    batch: LegacyBatch | V2Batch,
     lambda_value: float,
     calibration: DavidsonCalibration,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
@@ -422,9 +727,11 @@ def _state_sha256(model: nn.Module) -> str:
     return digest.hexdigest().upper()
 
 
-def _gradient_norms(model: LegacyHPModel) -> dict[str, float]:
+def _gradient_norms(model: nn.Module) -> dict[str, float]:
     norms: dict[str, float] = {}
-    for name, parameters in model.gradient_groups().items():
+    gradient_groups = getattr(model, "gradient_groups", None)
+    _require(callable(gradient_groups), "training model does not expose gradient groups")
+    for name, parameters in gradient_groups().items():
         squared = 0.0
         for parameter in parameters:
             _require(parameter.grad is not None, f"{name} parameter has no gradient")
@@ -436,13 +743,13 @@ def _gradient_norms(model: LegacyHPModel) -> dict[str, float]:
     return norms
 
 
-def _clip_serialized_dense_weights(model: LegacyHPModel) -> None:
+def _clip_serialized_dense_weights(model: nn.Module) -> None:
     with torch.no_grad():
         dense_limit = 127.0 / 64.0
         output_limit = (127.0 * 127.0) / 9600.0
-        model.hidden0_weights.clamp_(-dense_limit, dense_limit)
-        model.hidden1_weights.clamp_(-dense_limit, dense_limit)
-        model.output_weights.clamp_(-output_limit, output_limit)
+        getattr(model, "hidden0_weights").clamp_(-dense_limit, dense_limit)
+        getattr(model, "hidden1_weights").clamp_(-dense_limit, dense_limit)
+        getattr(model, "output_weights").clamp_(-output_limit, output_limit)
 
 
 def _all_finite(model: nn.Module) -> bool:
@@ -452,6 +759,58 @@ def _all_finite(model: nn.Module) -> bool:
 def _generation_contract(manifest: dict[str, Any]) -> dict[str, Any]:
     ignored = {"requested_records", "seed", "opening_count"}
     return {key: value for key, value in manifest["generation"].items() if key not in ignored}
+
+
+def _book_split_identity(
+    split_receipt_path: Path,
+    train_book_sha256: str,
+    validation_book_sha256: str,
+) -> dict[str, object]:
+    split_path = split_receipt_path.expanduser().resolve()
+    split_payload = split_path.read_bytes()
+    try:
+        split = json.loads(split_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise TrainingError(f"book split receipt is invalid JSON: {error}") from error
+    _require(isinstance(split, dict), "book split receipt root is not an object")
+    _require(split.get("schema") in BOOK_SPLIT_SCHEMAS, "book split receipt schema mismatch")
+    _require(split.get("disjoint_position_keys") is True, "book split is not position-disjoint")
+    _require(split.get("complete_partition") is True, "book split is not a complete partition")
+    split_source = split.get("source")
+    split_train = split.get("train")
+    split_validation = split.get("validation")
+    split_assignment = split.get("assignment")
+    _require(
+        isinstance(split_source, dict)
+        and isinstance(split_train, dict)
+        and isinstance(split_validation, dict)
+        and isinstance(split_assignment, dict),
+        "book split receipt sections are missing",
+    )
+    _require(
+        split_train.get("sha256") == train_book_sha256,
+        "training book hash does not match the split receipt",
+    )
+    _require(
+        split_validation.get("sha256") == validation_book_sha256,
+        "validation book hash does not match the split receipt",
+    )
+    _require(
+        type(split_source.get("records")) is int
+        and type(split_train.get("records")) is int
+        and type(split_validation.get("records")) is int
+        and split_source["records"] == split_train["records"] + split_validation["records"],
+        "book split receipt record counts do not form a complete partition",
+    )
+    return {
+        "receipt_name": split_path.name,
+        "receipt_sha256": _sha256_bytes(split_payload),
+        "schema": split["schema"],
+        "source": split_source,
+        "assignment": split_assignment,
+        "disjoint_position_keys": True,
+        "complete_partition": True,
+    }
 
 
 def validate_dataset_pair(
@@ -490,42 +849,6 @@ def validate_dataset_pair(
         "training and validation generation settings differ",
     )
 
-    split_path = split_receipt_path.expanduser().resolve()
-    split_payload = split_path.read_bytes()
-    try:
-        split = json.loads(split_payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise TrainingError(f"book split receipt is invalid JSON: {error}") from error
-    _require(isinstance(split, dict), "book split receipt root is not an object")
-    _require(split.get("schema") in BOOK_SPLIT_SCHEMAS, "book split receipt schema mismatch")
-    _require(split.get("disjoint_position_keys") is True, "book split is not position-disjoint")
-    _require(split.get("complete_partition") is True, "book split is not a complete partition")
-    split_source = split.get("source")
-    split_train = split.get("train")
-    split_validation = split.get("validation")
-    split_assignment = split.get("assignment")
-    _require(
-        isinstance(split_source, dict)
-        and isinstance(split_train, dict)
-        and isinstance(split_validation, dict)
-        and isinstance(split_assignment, dict),
-        "book split receipt sections are missing",
-    )
-    _require(
-        split_train.get("sha256") == train_manifest["book_sha256"],
-        "training book hash does not match the split receipt",
-    )
-    _require(
-        split_validation.get("sha256") == validation_manifest["book_sha256"],
-        "validation book hash does not match the split receipt",
-    )
-    _require(
-        type(split_source.get("records")) is int
-        and type(split_train.get("records")) is int
-        and type(split_validation.get("records")) is int
-        and split_source["records"] == split_train["records"] + split_validation["records"],
-        "book split receipt record counts do not form a complete partition",
-    )
     return {
         "train_file": {
             "name": train_resolved.name,
@@ -550,14 +873,189 @@ def validate_dataset_pair(
             "label_contract": train_manifest["label_contract"],
             "generation": _generation_contract(train_manifest),
         },
-        "book_split": {
-            "receipt_name": split_path.name,
-            "receipt_sha256": _sha256_bytes(split_payload),
-            "schema": split["schema"],
-            "source": split_source,
-            "assignment": split_assignment,
-            "disjoint_position_keys": True,
-            "complete_partition": True,
+        "book_split": _book_split_identity(
+            split_receipt_path,
+            train_manifest["book_sha256"],
+            validation_manifest["book_sha256"],
+        ),
+    }
+
+
+def validate_selected_dataset_pair(
+    train_path: Path,
+    candidate_path: Path,
+    train_dataset: HordeBinV1Dataset,
+    candidate_dataset: HordeBinV1Dataset,
+    validation_dataset: SelectedRoleDataset,
+    split_receipt_path: Path,
+    *,
+    allow_fixture: bool = False,
+    source_override: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Bind an effective selected validation role to its two direct parents."""
+
+    data = validate_dataset_pair(
+        train_path,
+        candidate_path,
+        train_dataset.manifest,
+        candidate_dataset.manifest,
+        split_receipt_path,
+    )
+    candidate_identity = data.pop("validation_file")
+    selected_identity = validate_selected_role_binding(
+        train_dataset,
+        candidate_dataset,
+        validation_dataset,
+        _allow_fixture=allow_fixture,
+        _source_override=source_override,
+    )
+    data["validation_file"] = selected_identity
+    data["validation_candidate"] = candidate_identity
+    data["validation_selection"] = selected_identity["selected_role"]
+    return data
+
+
+def _scale_chunk_identity(dataset: HordeChunkSetDataset) -> dict[str, object]:
+    identity = dataset.identity()
+    return {
+        "receipt_name": dataset.path.name,
+        "receipt_sha256": dataset.receipt_sha256,
+        "chunk_set_sha256": dataset.chunk_set_sha256,
+        "logical_payload_sha256": dataset.logical_payload_sha256,
+        "record_count": len(dataset),
+        "book_sha256": dataset.manifest["book_sha256"],
+        "role": dataset.receipt["role"],
+        "sample_identity": dataset.receipt["identity"]["sample_identity"],
+        "chunks": identity["chunks"],
+        "manifest": dataset.manifest,
+    }
+
+
+def _scale_training_file_identity(dataset: HordeChunkSetDataset) -> dict[str, object]:
+    return {
+        "name": dataset.path.name,
+        "sha256": dataset.receipt_sha256,
+        "payload_sha256": dataset.logical_payload_sha256,
+        "manifest_sha256": dataset.manifest_sha256,
+        "records": len(dataset),
+        "book_sha256": dataset.manifest["book_sha256"],
+        "chunk_set_sha256": dataset.chunk_set_sha256,
+        "chunks": dataset.identity()["chunks"],
+    }
+
+
+def validate_scale_dataset_pair(
+    train_dataset: HordeChunkSetDataset,
+    candidate_dataset: HordeChunkSetDataset,
+    validation_dataset: ScaleSelectedRoleDataset,
+    split_receipt_path: Path,
+    *,
+    allow_fixture: bool = False,
+) -> dict[str, object]:
+    """Bind the Rank8 scale train, candidate and selected validation roles."""
+
+    _require(train_dataset.receipt["role"] == "training", "scale training role drifted")
+    _require(
+        candidate_dataset.receipt["role"] == "validation_candidate",
+        "scale validation-candidate role drifted",
+    )
+    _require(
+        train_dataset.chunk_set_sha256 != candidate_dataset.chunk_set_sha256,
+        "scale training and candidate chunk sets match",
+    )
+    for field in (
+        "source_commit",
+        "source_dirty",
+        "producer_sha256",
+        "network",
+        "label_contract",
+    ):
+        _require(
+            train_dataset.manifest[field] == candidate_dataset.manifest[field],
+            f"scale training and candidate field {field} differs",
+        )
+    _require(
+        _generation_contract(train_dataset.manifest)
+        == _generation_contract(candidate_dataset.manifest),
+        "scale training and candidate generation settings differ",
+    )
+    _require(
+        train_dataset.manifest["book_sha256"]
+        != candidate_dataset.manifest["book_sha256"],
+        "scale training and candidate use the same opening book",
+    )
+
+    receipt = validation_dataset.receipt
+    train_reference = _scale_chunk_identity(train_dataset)
+    candidate_reference = _scale_chunk_identity(candidate_dataset)
+    _require(
+        receipt.get("training_reference") == train_reference,
+        "scale selected role training reference drifted",
+    )
+    _require(
+        receipt.get("candidate_source") == candidate_reference,
+        "scale selected role candidate reference drifted",
+    )
+    selector_source = receipt.get("selector_source")
+    _require(
+        isinstance(selector_source, dict)
+        and isinstance(selector_source.get("commit"), str)
+        and len(selector_source["commit"]) == 40
+        and selector_source.get("dirty") is False
+        and isinstance(selector_source.get("file_sha256"), str)
+        and len(selector_source["file_sha256"]) == 64,
+        "scale selector source identity is invalid",
+    )
+    claims = receipt.get("claims", {})
+    _require(
+        isinstance(claims, dict)
+        and claims.get("bounded_memory_exact_membership") is True
+        and (
+            (allow_fixture and claims.get("fixture_mode") is True)
+            or (not allow_fixture and claims.get("eligible_validation_role") is True)
+        ),
+        "scale selected role is not training-eligible",
+    )
+    _require(
+        receipt.get("postconditions")
+        == {
+            "physical_cross_role_overlap_samples": 0,
+            "legacy_cross_role_overlap_samples": 0,
+            "physical_validation_duplicate_samples": 0,
+            "legacy_validation_duplicate_samples": 0,
+        },
+        "scale selected-role postconditions drifted",
+    )
+
+    selected_identity = validation_dataset.identity()
+    return {
+        "train_file": _scale_training_file_identity(train_dataset),
+        "validation_file": selected_identity,
+        "validation_candidate": _scale_training_file_identity(candidate_dataset),
+        "validation_selection": selected_identity["selected_role"],
+        "teacher": {
+            "source_commit": train_dataset.manifest["source_commit"],
+            "producer_sha256": train_dataset.manifest["producer_sha256"],
+            "network": train_dataset.manifest["network"],
+            "label_contract": train_dataset.manifest["label_contract"],
+            "generation": _generation_contract(train_dataset.manifest),
+        },
+        "book_split": _book_split_identity(
+            split_receipt_path,
+            train_dataset.manifest["book_sha256"],
+            candidate_dataset.manifest["book_sha256"],
+        ),
+        "decoder": {
+            "train": train_dataset.identity(),
+            "validation": validation_dataset.identity(),
+            "mode": "authenticated chunk-set random access",
+        },
+        "overlap_audit": {
+            "schema": "HORDE_TRAINING_ROLE_OVERLAP_AUDIT_V1",
+            "source": "selected-role exact membership receipt",
+            "physical": {"cross_role_overlap_samples": 0},
+            "legacy_model_input": {"cross_role_overlap_samples": 0},
+            "zero_cross_role_overlap": True,
         },
     }
 
@@ -581,6 +1079,283 @@ def _repository_identity(repo_root: Path) -> dict[str, object]:
     return {"commit": commit, "dirty": dirty}
 
 
+def _campaign_identity(plan: Mapping[str, Any]) -> str:
+    data = plan.get("data")
+    _require(isinstance(data, dict), "campaign plan data is missing")
+    payload = {
+        "contract": plan.get("contract"),
+        "dependencies": plan.get("dependencies"),
+        "source": plan.get("source"),
+        "train_file": data.get("train_file"),
+        "validation_file": data.get("validation_file"),
+        "validation_candidate": data.get("validation_candidate"),
+        "validation_selection": data.get("validation_selection"),
+        "book_split": data.get("book_split"),
+        "wdl_calibration": data.get("wdl_calibration"),
+    }
+    return _sha256_bytes(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")
+    )
+
+
+def _load_campaign_plan(
+    args: argparse.Namespace,
+    architecture: str,
+    source: Mapping[str, object],
+) -> tuple[dict[str, Any], dict[str, Any], str] | None:
+    plan_argument = getattr(args, "campaign_plan", None)
+    run_id = getattr(args, "campaign_run_id", None)
+    _require(
+        (plan_argument is None) == (run_id is None),
+        "--campaign-plan and --campaign-run-id must be supplied together",
+    )
+    if plan_argument is None:
+        return None
+    resolved = plan_argument.expanduser().resolve()
+    _require(resolved.is_file(), f"campaign plan does not exist: {resolved}")
+    payload = resolved.read_bytes()
+    try:
+        plan = json.loads(payload.decode("ascii"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise TrainingError(f"campaign plan is invalid JSON: {error}") from error
+    _require(isinstance(plan, dict), "campaign plan root is not an object")
+    _require(payload == _canonical_json(plan), "campaign plan is not canonical JSON")
+    _require(plan.get("schema") == C1_PLAN_SCHEMA, "campaign plan schema mismatch")
+    _require(plan.get("source") == source, "campaign plan source differs from trainer source")
+    claims = plan.get("claims")
+    _require(
+        isinstance(claims, dict)
+        and claims.get("fixture_mode") is False
+        and claims.get("campaign_inputs_eligible") is True
+        and claims.get("training_started") is False,
+        "campaign plan is not eligible for a production trainer",
+    )
+    contract = plan.get("contract")
+    _require(isinstance(contract, dict), "campaign contract identity is missing")
+    addendum = contract.get("coverage_addendum")
+    _require(
+        contract.get("schema") == C1_PARENT_CONTRACT_SCHEMA
+        and contract.get("sha256") == C1_PARENT_CONTRACT_SHA256
+        and isinstance(addendum, dict)
+        and addendum.get("schema") == C1_COVERAGE_ADDENDUM_SCHEMA
+        and addendum.get("sha256") == C1_COVERAGE_ADDENDUM_SHA256,
+        "campaign effective contract identity drifted",
+    )
+    effective_sha256 = _sha256_bytes(
+        json.dumps(
+            {
+                "coverage_addendum_sha256": C1_COVERAGE_ADDENDUM_SHA256,
+                "parent_contract_sha256": C1_PARENT_CONTRACT_SHA256,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+    )
+    _require(
+        contract.get("effective_sha256") == effective_sha256,
+        "campaign effective contract hash drifted",
+    )
+    _require(
+        plan.get("campaign_identity_sha256") == _campaign_identity(plan),
+        "campaign identity hash drifted",
+    )
+    runs = plan.get("runs")
+    _require(isinstance(runs, list), "campaign run matrix is missing")
+    selected = [run for run in runs if isinstance(run, dict) and run.get("id") == run_id]
+    _require(len(selected) == 1, "campaign run id is absent or ambiguous")
+    run = selected[0]
+    run_architecture = run.get("architecture")
+    _require(
+        isinstance(run_architecture, dict)
+        and run_architecture.get("name") == architecture
+        and run.get("seed") == args.seed,
+        "campaign run architecture or seed drifted",
+    )
+    return plan, run, _sha256_bytes(payload)
+
+
+def _finalize_campaign_binding(
+    bundle: tuple[dict[str, Any], dict[str, Any], str] | None,
+    args: argparse.Namespace,
+    architecture: str,
+    data_receipt: Mapping[str, Any],
+    train_records: int,
+    validation_records: int,
+) -> dict[str, object] | None:
+    if bundle is None:
+        return None
+    plan, run, plan_sha256 = bundle
+    planned_data = plan.get("data")
+    configuration = plan.get("configuration")
+    _require(
+        isinstance(planned_data, dict) and isinstance(configuration, dict),
+        "campaign plan sections are missing",
+    )
+    for key in (
+        "train_file",
+        "validation_file",
+        "validation_candidate",
+        "validation_selection",
+        "teacher",
+        "book_split",
+        "wdl_calibration",
+    ):
+        _require(
+            data_receipt.get(key) == planned_data.get(key),
+            f"campaign trainer data field {key} differs from the plan",
+        )
+    dense_multiplier, output_multiplier = _optimizer_learning_rate_multipliers(args)
+    _require(
+        dense_multiplier == DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER
+        and output_multiplier == DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+        "C1 campaign runs require the frozen baseline optimizer recipe",
+    )
+    _require(
+        configuration.get("training_records") == train_records
+        and configuration.get("validation_records") == validation_records
+        and configuration.get("epochs") == args.epochs
+        and configuration.get("batch_size") == args.batch_size
+        and configuration.get("block_size") == args.block_size
+        and configuration.get("lambda") == args.lambda_value
+        and configuration.get("learning_rate") == args.learning_rate
+        and configuration.get("scheduler_gamma") == args.scheduler_gamma,
+        "campaign trainer recipe differs from the plan",
+    )
+    device = configuration.get("device")
+    _require(
+        isinstance(device, dict)
+        and device.get("type") == args.device
+        and device.get("cpu_threads") == args.cpu_threads,
+        "campaign trainer device differs from the plan",
+    )
+    architecture_receipt = run.get("architecture")
+    _require(
+        isinstance(architecture_receipt, dict)
+        and architecture_receipt.get("name") == architecture,
+        "campaign run architecture identity drifted",
+    )
+    contract = plan["contract"]
+    return {
+        "schema": C1_BINDING_SCHEMA,
+        "campaign_plan_sha256": plan_sha256,
+        "parent_contract_sha256": C1_PARENT_CONTRACT_SHA256,
+        "coverage_addendum_sha256": C1_COVERAGE_ADDENDUM_SHA256,
+        "effective_contract_sha256": contract["effective_sha256"],
+        "campaign_identity_sha256": plan["campaign_identity_sha256"],
+        "campaign_run_id": run["id"],
+    }
+
+
+def _load_scale_binding(
+    args: argparse.Namespace,
+    architecture: str,
+) -> tuple[dict[str, Any], str] | None:
+    argument = getattr(args, "scale_contract", None)
+    if argument is None:
+        return None
+    _require(
+        getattr(args, "campaign_plan", None) is None
+        and getattr(args, "campaign_run_id", None) is None,
+        "--scale-contract cannot be combined with a C1 campaign plan",
+    )
+    allow_fixture = bool(getattr(args, "scale_contract_fixture", False))
+    try:
+        contract, digest = load_scale_contract(argument, allow_fixture=allow_fixture)
+    except ScaleSelectedRoleError as error:
+        raise TrainingError(f"Rank8 scale contract is invalid: {error}") from error
+    training = _mapping(contract.get("training"), "scale training contract")
+    architecture_contract = _mapping(
+        training.get("architecture"), "scale architecture contract"
+    )
+    _require(
+        architecture == "v2-c1-rank8-64x192"
+        and architecture_contract.get("name") == architecture
+        and architecture_contract.get("schema") == _architecture_schema(architecture),
+        "scale contract does not select the Rank8 architecture",
+    )
+    return contract, digest
+
+
+def _finalize_scale_binding(
+    bundle: tuple[dict[str, Any], str] | None,
+    args: argparse.Namespace,
+    data_receipt: Mapping[str, Any],
+    train_records: int,
+    validation_records: int,
+    target_steps: int,
+) -> dict[str, object] | None:
+    if bundle is None:
+        return None
+    contract, contract_sha256 = bundle
+    generation = _mapping(contract.get("generation"), "scale generation")
+    generation_train = _mapping(generation.get("training"), "scale training generation")
+    selection = _mapping(contract.get("validation_selection"), "scale validation selection")
+    recipe = _mapping(contract.get("training"), "scale training recipe")
+    device = _mapping(recipe.get("device"), "scale training device")
+    dense_multiplier, output_multiplier = _optimizer_learning_rate_multipliers(args)
+    _require(
+        train_records == generation_train.get("records")
+        and validation_records == selection.get("target_records"),
+        "scale dataset dimensions differ from the contract",
+    )
+    _require(
+        args.seed == recipe.get("seed")
+        and args.epochs == recipe.get("epochs")
+        and train_records * args.epochs == recipe.get("training_example_exposures")
+        and args.batch_size == recipe.get("batch_size")
+        and args.block_size == recipe.get("block_size")
+        and args.lambda_value == recipe.get("lambda")
+        and args.learning_rate == recipe.get("learning_rate")
+        and dense_multiplier == recipe.get("dense_learning_rate_multiplier")
+        and output_multiplier == recipe.get("output_learning_rate_multiplier")
+        and args.scheduler_gamma == recipe.get("scheduler_gamma")
+        and target_steps == recipe.get("optimizer_steps"),
+        "scale trainer recipe differs from the contract",
+    )
+    _require(
+        recipe.get("optimizer") == "torch.optim.RAdam"
+        and device.get("type") == args.device
+        and device.get("cpu_threads") == args.cpu_threads,
+        "scale optimizer or device differs from the contract",
+    )
+    if args.device == "cuda" and not bool(getattr(args, "scale_contract_fixture", False)):
+        _require(
+            torch.cuda.get_device_name(torch.cuda.current_device()) == device.get("expected_name"),
+            "scale CUDA device differs from the contract",
+        )
+    checkpoints = recipe.get("checkpoint_steps")
+    _require(
+        isinstance(checkpoints, list)
+        and all(type(step) is int and 0 < step <= target_steps for step in checkpoints),
+        "scale checkpoint schedule is invalid",
+    )
+    _require(
+        args.stop_after_steps is None
+        or args.stop_after_steps == target_steps
+        or args.stop_after_steps in checkpoints,
+        "scale stop step is outside the frozen checkpoint schedule",
+    )
+    train_file = _mapping(data_receipt.get("train_file"), "scale train identity")
+    validation_file = _mapping(
+        data_receipt.get("validation_file"), "scale validation identity"
+    )
+    candidate = _mapping(
+        data_receipt.get("validation_candidate"), "scale candidate identity"
+    )
+    return {
+        "schema": SCALE_BINDING_SCHEMA,
+        "contract": {"schema": SCALE_CONTRACT_SCHEMA, "sha256": contract_sha256},
+        "campaign_id": contract["openbench"]["campaign_id"],
+        "cohort": contract["openbench"]["cohort"],
+        "train_chunk_set_sha256": train_file["chunk_set_sha256"],
+        "validation_candidate_chunk_set_sha256": candidate["chunk_set_sha256"],
+        "selected_validation_receipt_sha256": validation_file["selected_role"][
+            "receipt_sha256"
+        ],
+        "checkpoint_steps": checkpoints,
+    }
+
+
 def _device_receipt(device: torch.device, cpu_threads: int) -> dict[str, object]:
     receipt: dict[str, object] = {
         "type": device.type,
@@ -597,6 +1372,7 @@ def _device_receipt(device: torch.device, cpu_threads: int) -> dict[str, object]
                 "name": torch.cuda.get_device_name(index),
                 "capability": list(torch.cuda.get_device_capability(index)),
                 "cuda": torch.version.cuda,
+                "cudnn": torch.backends.cudnn.version(),
             }
         )
     return receipt
@@ -629,16 +1405,74 @@ def _configure_runtime(seed: int, device_name: str, cpu_threads: int) -> torch.d
 
 
 def _make_optimizer(
-    model: LegacyHPModel,
+    model: nn.Module,
     learning_rate: float,
+    *,
+    dense_learning_rate_multiplier: float = DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER,
+    output_learning_rate_multiplier: float = DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
 ) -> torch.optim.Optimizer:
-    output_ids = {id(model.output_weights), id(model.output_bias)}
-    body = [parameter for parameter in model.parameters() if id(parameter) not in output_ids]
-    return torch.optim.RAdam(
-        [
+    _require(math.isfinite(learning_rate) and learning_rate > 0.0, "learning rate must be positive")
+    dense_learning_rate_multiplier, output_learning_rate_multiplier = (
+        _validate_optimizer_learning_rate_multipliers(
+            dense_learning_rate_multiplier,
+            output_learning_rate_multiplier,
+        )
+    )
+
+    output_weights = getattr(model, "output_weights")
+    output_bias = getattr(model, "output_bias")
+    output_ids = {id(output_weights), id(output_bias)}
+    dense = [
+        getattr(model, name)
+        for name in (
+            "hidden0_weights",
+            "hidden0_bias",
+            "hidden1_weights",
+            "hidden1_bias",
+        )
+    ]
+    dense_ids = {id(parameter) for parameter in dense}
+    all_parameters = list(model.parameters())
+
+    if dense_learning_rate_multiplier == DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER:
+        body = [parameter for parameter in all_parameters if id(parameter) not in output_ids]
+        parameter_groups = [
             {"params": body, "lr": learning_rate},
-            {"params": [model.output_weights, model.output_bias], "lr": learning_rate / 10.0},
-        ],
+            {
+                "params": [output_weights, output_bias],
+                "lr": learning_rate * output_learning_rate_multiplier,
+            },
+        ]
+    else:
+        body = [
+            parameter
+            for parameter in all_parameters
+            if id(parameter) not in output_ids and id(parameter) not in dense_ids
+        ]
+        parameter_groups = [
+            {"params": body, "lr": learning_rate},
+            {
+                "params": dense,
+                "lr": learning_rate * dense_learning_rate_multiplier,
+            },
+            {
+                "params": [output_weights, output_bias],
+                "lr": learning_rate * output_learning_rate_multiplier,
+            },
+        ]
+
+    grouped_ids = {
+        id(parameter)
+        for group in parameter_groups
+        for parameter in group["params"]
+    }
+    _require(
+        len(grouped_ids) == sum(len(group["params"]) for group in parameter_groups)
+        and grouped_ids == {id(parameter) for parameter in all_parameters},
+        "optimizer parameter groups are incomplete or overlapping",
+    )
+    return torch.optim.RAdam(
+        parameter_groups,
         betas=(0.9, 0.999),
         eps=1.0e-7,
         weight_decay=0.0,
@@ -646,24 +1480,42 @@ def _make_optimizer(
     )
 
 
-def _load_sparse_batch(dataset: HordeBinV1Dataset, indices: Sequence[int]) -> SparseBatch:
+def _dataset_payload_identity(dataset: Any) -> str:
+    value = dataset.manifest.get("payload_sha256")
+    if value is None:
+        value = dataset.manifest.get("logical_payload_sha256")
+    _require(
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in value),
+        "dataset payload identity is invalid",
+    )
+    return value.upper()
+
+
+def _load_sparse_batch(dataset: Any, indices: Sequence[int]) -> SparseBatch:
     return make_sparse_batch(tuple(dataset.record(index) for index in indices))
 
 
 def _evaluate(
-    model: LegacyHPModel,
-    dataset: HordeBinV1Dataset,
+    model: nn.Module,
+    dataset: Any,
     batch_size: int,
     device: torch.device,
     lambda_value: float,
     calibration: DavidsonCalibration,
+    architecture: str = LEGACY_ARCHITECTURE,
 ) -> dict[str, object]:
     metrics = MetricAccumulator()
     model.eval()
     with torch.no_grad():
         for begin in range(0, len(dataset), batch_size):
             indices = tuple(range(begin, min(begin + batch_size, len(dataset))))
-            batch = _torch_batch(_load_sparse_batch(dataset, indices), device)
+            batch = _model_batch(
+                architecture,
+                _load_sparse_batch(dataset, indices),
+                device,
+            )
             composite, score_error, result_error, prediction = loss_terms(
                 model(batch), batch, lambda_value, calibration
             )
@@ -758,12 +1610,36 @@ def _sample_chain(previous: bytes, payload_sha256: str, indices: Sequence[int]) 
     return digest.digest()
 
 
+def sample_order_chain_sha256(
+    record_count: int,
+    batch_size: int,
+    block_size: int,
+    seed: int,
+    epochs: int,
+    payload_sha256: str,
+) -> str:
+    """Reconstruct the complete deterministic training-sample order receipt."""
+
+    _require(epochs > 0, "sample-order epoch count must be positive")
+    _require(
+        len(payload_sha256) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in payload_sha256),
+        "sample-order payload identity is invalid",
+    )
+    chain = bytes(32)
+    for epoch in range(epochs):
+        for indices in epoch_batches(record_count, batch_size, block_size, seed, epoch):
+            chain = _sample_chain(chain, payload_sha256, indices)
+    return chain.hex().upper()
+
+
 def _training_settings(
     args: argparse.Namespace,
     device: torch.device,
     wdl_calibration_sha256: str,
+    architecture: str = LEGACY_ARCHITECTURE,
 ) -> dict[str, object]:
-    return {
+    settings: dict[str, object] = {
         "seed": args.seed,
         "epochs": args.epochs,
         "lambda": args.lambda_value,
@@ -776,9 +1652,29 @@ def _training_settings(
         "wdl_calibration_sha256": wdl_calibration_sha256,
         "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
     }
+    dense_multiplier, output_multiplier = _optimizer_learning_rate_multipliers(args)
+    if (
+        dense_multiplier != DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER
+        or output_multiplier != DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER
+    ):
+        settings["optimizer_learning_rate_multipliers"] = {
+            "dense_trunk": dense_multiplier,
+            "output": output_multiplier,
+        }
+    if architecture != LEGACY_ARCHITECTURE:
+        structure = _v2_structure(architecture)
+        settings["architecture"] = {
+            "name": architecture,
+            "schema": structure["schema"],
+            "structural_sha256": structure["structural_sha256"],
+        }
+    return settings
 
 
-def _load_checkpoint(path: Path) -> tuple[dict[str, object], str]:
+def _load_checkpoint(
+    path: Path,
+    architecture: str = LEGACY_ARCHITECTURE,
+) -> tuple[dict[str, object], str]:
     resolved = path.expanduser().resolve()
     _require(resolved.is_file(), f"resume checkpoint does not exist: {resolved}")
     sha256 = _sha256_file(resolved)
@@ -787,15 +1683,22 @@ def _load_checkpoint(path: Path) -> tuple[dict[str, object], str]:
     except (EOFError, pickle.UnpicklingError, RuntimeError, ValueError) as error:
         raise TrainingError(f"cannot load resume checkpoint: {error}") from error
     _require(isinstance(checkpoint, dict), "resume checkpoint root is not an object")
-    _require(checkpoint.get("schema") == CHECKPOINT_SCHEMA, "resume checkpoint schema mismatch")
     _require(
-        checkpoint.get("architecture") == ARCHITECTURE_SCHEMA,
+        checkpoint.get("schema") == _checkpoint_schema(architecture),
+        "resume checkpoint schema mismatch",
+    )
+    _require(
+        checkpoint.get("architecture") == _architecture_schema(architecture),
         "resume checkpoint architecture mismatch",
     )
     return checkpoint, sha256
 
 
 def train(args: argparse.Namespace) -> dict[str, object]:
+    architecture = _architecture_name(args)
+    dense_learning_rate_multiplier, output_learning_rate_multiplier = (
+        _optimizer_learning_rate_multipliers(args)
+    )
     _require(0 < args.seed <= U64_MASK, "training seed must be an unsigned 64-bit value")
     _require(args.epochs > 0, "epoch count must be positive")
     _require(args.batch_size > 0, "batch size must be positive")
@@ -815,13 +1718,15 @@ def train(args: argparse.Namespace) -> dict[str, object]:
     repo_root = Path(__file__).resolve().parents[1]
     source = _repository_identity(repo_root)
     _require(args.allow_dirty or not source["dirty"], "trainer source tree is dirty")
+    campaign_bundle = _load_campaign_plan(args, architecture, source)
+    scale_bundle = _load_scale_binding(args, architecture)
     try:
         wdl_payload, wdl_parameters, wdl_sha256 = load_wdl_artifact(args.wdl_calibration)
     except CalibrationError as error:
         raise TrainingError(f"WDL calibration is invalid: {error}") from error
     device = _configure_runtime(args.seed, args.device, args.cpu_threads)
     calibration = _torch_calibration(wdl_parameters, device)
-    settings = _training_settings(args, device, wdl_sha256)
+    settings = _training_settings(args, device, wdl_sha256, architecture)
     environment = {
         "python": platform.python_version(),
         "pytorch": str(torch.__version__),
@@ -837,26 +1742,112 @@ def train(args: argparse.Namespace) -> dict[str, object]:
     resume_checkpoint: dict[str, object] | None = None
     resume_sha256: str | None = None
     if args.resume is not None:
-        resume_checkpoint, resume_sha256 = _load_checkpoint(args.resume)
+        resume_checkpoint, resume_sha256 = _load_checkpoint(args.resume, architecture)
 
     train_path = args.train.expanduser().resolve()
     validation_path = args.validation.expanduser().resolve()
-    with HordeBinV1Dataset(train_path) as train_dataset, HordeBinV1Dataset(
-        validation_path
-    ) as validation_dataset:
-        data_receipt = validate_dataset_pair(
-            train_path,
-            validation_path,
-            train_dataset.manifest,
-            validation_dataset.manifest,
-            args.book_split_receipt,
+    selected_validation = bool(getattr(args, "validation_selected_role", False))
+    candidate_argument = getattr(args, "validation_candidate", None)
+    selected_fixture = bool(getattr(args, "selected_role_fixture", False))
+    scale_mode = scale_bundle is not None
+    if scale_mode:
+        _require(
+            candidate_argument is not None,
+            "Rank8 scale training requires --validation-candidate",
         )
-        data_receipt["overlap_audit"] = audit_pair(
-            train_path,
-            validation_path,
-            example_limit=8,
-            require_zero=True,
+        _require(
+            not selected_validation,
+            "--scale-contract already selects the scale validation role",
         )
+    else:
+        _require(
+            selected_validation or candidate_argument is None,
+            "--validation-candidate requires --validation-selected-role",
+        )
+        _require(
+            not selected_validation or candidate_argument is not None,
+            "selected validation requires --validation-candidate",
+        )
+    with ExitStack() as stack:
+        if scale_mode:
+            scale_contract_path = args.scale_contract.expanduser().resolve()
+            train_dataset = stack.enter_context(
+                HordeChunkSetDataset(train_path, scale_contract_path)
+            )
+            candidate_path = candidate_argument.expanduser().resolve()
+            candidate_dataset = stack.enter_context(
+                HordeChunkSetDataset(candidate_path, scale_contract_path)
+            )
+            validation_dataset = stack.enter_context(
+                ScaleSelectedRoleDataset(
+                    validation_path,
+                    scale_contract_path,
+                    _allow_fixture=bool(getattr(args, "scale_contract_fixture", False)),
+                )
+            )
+            data_receipt = validate_scale_dataset_pair(
+                train_dataset,
+                candidate_dataset,
+                validation_dataset,
+                args.book_split_receipt,
+                allow_fixture=bool(getattr(args, "scale_contract_fixture", False)),
+            )
+        else:
+            train_dataset = stack.enter_context(HordeBinV1Dataset(train_path))
+        if selected_validation and not scale_mode:
+            candidate_path = candidate_argument.expanduser().resolve()
+            candidate_dataset = stack.enter_context(HordeBinV1Dataset(candidate_path))
+            validation_dataset = stack.enter_context(SelectedRoleDataset(validation_path))
+            selected_source_override = getattr(args, "selected_role_source_override", source)
+            if campaign_bundle is not None:
+                selector_source = validation_dataset.receipt.get("selector_source")
+                _require(
+                    isinstance(selector_source, dict)
+                    and isinstance(selector_source.get("commit"), str)
+                    and selector_source.get("dirty") is False,
+                    "campaign selected-role source identity is invalid",
+                )
+                selected_source_override = {
+                    "commit": selector_source["commit"],
+                    "dirty": False,
+                }
+            data_receipt = validate_selected_dataset_pair(
+                train_path,
+                candidate_path,
+                train_dataset,
+                candidate_dataset,
+                validation_dataset,
+                args.book_split_receipt,
+                allow_fixture=selected_fixture,
+                source_override=selected_source_override,
+            )
+            validation_factory = SelectedRoleDataset
+        elif not scale_mode:
+            validation_dataset = stack.enter_context(HordeBinV1Dataset(validation_path))
+            data_receipt = validate_dataset_pair(
+                train_path,
+                validation_path,
+                train_dataset.manifest,
+                validation_dataset.manifest,
+                args.book_split_receipt,
+            )
+            validation_factory = HordeBinV1Dataset
+        if not scale_mode:
+            data_receipt["decoder"] = {
+                "train": dataset_receipt(train_path, args.batch_size),
+                "validation": dataset_receipt(
+                    validation_path,
+                    args.batch_size,
+                    dataset_factory=validation_factory,
+                ),
+            }
+            data_receipt["overlap_audit"] = audit_pair(
+                train_path,
+                validation_path,
+                example_limit=8,
+                require_zero=True,
+                validation_factory=validation_factory,
+            )
         _require(
             args.allow_legacy_book_split_v1
             or data_receipt["book_split"]["schema"] == "HORDE_TRAINING_BOOK_SPLIT_V2",
@@ -889,11 +1880,38 @@ def train(args: argparse.Namespace) -> dict[str, object]:
 
         batches_per_epoch = (len(train_dataset) + args.batch_size - 1) // args.batch_size
         target_steps = args.epochs * batches_per_epoch
+        campaign_binding = _finalize_campaign_binding(
+            campaign_bundle,
+            args,
+            architecture,
+            data_receipt,
+            len(train_dataset),
+            len(validation_dataset),
+        )
+        scale_binding = _finalize_scale_binding(
+            scale_bundle,
+            args,
+            data_receipt,
+            len(train_dataset),
+            len(validation_dataset),
+            target_steps,
+        )
+        _require(
+            campaign_binding is None or scale_binding is None,
+            "C1 and scale campaign bindings cannot both be active",
+        )
+        if scale_binding is not None:
+            campaign_binding = scale_binding
         stop_at_step = args.stop_after_steps or target_steps
         _require(stop_at_step <= target_steps, "stop-after-steps exceeds the target run")
 
-        model = LegacyHPModel(args.seed).to(device)
-        optimizer = _make_optimizer(model, args.learning_rate)
+        model = _make_model(architecture, args.seed).to(device)
+        optimizer = _make_optimizer(
+            model,
+            args.learning_rate,
+            dense_learning_rate_multiplier=dense_learning_rate_multiplier,
+            output_learning_rate_multiplier=output_learning_rate_multiplier,
+        )
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=1, gamma=args.scheduler_gamma
         )
@@ -907,6 +1925,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 device,
                 args.lambda_value,
                 calibration,
+                architecture,
             )
             gradient_norms: dict[str, float] | None = None
             epoch_receipts: list[dict[str, object]] = []
@@ -924,6 +1943,10 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             )
             _require(resume_checkpoint.get("settings") == settings, "resume settings mismatch")
             _require(resume_checkpoint.get("data") == data_receipt, "resume data identity mismatch")
+            _require(
+                resume_checkpoint.get("campaign") == campaign_binding,
+                "resume campaign binding mismatch",
+            )
             model_state = resume_checkpoint.get("model_state")
             optimizer_state = resume_checkpoint.get("optimizer_state")
             scheduler_state = resume_checkpoint.get("scheduler_state")
@@ -1000,7 +2023,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
 
         output.mkdir()
         training_stopped = False
-        payload_identity = train_dataset.manifest["payload_sha256"]
+        payload_identity = _dataset_payload_identity(train_dataset)
 
         for epoch in range(next_epoch, args.epochs):
             start_batch = next_batch if epoch == next_epoch else 0
@@ -1034,7 +2057,11 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 if batch_index < start_batch:
                     continue
 
-                batch = _torch_batch(_load_sparse_batch(train_dataset, indices), device)
+                batch = _model_batch(
+                    architecture,
+                    _load_sparse_batch(train_dataset, indices),
+                    device,
+                )
                 optimizer.zero_grad(set_to_none=True)
                 composite, score_error, result_error, prediction = loss_terms(
                     model(batch), batch, args.lambda_value, calibration
@@ -1092,6 +2119,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 device,
                 args.lambda_value,
                 calibration,
+                architecture,
             )
             epoch_receipt = {
                 "epoch": epoch + 1,
@@ -1123,6 +2151,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             device,
             args.lambda_value,
             calibration,
+            architecture,
         )
 
         metrics_lines = [
@@ -1146,8 +2175,8 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             "epoch_receipts": epoch_receipts,
         }
         checkpoint = {
-            "schema": CHECKPOINT_SCHEMA,
-            "architecture": ARCHITECTURE_SCHEMA,
+            "schema": _checkpoint_schema(architecture),
+            "architecture": _architecture_schema(architecture),
             "source": source,
             "environment": environment,
             "model_state": _cpu_tree(model.state_dict()),
@@ -1156,24 +2185,40 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             "rng_state": _cpu_tree(_rng_state(device)),
             "settings": settings,
             "data": data_receipt,
+            "campaign": campaign_binding,
             "progress": progress,
         }
         checkpoint_path = output / "checkpoint.pt"
         _save_checkpoint_exclusive(checkpoint_path, checkpoint)
 
-        receipt = {
-            "schema": SCHEMA,
-            "architecture": {
+        if architecture == LEGACY_ARCHITECTURE:
+            architecture_receipt: dict[str, object] = {
                 "schema": ARCHITECTURE_SCHEMA,
                 "legacy_feature_schema": "HORDETEST_HP_LEGACY_V1",
-                "serialized_topology": "896 -> 512 shared FT + PSQT; 8 x (1024 -> 16 -> 32 -> 1)",
+                "serialized_topology": (
+                    "896 -> 512 shared FT + PSQT; 8 x (1024 -> 16 -> 32 -> 1)"
+                ),
                 "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
                 "training_only_factorizer": False,
                 "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
-            },
+            }
+        else:
+            architecture_receipt = {
+                **_v2_structure(architecture),
+                "name": architecture,
+                "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+                "training_only_factorizer": False,
+                "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
+                "physical_piece_contract": "all pawns remain PAWN; roles are feature identities",
+            }
+
+        receipt = {
+            "schema": _training_schema(architecture),
+            "architecture": architecture_receipt,
             "source": source,
             "environment": environment,
             "data": data_receipt,
+            "campaign": campaign_binding,
             "labels": {
                 "score": "exact stored root-search Value from side-to-move perspective",
                 "score_teacher_rule50": "already incorporated by search; never reapplied",
@@ -1220,8 +2265,10 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 "betas": [0.9, 0.999],
                 "epsilon": 1.0e-7,
                 "weight_decay": 0.0,
+                "foreach": False,
                 "base_learning_rate": args.learning_rate,
-                "output_learning_rate_multiplier": 0.1,
+                "dense_learning_rate_multiplier": dense_learning_rate_multiplier,
+                "output_learning_rate_multiplier": output_learning_rate_multiplier,
                 "lookahead": False,
                 "gradient_centralization": False,
                 "scheduler": {
@@ -1272,9 +2319,13 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 },
             },
             "claims": {
-                "purpose": "real-data-integration-canary",
-                "integration_only": True,
-                "strength_eligible": False,
+                "purpose": (
+                    "rank8-50m-scale-training"
+                    if scale_mode
+                    else "real-data-integration-canary"
+                ),
+                "integration_only": not scale_mode,
+                "strength_eligible": scale_mode and complete,
                 "strength_evidence": False,
                 "production_network": False,
             },
@@ -1288,8 +2339,41 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("train", type=Path)
     parser.add_argument("validation", type=Path)
+    parser.add_argument(
+        "--validation-selected-role",
+        action="store_true",
+        help="interpret validation as a HORDE_TRAINING_SELECTED_ROLE_V1 receipt",
+    )
+    parser.add_argument(
+        "--validation-candidate",
+        type=Path,
+        help="direct HORDE_BIN_V1 parent of a selected validation role",
+    )
+    parser.add_argument(
+        "--architecture",
+        choices=ARCHITECTURE_CHOICES,
+        default=LEGACY_ARCHITECTURE,
+        help="serialized topology to train; the legacy control remains the default",
+    )
     parser.add_argument("--book-split-receipt", type=Path, required=True)
     parser.add_argument("--wdl-calibration", type=Path, required=True)
+    parser.add_argument(
+        "--campaign-plan",
+        type=Path,
+        help="authenticated HORDE_V2_C1_CAMPAIGN_PLAN_V2 for a production C1 run",
+    )
+    parser.add_argument(
+        "--campaign-run-id",
+        help="exact run id selected from --campaign-plan",
+    )
+    parser.add_argument(
+        "--scale-contract",
+        type=Path,
+        help=(
+            "authenticate train/candidate chunk sets and the selected validation role "
+            "against HORDE_V2_RANK8_SCALE_V1"
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--epochs", type=int, default=1)
@@ -1297,6 +2381,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--block-size", type=int, default=65_536)
     parser.add_argument("--lambda", type=float, default=DEFAULT_LAMBDA, dest="lambda_value")
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
+    parser.add_argument(
+        "--dense-learning-rate-multiplier",
+        type=float,
+        default=DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER,
+        help="multiplier for hidden0/hidden1 weights and biases",
+    )
+    parser.add_argument(
+        "--output-learning-rate-multiplier",
+        type=float,
+        default=DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+        help="multiplier for the output weights and biases",
+    )
     parser.add_argument("--scheduler-gamma", type=float, default=DEFAULT_SCHEDULER_GAMMA)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--cpu-threads", type=int, default=1)
@@ -1317,6 +2413,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, RuntimeError, subprocess.SubprocessError, TrainingError) as error:
+    except (
+        OSError,
+        RuntimeError,
+        SelectedRoleError,
+        ScaleSelectedRoleError,
+        subprocess.SubprocessError,
+        TrainingError,
+    ) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         raise SystemExit(1) from error

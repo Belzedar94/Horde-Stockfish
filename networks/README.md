@@ -10,8 +10,12 @@ baseline network.
 - Required runtime variant: `hordetest`
 
 The filename deliberately starts with `hordetest`. Fairy-Stockfish uses the
-variant prefix when selecting an NNUE file. Do not rename the file, transform
-its bytes, or substitute a network with the same dimensions.
+variant prefix when selecting an NNUE file. Do not rename the tracked source
+file, transform its bytes, or substitute a network with the same dimensions.
+
+Horde-Stockfish release packages expose these exact bytes as `Horde_v1.nnue`.
+That is a distribution alias only; the tracked source filename and the engine's
+default path remain unchanged.
 
 This network is an evaluation artifact, not an engine binary. Its presence does
 not change the GPL obligations that apply to Fairy-Stockfish source and binary

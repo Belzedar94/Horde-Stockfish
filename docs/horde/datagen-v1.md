@@ -34,8 +34,11 @@ Before a canary may be expanded, the decoder must validate the header, schema ha
 the fail-closed reference boundary between physical `HORDE_BIN_V1` records and
 evaluator-specific sparse rows. It verifies the manifest, exact file framing
 and payload SHA-256 before exposing a read-only memory map. Variable-length
-batches use CSR-style offsets and retain the search labels without copying the
-whole dataset into memory.
+batches use separate CSR-style `legacy_piece_offsets`, `global_offsets`, and
+`royal_offsets`, and retain the complete physical board plus search labels
+without copying the whole dataset into memory. Global offsets are deliberately
+independent from physical-piece offsets: contextual rows may later be appended
+without changing legacy buckets or physical piece counts.
 
 Every decoded record exposes four independent sparse views:
 
@@ -53,6 +56,12 @@ reflection, every promoted White role, both king-mirror halves and low
 material. The normal generator integration also decodes a deterministic real
 file into uneven batches and checks every sparse table bound.
 
+`HORDE_TRAINING_DECODER_V2` derives White and total piece counts only from the
+retained physical board. Its receipt independently counts and hashes physical
+G0, contextual Global, complete Global, Royal, and legacy streams, including a
+derived horizontal-reflection stream. The base schema requires zero contextual
+rows.
+
 Generate a deterministic decoder receipt with:
 
 ```console
@@ -63,6 +72,99 @@ This pure-Python implementation is the conformance reference and deterministic
 micro-fit input path, not a throughput claim for a full 50-million-position
 training run. Any future compiled loader must reproduce its sparse receipt
 exactly before replacing it in large-scale training.
+
+## Authenticated chunk sets
+
+Large OpenBench roles remain collections of complete `HORDE_BIN_V1` files.
+[`tools/horde_training_chunk_set.py`](../../tools/horde_training_chunk_set.py)
+binds those files into one logical random-access dataset without synthesizing a
+single-file generation manifest. It derives chunk order from the decimal seed,
+requires every index in the campaign range exactly once, and authenticates the
+file, header, manifest, and payload hashes of every member. Source, teacher,
+book, label, and search settings must match the campaign contract. Thread count
+is deliberately retained per chunk because different workers may produce the
+same role.
+
+The receipt records global record ranges and two independent aggregate
+identities. `logical_payload_sha256` is the SHA-256 of the exact record bytes
+concatenated in canonical chunk order; `chunk_set_sha256` hashes the canonical
+campaign, role, common-manifest, and ordered per-chunk identities. Paths are
+relative to the receipt and may not escape its directory. Files can therefore
+be renamed without changing dataset identity, while byte or ordering drift
+still fails closed.
+
+Create and re-authenticate a training-role receipt with:
+
+```console
+python tools/horde_training_chunk_set.py assemble \
+  --contract schemas/horde-v2-rank8-scale-v1.json \
+  --role training --chunks-dir data/train \
+  --output data/train/chunk-set.json
+python tools/horde_training_chunk_set.py verify data/train/chunk-set.json \
+  --contract schemas/horde-v2-rank8-scale-v1.json
+```
+
+The logical reader preserves sample provenance as
+`(chunk_payload_sha256, chunk_local_record_index)` and permits batches to cross
+physical chunk boundaries using the exact logical payload identity. It does not
+copy or rewrite the chunk payloads.
+
+The 50-million-record role is too large for the original in-memory validation
+selector. [`tools/horde_training_scale_selected_role.py`](../../tools/horde_training_scale_selected_role.py)
+therefore partitions the two exact SHA-256 key families by their first digest
+byte. Only one of 256 buckets is resident at a time. Candidate queries retain
+their global logical index, so the accepted sequence remains exactly "chunk
+index ascending, then local record index ascending". This is an exact external
+membership index, not a Bloom filter: it cannot silently discard a position
+through a false positive.
+
+Create the label-blind 250,000-record validation role with an explicit scratch
+directory:
+
+```console
+python tools/horde_training_scale_selected_role.py create \
+  data/train/chunk-set.json data/validation-candidate/chunk-set.json \
+  --contract schemas/horde-v2-rank8-scale-v1.json \
+  --scratch data/selection-scratch \
+  --output data/validation-selected
+python tools/horde_training_scale_selected_role.py verify \
+  data/train/chunk-set.json data/validation-candidate/chunk-set.json \
+  data/validation-selected/receipt.json \
+  --contract schemas/horde-v2-rank8-scale-v1.json
+```
+
+The scratch directory contains authenticated bucket, query, key and rejection
+streams. It is deliberately outside the selected-role identity and may be
+archived or removed only after the selected receipt and materialized records
+have been sealed. The canonical receipt binds both parent chunk sets, the
+bucket inventories, every selection decision and the final record order.
+
+Fit the frozen side-specific WDL link from the exact logical training payload,
+then dispatch the registered Rank-8 scale recipe directly from the chunk sets:
+
+```console
+python tools/horde_fit_wdl.py data/train/chunk-set.json \
+  --chunk-set --contract schemas/horde-v2-rank8-scale-v1.json \
+  --output data/train/wdl-calibration.json
+python tools/horde_training_control.py \
+  data/train/chunk-set.json data/validation-selected/receipt.json \
+  --validation-candidate data/validation-candidate/chunk-set.json \
+  --scale-contract schemas/horde-v2-rank8-scale-v1.json \
+  --architecture v2-c1-rank8-64x192 \
+  --book-split-receipt data/book-split-receipt.json \
+  --wdl-calibration data/train/wdl-calibration.json \
+  --output runs/rank8-50m --seed 7435908571601354096 \
+  --epochs 1 --batch-size 4096 --block-size 65536 \
+  --lambda 0.6 --learning-rate 0.0015 \
+  --dense-learning-rate-multiplier 0.1 \
+  --output-learning-rate-multiplier 0.1 \
+  --scheduler-gamma 0.987 --device cuda --cpu-threads 1
+```
+
+The trainer uses `logical_payload_sha256` for deterministic sample-order and
+resume chains. It reauthenticates all chunk and selected-role identities but
+does not perform a second 50-million-record feature audit before training; the
+exact selector receipt already supplies the cross-role and duplicate gates.
 
 [`tools/horde_run6b.py`](../../tools/horde_run6b.py) then reads only the
 registered Run 6B artifact and replays its integer network directly from those
@@ -95,13 +197,57 @@ Every sample is globally identified by `(payload_sha256, local_record_index)`;
 the full file, header, manifest, payload, producer, book, and network identities
 are retained in decoder and trainer receipts.
 
-[`tools/horde_training_control.py`](../../tools/horde_training_control.py)
+Opening-book separation is necessary but does not prove generated-record
+separation: independently generated games may later transpose. The C1
+production campaign therefore uses the hash-pinned
+`HORDE_V2_C1_DATA_REPAIR_V1` addendum. A direct validation candidate is
+overproduced once, then
+[`tools/horde_training_selected_role.py`](../../tools/horde_training_selected_role.py)
+selects the first 250,000 records that match neither training key and duplicate
+neither previously selected validation key. The selector is blind to labels,
+terminal reasons, coverage and model output. Its canonical receipt binds the
+direct candidate, selected source indices, decision chain and materialized
+record bytes; the materialized output is never represented as a direct
+generator run.
+
+The exact repaired role is additionally scoped by the hash-pinned
+`HORDE_V2_C1_COVERAGE_ADDENDUM_V1`. The original V1 coverage failure remains
+part of the campaign evidence. The effective pre-training gate requires every
+ABS, Rank-8 and Royal-32 topology key, every fixed non-king role, an exact
+train/validation row intersection for every key, and at least 99% seen
+validation activation mass for each topology. It does not resample, reweight,
+augment or mask any record for a particular architecture.
+
+[`tools/horde_training_models.py`](../../tools/horde_training_models.py) is the
+single model implementation used by both the engineering micro-fit and the
+full reference trainer. [`tools/horde_training_control.py`](../../tools/horde_training_control.py)
 trains the exact serialized legacy topology: one shared 896-by-512 H/P feature
 transformer with PSQT outputs and eight `1024 -> 16 -> 32 -> 1` layer stacks.
 It intentionally omits the historical training-only first-layer factorizer.
 That hidden parameterization is not part of the serialized network and has no
 matching meaning in the V2 candidates; it may be tested later as a separate
 training-method ablation, but it is not mixed into the architecture control.
+
+The same entry point also exposes the no-context `v2-64x192` and
+`v2-128x128` topologies selected by the engine-width gate. Both consume the
+Royal and Global sparse rows already authenticated by the decoder, share the
+legacy control's labels, optimizer, schedule, WDL link, rule-50 path, resume
+contract, and semantic initialization, and emit the separate
+`HORDE_V2_BASE_TRAINING_V1` receipt. Their checkpoint binds the exact width and
+a canonical structural SHA-256, so a checkpoint from one width cannot resume
+the other. This is real-data training plumbing only: enabling both widths does
+not skip the C0 split-equivalence, C1 absolute-content, and C2 width controls
+or make a 4,096-record canary a strength comparison.
+
+The isolated C1 content control is exposed as `v2-c1-abs64x192`. It keeps the
+same 192-lane G0 transformer, 256-lane dense input, trunk, heads, labels,
+optimizer, and schedule as `v2-64x192`; only the 64-lane first domain changes.
+The control projects G0 onto its ten absolute non-king role planes (640 rows),
+with no king bucket or reflection, while the candidate uses the 20,480-row
+Royal-relative domain. Its distinct `V2_C1_ABS_NONKING_64X192` schema prevents
+cross-architecture resume. The absolute control has 362,824 serialized
+parameter bytes versus 2,902,344 for the Royal candidate, so C1 is explicitly
+a content-and-cost decision rather than a parameter-matched comparison.
 
 The reference recipe uses lambda 0.6, RAdam, a lower output-head learning rate,
 the legacy dense quantization bounds, and a deterministic bounded-memory
@@ -151,3 +297,31 @@ integration and determinism receipt only, not a comparison against Run 6B. It
 predates split V2, cross-role generated-record auditing, exact rule-50 loss,
 and resumable checkpoints, so it remains historical evidence rather than the
 authorization for a 50-million-position campaign.
+
+The current authenticated integration canary at source commit `491e5227` is
+frozen in
+[`fresh-legacy-control-v3-canary-receipt.json`](fresh-legacy-control-v3-canary-receipt.json).
+Its regenerated files bind `HORDE_LABEL_CONTRACT_V1`, the clean CI producer,
+Run 6B, and the V2 book split. A training-only side-specific Davidson artifact
+binds the exact 4,096-record training file. Two three-epoch CPU runs produced
+byte-identical checkpoints, metrics, and receipts under
+`HORDE_WDL_HALF_BRIER_V1`. This closes the label, loss, calibration, resume,
+and repeatability plumbing gates. The sample remains an integration canary and
+is too small for architecture selection or strength claims.
+
+The first no-context V2 real-data canary at source commit `7897a5ce` is frozen
+in
+[`nnue-v2-base-real-canary-receipt.json`](nnue-v2-base-real-canary-receipt.json).
+Both `v2-64x192` and `v2-128x128` completed two independent three-epoch CPU
+runs over the same authenticated 4,096/1,024 train/validation files. For each
+width, checkpoints, metrics, and receipts were byte-identical across repeats;
+all Royal, Global, dense, and output gradient groups were non-zero. The canary
+proves real-data and restart plumbing only. Its validation losses must not be
+used to rank the widths, skip C0/C1/C2, or justify a strength test.
+
+The corresponding C1 content-plumbing receipt is frozen in
+[`nnue-v2-c1-real-canary-receipt.json`](nnue-v2-c1-real-canary-receipt.json).
+The absolute non-king control and Royal candidate each reproduced checkpoint,
+metrics, and receipt bytes across two three-epoch runs on the same data, seed,
+and recipe. The tiny one-seed validation difference is recorded only as an
+integrity receipt and is not architecture or strength evidence.

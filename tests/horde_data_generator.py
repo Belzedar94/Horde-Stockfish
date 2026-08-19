@@ -201,15 +201,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             if len(dataset) != TEST_RECORDS or [len(batch) for batch in batches] != [3, 1]:
                 raise AssertionError("trainer decoder batch framing mismatch")
             for batch in batches:
-                piece_counts = [
-                    batch.piece_offsets[row + 1] - batch.piece_offsets[row]
+                legacy_counts = [
+                    batch.legacy_piece_offsets[row + 1]
+                    - batch.legacy_piece_offsets[row]
+                    for row in range(len(batch))
+                ]
+                global_counts = [
+                    batch.global_offsets[row + 1] - batch.global_offsets[row]
                     for row in range(len(batch))
                 ]
                 royal_counts = [
                     batch.royal_offsets[row + 1] - batch.royal_offsets[row]
                     for row in range(len(batch))
                 ]
-                if piece_counts != [2] * len(batch) or royal_counts != [1] * len(batch):
+                if (
+                    legacy_counts != [2] * len(batch)
+                    or global_counts != [2] * len(batch)
+                    or list(batch.physical_piece_count) != [2] * len(batch)
+                    or royal_counts != [1] * len(batch)
+                ):
                     raise AssertionError("trainer decoder sparse row counts changed")
                 if any(index >= training_decoder.LEGACY_DIMENSIONS for index in batch.legacy_white):
                     raise AssertionError("legacy White feature escaped its table")
@@ -265,14 +275,30 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         sparse_receipt = training_decoder.dataset_receipt(first, batch_size=3)
         single_row_receipt = training_decoder.dataset_receipt(first, batch_size=1)
+        if sparse_receipt["schema"] != "HORDE_TRAINING_DECODER_V2":
+            raise AssertionError(f"trainer decoder ABI schema mismatch: {sparse_receipt}")
         if sparse_receipt["record_count"] != TEST_RECORDS:
             raise AssertionError(f"trainer decoder record count mismatch: {sparse_receipt}")
         if sparse_receipt["piece_rows"] != 2 * TEST_RECORDS:
             raise AssertionError(f"trainer decoder piece rows mismatch: {sparse_receipt}")
         if sparse_receipt["royal_rows"] != TEST_RECORDS:
             raise AssertionError(f"trainer decoder Royal rows mismatch: {sparse_receipt}")
+        if sparse_receipt["row_counts"] != {
+            "legacy_physical": 2 * TEST_RECORDS,
+            "global_g0": 2 * TEST_RECORDS,
+            "global_contextual": {},
+            "global_contextual_total": 0,
+            "global_complete": 2 * TEST_RECORDS,
+            "royal": TEST_RECORDS,
+        }:
+            raise AssertionError(f"trainer decoder stream counts mismatch: {sparse_receipt}")
         if sparse_receipt["sparse_sha256"] != single_row_receipt["sparse_sha256"]:
             raise AssertionError("trainer decoder receipt depends on batch partitioning")
+        if (
+            sparse_receipt["feature_stream_sha256"]
+            != single_row_receipt["feature_stream_sha256"]
+        ):
+            raise AssertionError("trainer feature-stream hashes depend on batch partitioning")
 
         tampered = root / "tampered.bin"
         tampered_payload = bytearray(first.read_bytes())

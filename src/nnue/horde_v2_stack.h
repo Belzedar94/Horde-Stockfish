@@ -22,11 +22,65 @@
 namespace Stockfish::Eval::NNUE::HordeV2 {
 
 inline bool valid_scalar_dirty_piece(const DirtyPiece& dirty) noexcept {
-    return is_registered_piece(dirty.pc) && is_ok(dirty.from)
-        && (dirty.to == SQ_NONE || is_ok(dirty.to))
-        && (dirty.remove_sq == SQ_NONE
-            || (is_ok(dirty.remove_sq) && is_registered_piece(dirty.remove_pc)))
-        && (dirty.add_sq == SQ_NONE || (is_ok(dirty.add_sq) && is_registered_piece(dirty.add_pc)));
+    NormalizedDirty normalized{};
+    return normalize_dirty_piece(dirty, normalized);
+}
+
+inline bool apply_normalized_dirty(std::array<Piece, SQUARE_NB>& board,
+                                   const NormalizedDirty&        dirty) noexcept {
+    if (board[dirty.from] != dirty.pc)
+        return false;
+
+    // Remove every source-state piece before adding any target-state piece.
+    board[dirty.from] = NO_PIECE;
+    if (dirty.remove_sq != SQ_NONE)
+    {
+        if (board[dirty.remove_sq] != dirty.remove_pc)
+            return false;
+        board[dirty.remove_sq] = NO_PIECE;
+    }
+
+    if (dirty.to != SQ_NONE)
+    {
+        if (board[dirty.to] != NO_PIECE)
+            return false;
+        board[dirty.to] = dirty.pc;
+    }
+    if (dirty.add_sq != SQ_NONE)
+    {
+        if (board[dirty.add_sq] != NO_PIECE)
+            return false;
+        board[dirty.add_sq] = dirty.add_pc;
+    }
+    return true;
+}
+
+inline bool undo_normalized_dirty(std::array<Piece, SQUARE_NB>& board,
+                                  const NormalizedDirty&        dirty) noexcept {
+    // Remove every target-state addition before restoring source-state pieces.
+    if (dirty.add_sq != SQ_NONE)
+    {
+        if (board[dirty.add_sq] != dirty.add_pc)
+            return false;
+        board[dirty.add_sq] = NO_PIECE;
+    }
+    if (dirty.to != SQ_NONE)
+    {
+        if (board[dirty.to] != dirty.pc)
+            return false;
+        board[dirty.to] = NO_PIECE;
+    }
+
+    if (board[dirty.from] != NO_PIECE)
+        return false;
+    board[dirty.from] = dirty.pc;
+    if (dirty.remove_sq != SQ_NONE)
+    {
+        if (board[dirty.remove_sq] != NO_PIECE)
+            return false;
+        board[dirty.remove_sq] = dirty.remove_pc;
+    }
+    return true;
 }
 
 // Validate the exact physical board transition represented by DirtyPiece.
@@ -36,36 +90,11 @@ inline bool valid_scalar_dirty_piece(const DirtyPiece& dirty) noexcept {
 inline bool dirty_piece_matches_transition(const std::array<Piece, SQUARE_NB>& source,
                                            const DirtyPiece&                   dirty,
                                            const std::array<Piece, SQUARE_NB>& target) noexcept {
-    if (!valid_scalar_dirty_piece(dirty))
+    NormalizedDirty normalized{};
+    if (!normalize_dirty_piece(dirty, normalized))
         return false;
-
     std::array<Piece, SQUARE_NB> expected = source;
-    if (expected[dirty.from] != dirty.pc)
-        return false;
-    expected[dirty.from] = NO_PIECE;
-
-    if (dirty.remove_sq != SQ_NONE)
-    {
-        if (expected[dirty.remove_sq] != dirty.remove_pc)
-            return false;
-        expected[dirty.remove_sq] = NO_PIECE;
-    }
-
-    if (dirty.to != SQ_NONE)
-    {
-        if (expected[dirty.to] != NO_PIECE)
-            return false;
-        expected[dirty.to] = dirty.pc;
-    }
-
-    if (dirty.add_sq != SQ_NONE)
-    {
-        if (expected[dirty.add_sq] != NO_PIECE)
-            return false;
-        expected[dirty.add_sq] = dirty.add_pc;
-    }
-
-    return expected == target;
+    return apply_normalized_dirty(expected, normalized) && expected == target;
 }
 
 // Engineering-only reference for the real search stack contract. Position
@@ -153,8 +182,11 @@ enum class LeanStackError : std::uint8_t {
     NONE,
     INVALID_POSITION,
     INVALID_DIRTY_PIECE,
+    DIRTY_TARGET_MISMATCH,
+    SOURCE_POSITION_MISMATCH,
     STACK_UNINITIALIZED,
     STACK_OVERFLOW,
+    INTERNAL_ERROR,
 };
 
 struct LeanStackEvaluation {
@@ -171,35 +203,44 @@ struct LeanStackCounters {
     u64 royalRefreshes = 0;
 };
 
-// Production-layout stack for the width-templated backend. Frames are
-// allocated and aligned once; push/pop never allocate, keep board copies or
-// retain dense intermediates. Ordinary deltas are materialized lazily, just as
-// in search. A Royal-key transition is rare and is materialized while its
-// target Position is available.
-template<typename Width, typename Kernels = DefaultLeanKernels>
-class LeanAccumulatorStack {
+// Shared production-layout orchestration for deterministic and trained V2
+// networks. Frames are allocated once and dense intermediates are stack-owned.
+// The validating specialization keeps one exact 64-byte board shadow for CI
+// and assertions; the production specialization removes those board scans
+// from push, pop and evaluate.
+template<typename NetworkType, bool ValidateExactBoard = false>
+class LazyAccumulatorStack {
    public:
     static constexpr std::size_t MaxSize = MAX_PLY + 1;
 
-    using Network = LeanNetwork<Width, Kernels>;
+    using Network = NetworkType;
     using Frame   = typename Network::Frame;
     using Scratch = typename Network::Scratch;
 
    private:
     struct Slot {
-        Frame      frame{};
-        DirtyPiece dirty{};
-        bool       computed = false;
+        Frame           frame{};
+        NormalizedDirty dirty{};
+        bool            computed = false;
     };
 
    public:
-    explicit LeanAccumulatorStack(const Network& network) :
+    explicit LazyAccumulatorStack(const Network& network) :
         network_(network),
         slots_(MaxSize) {}
 
-    [[nodiscard]] LeanStackError reset(const Position& pos) noexcept {
+    void clear() noexcept {
         size_     = 0;
         counters_ = {};
+        if constexpr (ValidateExactBoard)
+            board_.fill(NO_PIECE);
+    }
+
+    [[nodiscard]] LeanStackError reset(const Position& pos) noexcept {
+        clear();
+
+        if (!network_.valid())
+            return LeanStackError::INVALID_POSITION;
 
         const FullRefreshFeatures features = extract_full_refresh_features(pos);
         if (!features.valid())
@@ -207,6 +248,8 @@ class LeanAccumulatorStack {
 
         network_.full_refresh(slots_[0].frame, features);
         slots_[0].computed = true;
+        if constexpr (ValidateExactBoard)
+            board_ = pos.piece_array();
         size_              = 1;
         ++counters_.fullRefreshes;
         return LeanStackError::NONE;
@@ -221,29 +264,58 @@ class LeanAccumulatorStack {
             return LeanStackError::STACK_UNINITIALIZED;
         if (size_ >= MaxSize)
             return LeanStackError::STACK_OVERFLOW;
-        if (!valid_scalar_dirty_piece(dirty))
+        NormalizedDirty normalized{};
+        if (!normalize_dirty_piece(dirty, normalized))
             return LeanStackError::INVALID_DIRTY_PIECE;
+
+        if constexpr (ValidateExactBoard)
+        {
+            std::array<Piece, SQUARE_NB> candidate = board_;
+            if (!apply_normalized_dirty(candidate, normalized)
+                || candidate != target.piece_array())
+                return LeanStackError::DIRTY_TARGET_MISMATCH;
+        }
         if (target.count<KING>(WHITE) != 0 || target.count<KING>(BLACK) != 1)
             return LeanStackError::INVALID_POSITION;
 
         Slot&          child     = slots_[size_];
         const RoyalKey sourceKey = slots_[size_ - 1].frame.key;
-        const RoyalKey targetKey = royal_key(target.square<KING>(BLACK));
-        child.dirty              = dirty;
-        child.frame.key          = targetKey;
-        child.computed           = false;
+        const RoyalKey targetKey = network_.first_domain_key(target);
+        const bool     refresh   = network_.requires_refresh(sourceKey, targetKey);
 
-        if (targetKey != sourceKey)
+        if (refresh)
         {
-            if (!materialize_through(size_ - 1)
-                || !network_.materialize_child(child.frame, slots_[size_ - 1].frame, dirty, target))
+            const FullRefreshFeatures targetFeatures = extract_full_refresh_features(target);
+            if (!targetFeatures.valid()
+                || network_.first_domain_key(targetFeatures) != targetKey)
                 return LeanStackError::INVALID_POSITION;
+
+            child.dirty     = normalized;
+            child.frame.key = targetKey;
+            child.computed  = false;
+            if (!materialize_through(size_ - 1))
+                return LeanStackError::INTERNAL_ERROR;
+            if (!network_.materialize_child(child.frame, slots_[size_ - 1].frame, normalized,
+                                            targetFeatures))
+                return LeanStackError::INTERNAL_ERROR;
 
             child.computed = true;
             ++counters_.materialized;
             ++counters_.royalRefreshes;
         }
+        else
+        {
+            child.dirty     = normalized;
+            child.frame.key = targetKey;
+            child.computed  = false;
+        }
 
+        if constexpr (ValidateExactBoard)
+        {
+            const bool applied = apply_normalized_dirty(board_, normalized);
+            assert(applied);
+            (void) applied;
+        }
         ++size_;
         ++counters_.pushed;
         return LeanStackError::NONE;
@@ -253,8 +325,11 @@ class LeanAccumulatorStack {
     [[nodiscard]] LeanStackEvaluation evaluate(const Position& pos) noexcept {
         if (size_ == 0)
             return {{}, LeanStackError::STACK_UNINITIALIZED};
+        if constexpr (ValidateExactBoard)
+            if (board_ != pos.piece_array())
+                return {{}, LeanStackError::SOURCE_POSITION_MISMATCH};
         if (!materialize_through(size_ - 1))
-            return {{}, LeanStackError::INVALID_POSITION};
+            return {{}, LeanStackError::INTERNAL_ERROR};
 
         return {network_.propagate(slots_[size_ - 1].frame, scratch_, pos.side_to_move(),
                                    pos.rule50_count()),
@@ -264,6 +339,14 @@ class LeanAccumulatorStack {
     [[nodiscard]] bool pop() noexcept {
         if (size_ <= 1)
             return false;
+
+        if constexpr (ValidateExactBoard)
+        {
+            std::array<Piece, SQUARE_NB> parent = board_;
+            if (!undo_normalized_dirty(parent, slots_[size_ - 1].dirty))
+                return false;
+            board_ = parent;
+        }
         --size_;
         return true;
     }
@@ -290,8 +373,8 @@ class LeanAccumulatorStack {
         for (std::size_t next = source + 1; next <= target; ++next)
         {
             Slot& child = slots_[next];
-            if (!network_.materialize_child_same_key(child.frame, slots_[next - 1].frame,
-                                                     child.dirty, child.frame.key))
+            if (!network_.materialize_child_delta(child.frame, slots_[next - 1].frame, child.dirty,
+                                                  child.frame.key))
                 return false;
             child.computed = true;
             ++counters_.materialized;
@@ -302,9 +385,16 @@ class LeanAccumulatorStack {
     const Network&    network_;
     std::vector<Slot> slots_;
     Scratch           scratch_{};
+    std::array<Piece, SQUARE_NB> board_{};
     std::size_t       size_ = 0;
     LeanStackCounters counters_{};
 };
+
+template<typename Width, typename Kernels = DefaultLeanKernels>
+using LeanAccumulatorStack = LazyAccumulatorStack<LeanNetwork<Width, Kernels>>;
+
+template<typename Width, typename Kernels = DefaultLeanKernels>
+using ValidatingLeanAccumulatorStack = LazyAccumulatorStack<LeanNetwork<Width, Kernels>, true>;
 
 }  // namespace Stockfish::Eval::NNUE::HordeV2
 

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-training-chunk-set-v1.json",
+  "title": "Horde training chunk set V1",
+  "schema_name": "HORDE_TRAINING_CHUNK_SET_V1",
+  "purpose": "Bind an ordered collection of independently authenticated HORDE_BIN_V1 chunks into one logical read-only training dataset without replacing their per-chunk generation manifests.",
+  "identity": {
+    "logical_payload_sha256": "SHA-256 of the exact record payload bytes concatenated in ascending chunk-index order",
+    "chunk_set_sha256": "SHA-256 of the canonical identity document containing campaign, role, common manifest identity, and ordered chunk identities",
+    "receipt_sha256": "SHA-256 of the complete pretty-printed receipt bytes"
+  },
+  "ordering": {
+    "source": "generation.seed",
+    "chunk_index": "integer(generation.seed) - base_seed",
+    "required": "Every index from zero through chunk_count - 1 occurs exactly once"
+  },
+  "common_manifest": {
+    "must_match": [
+      "schema",
+      "schema_sha256",
+      "format_version",
+      "header_bytes",
+      "record_bytes",
+      "byte_order",
+      "source_commit",
+      "source_dirty",
+      "network",
+      "book_sha256",
+      "producer_sha256",
+      "label_contract",
+      "generation.hash_mb",
+      "generation.depth",
+      "generation.nodes",
+      "generation.random_move_min_ply",
+      "generation.random_move_max_ply",
+      "generation.random_move_count",
+      "generation.random_multi_pv",
+      "generation.random_multi_pv_diff",
+      "generation.write_min_ply",
+      "generation.write_max_ply",
+      "generation.max_game_ply",
+      "generation.opening_count"
+    ],
+    "per_chunk": [
+      "record_count",
+      "payload_sha256",
+      "generation.requested_records",
+      "generation.seed",
+      "generation.threads"
+    ]
+  },
+  "receipt_required_sections": [
+    "schema",
+    "schema_sha256",
+    "campaign",
+    "role",
+    "format",
+    "common_manifest",
+    "ordering",
+    "chunks",
+    "totals",
+    "identity",
+    "gates"
+  ],
+  "invariants": [
+    "Each chunk remains a complete, independently parseable HORDE_BIN_V1 file.",
+    "The receipt stores every original file, header, manifest, and payload SHA-256.",
+    "Input filenames do not determine order and are excluded from chunk_set_sha256.",
+    "Relative chunk paths may not escape the receipt directory.",
+    "Thread counts may differ by chunk and are never collapsed into one generation value.",
+    "No aggregate HORDE_BIN_V1 generation manifest is synthesized.",
+    "Random access maps each global record index to exactly one authenticated chunk and local index."
+  ]
+}

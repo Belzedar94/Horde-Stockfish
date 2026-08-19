@@ -1,23 +1,18 @@
-# This CITATION.cff file was generated with cffinit.
-# Visit https://bit.ly/cffinit to generate yours today!
-
 cff-version: 1.2.0
-title: Stockfish
+title: Horde-Stockfish
 message: >-
-  Please cite this software using the metadata from this
-  file.
+  Please cite this software using the metadata in this file.
 type: software
 authors:
-  - name: The Stockfish developers (see AUTHORS file)
-repository-code: 'https://github.com/official-stockfish/Stockfish'
-url: 'https://stockfishchess.org/'
-repository-artifact: 'https://stockfishchess.org/download/'
-abstract: Stockfish is a free and strong UCI chess engine.
+  - name: The Horde-Stockfish developers (see AUTHORS)
+repository-code: 'https://github.com/Belzedar94/Horde-Stockfish'
+repository-artifact: 'https://github.com/Belzedar94/Horde-Stockfish/releases'
+abstract: >-
+  Horde-Stockfish is a UCI chess engine specialized for Lichess Horde chess.
 keywords:
-  - chess
-  - artificial intelligence (AI)
-  - tree search
+  - Horde chess
+  - chess engine
+  - Stockfish
   - alpha-beta search
-  - neural networks (NN)
-  - efficiently updatable neural networks (NNUE)
+  - NNUE
 license: GPL-3.0

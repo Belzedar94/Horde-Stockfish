@@ -35,6 +35,9 @@
 #include "history.h"
 #include "nnue/network.h"
 #include "nnue/nnue_misc.h"
+#if defined(HORDE_V2_CANDIDATE)
+#include "nnue/horde_v2_container.h"
+#endif
 #include "numa.h"
 #include "position.h"
 #include "search.h"
@@ -140,6 +143,12 @@ class Engine {
     TranspositionTable                                tt;
     Eval::NNUE::EvalFile                              networkFile;
     LazyNumaReplicatedSystemWide<Eval::NNUE::Network> network;
+#if defined(HORDE_V2_CANDIDATE)
+    Eval::NNUE::HordeV2::ContainerParameters candidateNetworkParameters;
+    Eval::NNUE::HordeV2::ContainerNetwork<>  candidateNetwork;
+    std::filesystem::path                    candidateNetworkFile;
+    std::string                              candidateNetworkLoadError;
+#endif
 
     Search::SearchManager::UpdateContext  updateContext;
     std::function<void(std::string_view)> onVerifyNetwork;

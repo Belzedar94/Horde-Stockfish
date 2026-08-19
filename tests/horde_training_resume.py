@@ -57,7 +57,15 @@ def _record(index: int) -> bytes:
     return record
 
 
-def _write_dataset(path: Path, *, first: int, count: int, book_sha256: str, seed: int) -> None:
+def _write_dataset(
+    path: Path,
+    *,
+    first: int,
+    count: int,
+    book_sha256: str,
+    seed: int,
+    opening_count: int | None = None,
+) -> None:
     payload = b"".join(_record(index) for index in range(first, first + count))
     manifest = {
         "schema": "HORDE_BIN_V1",
@@ -95,7 +103,7 @@ def _write_dataset(path: Path, *, first: int, count: int, book_sha256: str, seed
             "write_min_ply": 0,
             "write_max_ply": 1,
             "max_game_ply": 2,
-            "opening_count": count,
+            "opening_count": count if opening_count is None else opening_count,
         },
     }
     encoded = json.dumps(
@@ -196,6 +204,7 @@ def _arguments(
     wdl_calibration: Path,
     output: Path,
     *,
+    architecture: str = control.LEGACY_ARCHITECTURE,
     resume: Path | None = None,
     stop_after_steps: int | None = None,
 ) -> argparse.Namespace:
@@ -204,6 +213,7 @@ def _arguments(
         validation=validation,
         book_split_receipt=split_receipt,
         wdl_calibration=wdl_calibration,
+        architecture=architecture,
         output=output,
         seed=2026080811,
         epochs=2,
@@ -288,6 +298,15 @@ def main() -> int:
         full_receipt = control.train(
             _arguments(train, validation, split_receipt, wdl_calibration, full)
         )
+        for role in ("train", "validation"):
+            decoder_receipt = full_receipt["data"]["decoder"][role]
+            if (
+                decoder_receipt["schema"] != "HORDE_TRAINING_DECODER_V2"
+                or decoder_receipt["row_counts"]["global_contextual_total"] != 0
+                or not decoder_receipt["feature_stream_sha256"]["unreflected"]
+                or not decoder_receipt["feature_stream_sha256"]["horizontal_reflection"]
+            ):
+                raise AssertionError(f"{role} decoder receipt is incomplete")
         partial_receipt = control.train(
             _arguments(
                 train,
@@ -360,9 +379,152 @@ def main() -> int:
             if full_receipt["run"][field] != resumed_receipt["run"][field]:
                 raise AssertionError(f"resumed run field changed: {field}")
 
+        v2_full = root / "v2-64x192-full"
+        v2_partial = root / "v2-64x192-partial"
+        v2_resumed = root / "v2-64x192-resumed"
+        v2_full_receipt = control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                v2_full,
+                architecture="v2-64x192",
+            )
+        )
+        v2_partial_receipt = control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                v2_partial,
+                architecture="v2-64x192",
+                stop_after_steps=2,
+            )
+        )
+        if v2_partial_receipt["run"]["complete"] is not False:
+            raise AssertionError("partial V2 trainer run was incorrectly marked complete")
+
+        wrong_architecture_output = root / "wrong-v2-architecture-resume"
+        try:
+            control.train(
+                _arguments(
+                    train,
+                    validation,
+                    split_receipt,
+                    wdl_calibration,
+                    wrong_architecture_output,
+                    architecture="v2-c1-abs64x192",
+                    resume=v2_partial / "checkpoint.pt",
+                )
+            )
+        except control.TrainingError as error:
+            if "architecture mismatch" not in str(error):
+                raise
+        else:
+            raise AssertionError("V2 trainer resumed a checkpoint from another architecture")
+        if wrong_architecture_output.exists():
+            raise AssertionError(
+                "wrong-architecture V2 resume created a partial output directory"
+            )
+
+        v2_resumed_receipt = control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                v2_resumed,
+                architecture="v2-64x192",
+                resume=v2_partial / "checkpoint.pt",
+            )
+        )
+        v2_full_checkpoint = checkpoint_compare.load(v2_full / "checkpoint.pt")
+        v2_resumed_checkpoint = checkpoint_compare.load(v2_resumed / "checkpoint.pt")
+        v2_semantic_sha = checkpoint_compare.compare_checkpoints(
+            v2_full_checkpoint,
+            v2_resumed_checkpoint,
+        )
+        if (v2_full / "metrics.jsonl").read_bytes() != (
+            v2_resumed / "metrics.jsonl"
+        ).read_bytes():
+            raise AssertionError("resumed V2 metrics are not byte-identical")
+        if v2_full_receipt["schema"] != control.V2_TRAINING_SCHEMA:
+            raise AssertionError("V2 trainer emitted the legacy receipt schema")
+        if v2_full_receipt["architecture"]["schema"] != "V2_BASE_P0_64X192":
+            raise AssertionError("V2 trainer emitted the wrong architecture schema")
+        for field in (
+            "optimizer_steps",
+            "samples_consumed",
+            "sample_order_chain_sha256",
+            "final_state_sha256",
+            "stop_validation",
+            "epochs_receipt",
+        ):
+            if v2_full_receipt["run"][field] != v2_resumed_receipt["run"][field]:
+                raise AssertionError(f"resumed V2 run field changed: {field}")
+
+        v2_wide = root / "v2-128x128-full"
+        v2_wide_receipt = control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                v2_wide,
+                architecture="v2-128x128",
+            )
+        )
+        if (
+            v2_wide_receipt["architecture"]["schema"] != "V2_BASE_P0_128X128"
+            or not v2_wide_receipt["run"]["complete"]
+        ):
+            raise AssertionError("wide V2 training control did not complete correctly")
+
+        c1_absolute = root / "v2-c1-abs64x192-full"
+        c1_receipt = control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                c1_absolute,
+                architecture="v2-c1-abs64x192",
+            )
+        )
+        if (
+            c1_receipt["architecture"]["schema"]
+            != "V2_C1_ABS_NONKING_64X192"
+            or c1_receipt["architecture"]["domains"][0]["name"]
+            != "absolute_nonking"
+            or not c1_receipt["run"]["complete"]
+        ):
+            raise AssertionError("C1 absolute-content training control did not complete")
+
+        c1_rank8 = root / "v2-c1-rank8-64x192-full"
+        c1_rank8_receipt = control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                c1_rank8,
+                architecture="v2-c1-rank8-64x192",
+            )
+        )
+        if (
+            c1_rank8_receipt["architecture"]["schema"]
+            != "V2_C1_ROYAL_RANK8_64X192"
+            or c1_rank8_receipt["architecture"]["domains"][0]["name"]
+            != "royal_rank8"
+            or not c1_rank8_receipt["run"]["complete"]
+        ):
+            raise AssertionError("C1 R8 training control did not complete")
+
         print(
             "Horde trainer resume parity passed: "
-            f"semantic_sha256={full_semantic_sha}"
+            f"legacy_sha256={full_semantic_sha} v2_sha256={v2_semantic_sha}"
         )
     return 0
 

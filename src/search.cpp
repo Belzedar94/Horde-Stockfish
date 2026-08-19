@@ -185,8 +185,12 @@ Search::Worker::Worker(SharedState&                    sharedState,
     options(sharedState.options),
     threads(sharedState.threads),
     tt(sharedState.tt),
-    network(sharedState.network),
-    refreshTable(network[token])
+    network(sharedState.network)
+#if defined(HORDE_V2_CANDIDATE)
+    , accumulatorStack(network)
+#else
+    , refreshTable(network[token])
+#endif
 #if defined(HORDE_V2_PERF)
     , hordeV2PerformanceStack(Eval::NNUE::HordeV2::performance_network())
 #endif
@@ -195,18 +199,31 @@ Search::Worker::Worker(SharedState&                    sharedState,
 }
 
 void Search::Worker::ensure_network_replicated() {
+#if defined(HORDE_V2_CANDIDATE)
+    // The authenticated candidate network is process-wide and immutable while
+    // workers are searching.
+    (void) network;
+#else
     // Access once to force lazy initialization.
     // We do this because we want to avoid initialization during search.
     (void) (network[numaAccessToken]);
+#endif
 }
 
 void Search::Worker::start_searching() {
 
+#if defined(HORDE_V2_CANDIDATE)
+    if (accumulatorStack.reset(rootPos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#else
     accumulatorStack.reset();
+#endif
 #if defined(HORDE_V2_PERF)
     if (hordeV2PerformanceStack.reset(rootPos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
         std::abort();
 #endif
+    hordePreservePawnQsearchCaptureSee =
+      bool(options["HordePreservePawnQsearchCaptureSee"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -855,8 +872,16 @@ void Search::Worker::do_move(
     bool capture = pos.capture_stage(move);
     ++nodes;
 
+#if defined(HORDE_V2_CANDIDATE)
+    Dirties dirties{};
+#else
     Dirties& dirties = accumulatorStack.push();
+#endif
     pos.do_move(move, st, givesCheck, dirties, &tt, &sharedHistory);
+#if defined(HORDE_V2_CANDIDATE)
+    if (accumulatorStack.push(dirties, pos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#endif
 #if defined(HORDE_V2_PERF)
     if (hordeV2PerformanceStack.push(dirties, pos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
         std::abort();
@@ -882,7 +907,12 @@ void Search::Worker::do_null_move(Position& pos, StateInfo& st, Stack* const ss)
 
 void Search::Worker::undo_move(Position& pos, const Move move) {
     pos.undo_move(move);
+#if defined(HORDE_V2_CANDIDATE)
+    if (!accumulatorStack.pop())
+        std::abort();
+#else
     accumulatorStack.pop();
+#endif
 #if defined(HORDE_V2_PERF)
     if (!hordeV2PerformanceStack.pop())
         std::abort();
@@ -916,7 +946,11 @@ void Search::Worker::clear() {
     for (usize i = 1; i < reductions.size(); ++i)
         reductions[i] = int(2872 / 128.0 * std::log(i));
 
+#if !defined(HORDE_V2_CANDIDATE)
     refreshTable.clear(network[numaAccessToken]);
+#else
+    accumulatorStack.clear();
+#endif
 }
 
 
@@ -2282,7 +2316,9 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
             }
 
             // Do not search moves with bad enough SEE values
-            if (!pos.see_ge(move, -74))
+            if (!pos.see_ge(move, -74)
+                && !(hordePreservePawnQsearchCaptureSee
+                     && pos.piece_on(move.to_sq()) == W_PAWN))
             {
 #if defined(HORDE_SEARCH_TELEMETRY)
                 if (hordeMetrics)
@@ -2393,7 +2429,19 @@ TimePoint Search::Worker::elapsed() const {
 }
 
 Value Search::Worker::evaluate(const Position& pos) {
-#if defined(HORDE_V2_PERF)
+#if defined(HORDE_V2_CANDIDATE)
+    const auto result = accumulatorStack.evaluate(pos);
+    if (!result.valid())
+        std::abort();
+    #if defined(HORDE_V2_CANDIDATE_SHADOW)
+    const auto full =
+      network.evaluate_full_refresh(pos.piece_array(), pos.side_to_move(), pos.rule50_count());
+    if (!full.valid() || result.result.outputAffine != full.outputAffine
+        || result.result.preRule50Value != full.preRule50Value || result.result.value != full.value)
+        std::abort();
+    #endif
+    return result.result.value;
+#elif defined(HORDE_V2_PERF)
     const auto result = hordeV2PerformanceStack.evaluate(pos);
     if (!result.valid())
         std::abort();

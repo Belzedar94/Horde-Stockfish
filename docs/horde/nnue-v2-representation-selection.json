@@ -1,0 +1,78 @@
+{
+  "schema": "HORDE_V2_REPRESENTATION_SELECTION_V1",
+  "status": "manual_selection",
+  "selected_architecture": {
+    "name": "v2-c1-rank8-64x192",
+    "schema": "V2_C1_ROYAL_RANK8_64X192",
+    "first_domain": "royal_rank8",
+    "serialized_parameter_bytes": 936264
+  },
+  "rejected_control": {
+    "name": "v2-c1-abs64x192",
+    "schema": "V2_C1_ABS_NONKING_64X192"
+  },
+  "decision": {
+    "date": "2026-08-10",
+    "scope": "V2 representation selection only",
+    "reason": "Rank-8 had a positive point estimate at all three local time controls and reached a displayed 100.0% LOS at VSTC.",
+    "formal_los_gate_completed": false,
+    "source_receipt_sha256": "C291438098543077F51D196AFF1DA6D5024C7361EAE298317899B3790B3C7C0C"
+  },
+  "results": {
+    "vstc": {
+      "games": 280,
+      "wins": 162,
+      "losses": 113,
+      "draws": 5,
+      "pentanomial": [
+        13,
+        2,
+        85,
+        3,
+        37
+      ],
+      "elo": 61.43356722313199,
+      "ci95": 34.50917943401221,
+      "los": 0.9998249655637773
+    },
+    "stc": {
+      "games": 120,
+      "wins": 68,
+      "losses": 50,
+      "draws": 2,
+      "pentanomial": [
+        9,
+        0,
+        32,
+        2,
+        17
+      ],
+      "elo": 52.51156585572754,
+      "ci95": 58.82034524122433,
+      "los": 0.9636432009438946
+    },
+    "ltc": {
+      "games": 40,
+      "wins": 23,
+      "losses": 16,
+      "draws": 1,
+      "pentanomial": [
+        3,
+        0,
+        10,
+        1,
+        6
+      ],
+      "elo": 61.43356722313199,
+      "ci95": 106.77348822396993,
+      "los": 0.8831528880912941
+    }
+  },
+  "claims": {
+    "architecture_selected": true,
+    "formal_strength_gate": false,
+    "evidence_against_run6b": false,
+    "production_network": false,
+    "run6b_production_path_changed": false
+  }
+}

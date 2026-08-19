@@ -41,6 +41,10 @@ inline constexpr IndexType RoyalBucketCount      = RANK_NB * 4;
 inline constexpr IndexType RoyalPieceSquareDimensions =
   RoyalBucketCount * RoyalNonKingRoleCount * SQUARE_NB;
 inline constexpr IndexType InvalidRoyalFeatureIndex = RoyalPieceSquareDimensions;
+inline constexpr IndexType RoyalRankBucketCount = RANK_NB;
+inline constexpr IndexType RoyalRankPieceSquareDimensions =
+  RoyalRankBucketCount * RoyalNonKingRoleCount * SQUARE_NB;
+inline constexpr IndexType InvalidRoyalRankFeatureIndex = RoyalRankPieceSquareDimensions;
 
 struct RoyalKey {
     IndexType bucket;
@@ -94,6 +98,19 @@ constexpr IndexType fixed_role_piece_square_index(Piece piece, Square square) no
            : IndexType(role) * SQUARE_NB + IndexType(square);
 }
 
+// The absolute first-domain control deliberately shares the first ten Global
+// rows (all registered non-king roles) and excludes the final Black-king role.
+constexpr IndexType absolute_nonking_piece_square_index(Piece piece, Square square) noexcept {
+    const FixedRole role = fixed_role(piece);
+    return role >= ROYAL_KING || !is_ok(square)
+           ? InvalidFeatureIndex
+           : IndexType(role) * SQUARE_NB + IndexType(square);
+}
+
+constexpr IndexType absolute_nonking_index_from_global(IndexType globalIndex) noexcept {
+    return globalIndex < RoyalNonKingRoleCount * SQUARE_NB ? globalIndex : InvalidFeatureIndex;
+}
+
 constexpr Square horizontal_flip(Square square) noexcept {
     return is_ok(square) ? Square(IndexType(square) ^ 7) : SQ_NONE;
 }
@@ -120,6 +137,24 @@ constexpr RoyalKey royal_key(Square blackKingSquare) noexcept {
 
 constexpr bool is_valid_royal_key(RoyalKey key) noexcept { return key.bucket < RoyalBucketCount; }
 
+constexpr IndexType royal_rank_bucket(Square blackKingSquare) noexcept {
+    return is_ok(blackKingSquare) ? IndexType(rank_of(blackKingSquare)) : RoyalRankBucketCount;
+}
+
+constexpr RoyalKey royal_rank_key(Square blackKingSquare) noexcept {
+    return {royal_rank_bucket(blackKingSquare), royal_mirror(blackKingSquare)};
+}
+
+constexpr RoyalKey royal_rank_key(RoyalKey fullRoyalKey) noexcept {
+    return is_valid_royal_key(fullRoyalKey)
+           ? RoyalKey{fullRoyalKey.bucket / 4, fullRoyalKey.mirror}
+           : RoyalKey{RoyalRankBucketCount, false};
+}
+
+constexpr bool is_valid_royal_rank_key(RoyalKey key) noexcept {
+    return key.bucket < RoyalRankBucketCount;
+}
+
 constexpr IndexType royal_piece_square_index(Piece piece, Square square, RoyalKey key) noexcept {
     const FixedRole role = fixed_role(piece);
     return !is_valid_royal_key(key) || role >= ROYAL_KING || !is_ok(square)
@@ -133,14 +168,39 @@ royal_piece_square_index(Piece piece, Square square, Square blackKingSquare) noe
     return royal_piece_square_index(piece, square, royal_key(blackKingSquare));
 }
 
+constexpr IndexType
+royal_rank_piece_square_index(Piece piece, Square square, RoyalKey key) noexcept {
+    const FixedRole role = fixed_role(piece);
+    return !is_valid_royal_rank_key(key) || role >= ROYAL_KING || !is_ok(square)
+           ? InvalidRoyalRankFeatureIndex
+           : (key.bucket * RoyalNonKingRoleCount + IndexType(role)) * SQUARE_NB
+               + IndexType(royal_orient(square, key.mirror));
+}
+
+constexpr IndexType royal_rank_index_from_royal(IndexType royalIndex) noexcept {
+    if (royalIndex >= RoyalPieceSquareDimensions)
+        return InvalidRoyalRankFeatureIndex;
+
+    constexpr IndexType RowsPerBucket = RoyalNonKingRoleCount * SQUARE_NB;
+    const IndexType      bucket        = royalIndex / RowsPerBucket;
+    return (bucket / 4) * RowsPerBucket + royalIndex % RowsPerBucket;
+}
+
 static_assert(FixedRolePieceSquareDimensions == 704);
 static_assert(RoyalNonKingRoleCount == 10);
 static_assert(RoyalBucketCount == 32);
 static_assert(RoyalPieceSquareDimensions == 20480);
+static_assert(RoyalRankBucketCount == 8);
+static_assert(RoyalRankPieceSquareDimensions == 5120);
 static_assert(fixed_role_piece_square_index(W_PAWN, SQ_A1) == 0);
 static_assert(fixed_role_piece_square_index(W_QUEEN, SQ_H8) == 4 * 64 + 63);
 static_assert(fixed_role_piece_square_index(B_PAWN, SQ_A1) == 5 * 64);
 static_assert(fixed_role_piece_square_index(B_KING, SQ_H8) == 10 * 64 + 63);
+static_assert(absolute_nonking_piece_square_index(W_PAWN, SQ_A1) == 0);
+static_assert(absolute_nonking_piece_square_index(B_QUEEN, SQ_H8) == 10 * 64 - 1);
+static_assert(absolute_nonking_piece_square_index(B_KING, SQ_A1) == InvalidFeatureIndex);
+static_assert(absolute_nonking_index_from_global(10 * 64 - 1) == 10 * 64 - 1);
+static_assert(absolute_nonking_index_from_global(10 * 64) == InvalidFeatureIndex);
 static_assert(fixed_role_piece_square_index(W_KING, SQ_E1) == InvalidFeatureIndex);
 static_assert(fixed_role_piece_square_index(NO_PIECE, SQ_A1) == InvalidFeatureIndex);
 static_assert(horizontal_flip(SQ_A1) == SQ_H1);
@@ -151,6 +211,16 @@ static_assert(royal_piece_square_index(W_PAWN, SQ_A1, SQ_D4)
               == royal_piece_square_index(W_PAWN, SQ_H1, SQ_E4));
 static_assert(royal_piece_square_index(B_KING, SQ_E4, SQ_E4) == InvalidRoyalFeatureIndex);
 static_assert(royal_piece_square_index(W_KING, SQ_E1, SQ_E4) == InvalidRoyalFeatureIndex);
+static_assert(royal_rank_key(SQ_E4) == royal_rank_key(SQ_F4));
+static_assert(royal_rank_key(SQ_D4).bucket == royal_rank_key(SQ_E4).bucket);
+static_assert(royal_rank_key(SQ_D4).mirror != royal_rank_key(SQ_E4).mirror);
+static_assert(royal_rank_piece_square_index(W_PAWN, SQ_A1, royal_rank_key(SQ_D4))
+              == royal_rank_piece_square_index(W_PAWN, SQ_H1, royal_rank_key(SQ_E4)));
+static_assert(royal_rank_index_from_royal(
+                royal_piece_square_index(W_PAWN, SQ_A1, royal_key(SQ_D4)))
+              == royal_rank_piece_square_index(W_PAWN, SQ_A1, royal_rank_key(SQ_D4)));
+static_assert(royal_rank_piece_square_index(B_KING, SQ_E4, royal_rank_key(SQ_E4))
+              == InvalidRoyalRankFeatureIndex);
 
 }  // namespace Stockfish::Eval::NNUE::HordeV2
 

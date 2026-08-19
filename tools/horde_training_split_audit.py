@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 import sys
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 try:
     from .horde_training_decoder import (
@@ -89,13 +89,15 @@ def audit_pair(
     *,
     example_limit: int = 8,
     require_zero: bool = True,
+    train_factory: Callable[[Path], Any] = HordeBinV1Dataset,
+    validation_factory: Callable[[Path], Any] = HordeBinV1Dataset,
 ) -> dict[str, object]:
     _require(example_limit >= 0, "example limit must be non-negative")
     train_resolved = train_path.expanduser().resolve()
     validation_resolved = validation_path.expanduser().resolve()
     _require(train_resolved != validation_resolved, "training and validation paths are identical")
 
-    with HordeBinV1Dataset(train_resolved) as train, HordeBinV1Dataset(
+    with train_factory(train_resolved) as train, validation_factory(
         validation_resolved
     ) as validation:
         _require(
@@ -136,14 +138,14 @@ def audit_pair(
             "schema": SCHEMA,
             "roles": {
                 "train": {
-                    "name": train_resolved.name,
+                    "name": train.path.name,
                     "file_sha256": train.file_sha256,
                     "payload_sha256": train.manifest["payload_sha256"],
                     "book_sha256": train.manifest["book_sha256"],
                     "records": len(train),
                 },
                 "validation": {
-                    "name": validation_resolved.name,
+                    "name": validation.path.name,
                     "file_sha256": validation.file_sha256,
                     "payload_sha256": validation.manifest["payload_sha256"],
                     "book_sha256": validation.manifest["book_sha256"],

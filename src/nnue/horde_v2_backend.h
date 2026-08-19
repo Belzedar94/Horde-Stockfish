@@ -342,6 +342,135 @@ struct LeanEvalResult {
     Value       value          = VALUE_NONE;
 };
 
+enum class DirtyShape : std::uint8_t {
+    ORDINARY,
+    PROMOTION,
+    CASTLING,
+};
+
+// DirtyPiece only guarantees the piece fields whose corresponding square is
+// active. Keep a normalized copy in lazy slots so inactive, potentially
+// indeterminate fields are never read or copied.
+struct NormalizedDirty {
+    Piece      pc        = NO_PIECE;
+    Square     from      = SQ_NONE;
+    Square     to        = SQ_NONE;
+    Piece      remove_pc = NO_PIECE;
+    Square     remove_sq = SQ_NONE;
+    Piece      add_pc    = NO_PIECE;
+    Square     add_sq    = SQ_NONE;
+    DirtyShape shape     = DirtyShape::ORDINARY;
+};
+
+[[nodiscard]] inline bool normalize_dirty_piece(const DirtyPiece& raw,
+                                                 NormalizedDirty& out) noexcept {
+    out = {};
+    if (!is_registered_piece(raw.pc) || !is_ok(raw.from)
+        || (raw.to != SQ_NONE && !is_ok(raw.to))
+        || (raw.remove_sq != SQ_NONE && !is_ok(raw.remove_sq))
+        || (raw.add_sq != SQ_NONE && !is_ok(raw.add_sq)))
+        return false;
+
+    out.pc   = raw.pc;
+    out.from = raw.from;
+    out.to   = raw.to;
+
+    if (raw.remove_sq != SQ_NONE)
+    {
+        if (!is_registered_piece(raw.remove_pc))
+            return false;
+        out.remove_sq = raw.remove_sq;
+        out.remove_pc = raw.remove_pc;
+    }
+
+    if (raw.add_sq != SQ_NONE)
+    {
+        if (!is_registered_piece(raw.add_pc))
+            return false;
+        out.add_sq = raw.add_sq;
+        out.add_pc = raw.add_pc;
+    }
+
+    if (out.add_sq == SQ_NONE)
+    {
+        if (out.to == SQ_NONE || out.to == out.from)
+            return false;
+        if (out.remove_sq != SQ_NONE && color_of(out.remove_pc) == color_of(out.pc))
+            return false;
+        out.shape = DirtyShape::ORDINARY;
+        return true;
+    }
+
+    if (type_of(out.pc) == PAWN)
+    {
+        const PieceType promoted = type_of(out.add_pc);
+        if (out.to != SQ_NONE || out.add_sq == out.from || color_of(out.add_pc) != color_of(out.pc)
+            || promoted < KNIGHT || promoted > QUEEN
+            || (out.remove_sq != SQ_NONE && color_of(out.remove_pc) == color_of(out.pc)))
+            return false;
+        out.shape = DirtyShape::PROMOTION;
+        return true;
+    }
+
+    if (out.pc == B_KING)
+    {
+        if (out.to == SQ_NONE || out.remove_sq == SQ_NONE || out.remove_pc != B_ROOK
+            || out.add_pc != B_ROOK)
+            return false;
+        out.shape = DirtyShape::CASTLING;
+        return true;
+    }
+
+    return false;
+}
+
+template<typename Width, typename Kernels, typename Parameters>
+[[nodiscard]] LeanEvalResult
+propagate_dual_domain(const std::array<Accumulator, Width::RoyalLanes>&  first,
+                      const std::array<Accumulator, Width::GlobalLanes>& global,
+                      const Parameters&                                  parameters,
+                      LeanDenseScratch<Width>&                           scratch,
+                      Color                                              sideToMove,
+                      int                                                rule50Count) noexcept {
+    assert(sideToMove == WHITE || sideToMove == BLACK);
+
+    for (std::size_t lane = 0; lane < Width::RoyalLanes; ++lane)
+        scratch.transformed[lane] = clipped_activation(first[lane], FtActivationShift);
+    for (std::size_t lane = 0; lane < Width::GlobalLanes; ++lane)
+        scratch.transformed[Width::RoyalLanes + lane] =
+          clipped_activation(global[lane], FtActivationShift);
+
+    for (std::size_t output = 0; output < Width::Hidden0Lanes; ++output)
+    {
+        const std::size_t offset = output * Width::TransformedLanes;
+        const Accumulator sum    = Kernels::affine(
+          scratch.transformed.data(), parameters.hidden0Weights.data() + offset,
+          Width::TransformedLanes, parameters.hidden0Bias[output]);
+        scratch.hidden0Affine[output] = sum;
+        scratch.hidden0[output]       = clipped_activation(sum, DenseActivationShift);
+    }
+
+    for (std::size_t output = 0; output < Width::Hidden1Lanes; ++output)
+    {
+        const std::size_t offset = output * Width::Hidden0Lanes;
+        const Accumulator sum =
+          Kernels::affine(scratch.hidden0.data(), parameters.hidden1Weights.data() + offset,
+                          Width::Hidden0Lanes, parameters.hidden1Bias[output]);
+        scratch.hidden1Affine[output] = sum;
+        scratch.hidden1[output]       = clipped_activation(sum, DenseActivationShift);
+    }
+
+    const std::size_t head   = std::size_t(sideToMove);
+    const std::size_t offset = head * Width::Hidden1Lanes;
+    LeanEvalResult    result{};
+    result.outputAffine =
+      Kernels::affine(scratch.hidden1.data(), parameters.outputWeights.data() + offset,
+                      Width::Hidden1Lanes, parameters.outputBias[head]);
+    result.preRule50Value = result.outputAffine / ScalarOutputScale;
+    result.value          = apply_rule50_postprocessor(result.preRule50Value, rule50Count);
+    return result;
+}
+
 template<typename Width, typename Kernels = DefaultLeanKernels>
 class LeanNetwork {
    public:
@@ -353,21 +482,36 @@ class LeanNetwork {
         parameters_(std::move(parameters)) {}
 
     [[nodiscard]] const Parameters& parameters() const noexcept { return parameters_; }
+    [[nodiscard]] bool              valid() const noexcept { return true; }
+
+    [[nodiscard]] static RoyalKey first_domain_key(const FullRefreshFeatures& features) noexcept {
+        return features.royalKey;
+    }
+
+    [[nodiscard]] static RoyalKey first_domain_key(const Position& pos) noexcept {
+        return royal_key(pos.square<KING>(BLACK));
+    }
+
+    [[nodiscard]] static bool requires_refresh(RoyalKey sourceKey,
+                                               RoyalKey targetKey) noexcept {
+        return !is_valid_royal_key(sourceKey) || !is_valid_royal_key(targetKey)
+            || sourceKey != targetKey;
+    }
 
     void full_refresh(Frame& frame, const FullRefreshFeatures& features) const noexcept {
         assert(features.valid());
         frame.royal  = parameters_.royalBias;
         frame.global = parameters_.globalBias;
-        frame.key    = features.royalKey;
+        frame.key    = first_domain_key(features);
         refresh_royal(frame.royal, features);
         refresh_global(frame.global, features);
     }
 
-    [[nodiscard]] bool materialize_child_same_key(Frame&            child,
-                                                  const Frame&      source,
-                                                  const DirtyPiece& dirty,
-                                                  RoyalKey          targetKey) const noexcept {
-        if (!is_valid_royal_key(targetKey) || targetKey != source.key)
+    [[nodiscard]] bool materialize_child_delta(Frame&                 child,
+                                               const Frame&           source,
+                                               const NormalizedDirty& dirty,
+                                               RoyalKey               targetKey) const noexcept {
+        if (requires_refresh(source.key, targetKey))
             return false;
 
         child.global = source.global;
@@ -378,53 +522,22 @@ class LeanNetwork {
         return true;
     }
 
-    void materialize_child(Frame&                     child,
-                           const Frame&               source,
-                           const DirtyPiece&          dirty,
-                           const FullRefreshFeatures& target) const noexcept {
+    [[nodiscard]] bool materialize_child(Frame&                     child,
+                                         const Frame&               source,
+                                         const NormalizedDirty&     dirty,
+                                         const FullRefreshFeatures& target) const noexcept {
         assert(&child != &source);
         assert(target.valid());
 
-        if (target.royalKey == source.key)
-        {
-            const bool materialized =
-              materialize_child_same_key(child, source, dirty, target.royalKey);
-            assert(materialized);
-            return;
-        }
-
-        child.global = source.global;
-        apply_global_deltas(child.global, dirty);
-        child.key   = target.royalKey;
-        child.royal = parameters_.royalBias;
-        refresh_royal(child.royal, target);
-    }
-
-    // Production-position overload. Ordinary moves derive the Royal key in
-    // O(1) and never enumerate the board. Only a Black-king bucket or mirror
-    // transition extracts sparse Royal rows for a refresh; Global remains a
-    // delta update in both cases.
-    [[nodiscard]] bool materialize_child(Frame&            child,
-                                         const Frame&      source,
-                                         const DirtyPiece& dirty,
-                                         const Position&   target) const noexcept {
-        if (target.count<KING>(WHITE) != 0 || target.count<KING>(BLACK) != 1)
-            return false;
-
-        const RoyalKey targetKey = royal_key(target.square<KING>(BLACK));
-
-        if (targetKey == source.key)
-            return materialize_child_same_key(child, source, dirty, targetKey);
-
-        const FullRefreshFeatures features = extract_full_refresh_features(target);
-        if (!features.valid() || features.royalKey != targetKey)
-            return false;
+        const RoyalKey targetKey = first_domain_key(target);
+        if (!requires_refresh(source.key, targetKey))
+            return materialize_child_delta(child, source, dirty, targetKey);
 
         child.global = source.global;
         apply_global_deltas(child.global, dirty);
         child.key   = targetKey;
         child.royal = parameters_.royalBias;
-        refresh_royal(child.royal, features);
+        refresh_royal(child.royal, target);
         return true;
     }
 
@@ -432,44 +545,8 @@ class LeanNetwork {
                                            Scratch&     scratch,
                                            Color        sideToMove,
                                            int          rule50Count) const noexcept {
-        assert(sideToMove == WHITE || sideToMove == BLACK);
-
-        for (std::size_t lane = 0; lane < Width::RoyalLanes; ++lane)
-            scratch.transformed[lane] = clipped_activation(frame.royal[lane], FtActivationShift);
-        for (std::size_t lane = 0; lane < Width::GlobalLanes; ++lane)
-            scratch.transformed[Width::RoyalLanes + lane] =
-              clipped_activation(frame.global[lane], FtActivationShift);
-
-        for (std::size_t output = 0; output < Width::Hidden0Lanes; ++output)
-        {
-            const std::size_t offset = output * Width::TransformedLanes;
-            const Accumulator sum    = Kernels::affine(
-              scratch.transformed.data(), parameters_.hidden0Weights.data() + offset,
-              Width::TransformedLanes, parameters_.hidden0Bias[output]);
-            scratch.hidden0Affine[output] = sum;
-            scratch.hidden0[output]       = clipped_activation(sum, DenseActivationShift);
-        }
-
-        for (std::size_t output = 0; output < Width::Hidden1Lanes; ++output)
-        {
-            const std::size_t offset = output * Width::Hidden0Lanes;
-            const Accumulator sum =
-              Kernels::affine(scratch.hidden0.data(), parameters_.hidden1Weights.data() + offset,
-                              Width::Hidden0Lanes, parameters_.hidden1Bias[output]);
-            scratch.hidden1Affine[output] = sum;
-            scratch.hidden1[output]       = clipped_activation(sum, DenseActivationShift);
-        }
-
-        const std::size_t head   = std::size_t(sideToMove);
-        const std::size_t offset = head * Width::Hidden1Lanes;
-        LeanEvalResult    result{};
-        result.outputAffine =
-          Kernels::affine(scratch.hidden1.data(), parameters_.outputWeights.data() + offset,
-                          Width::Hidden1Lanes, parameters_.outputBias[head]);
-
-        result.preRule50Value = result.outputAffine / ScalarOutputScale;
-        result.value          = apply_rule50_postprocessor(result.preRule50Value, rule50Count);
-        return result;
+        return propagate_dual_domain<Width, Kernels>(frame.royal, frame.global, parameters_, scratch,
+                                                     sideToMove, rule50Count);
     }
 
    private:
@@ -536,24 +613,24 @@ class LeanNetwork {
     }
 
     void apply_global_deltas(std::array<Accumulator, Width::GlobalLanes>& accumulator,
-                             const DirtyPiece&                            dirty) const noexcept {
+                             const NormalizedDirty&                       dirty) const noexcept {
         subtract_global(accumulator, dirty.pc, dirty.from);
-        if (dirty.to != SQ_NONE)
-            add_global(accumulator, dirty.pc, dirty.to);
         if (dirty.remove_sq != SQ_NONE)
             subtract_global(accumulator, dirty.remove_pc, dirty.remove_sq);
+        if (dirty.to != SQ_NONE)
+            add_global(accumulator, dirty.pc, dirty.to);
         if (dirty.add_sq != SQ_NONE)
             add_global(accumulator, dirty.add_pc, dirty.add_sq);
     }
 
     void apply_royal_deltas(std::array<Accumulator, Width::RoyalLanes>& accumulator,
-                            const DirtyPiece&                           dirty,
+                            const NormalizedDirty&                      dirty,
                             RoyalKey                                    key) const noexcept {
         subtract_royal(accumulator, dirty.pc, dirty.from, key);
-        if (dirty.to != SQ_NONE)
-            add_royal(accumulator, dirty.pc, dirty.to, key);
         if (dirty.remove_sq != SQ_NONE)
             subtract_royal(accumulator, dirty.remove_pc, dirty.remove_sq, key);
+        if (dirty.to != SQ_NONE)
+            add_royal(accumulator, dirty.pc, dirty.to, key);
         if (dirty.add_sq != SQ_NONE)
             add_royal(accumulator, dirty.add_pc, dirty.add_sq, key);
     }

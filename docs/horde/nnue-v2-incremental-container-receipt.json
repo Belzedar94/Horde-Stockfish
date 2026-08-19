@@ -1,0 +1,241 @@
+{
+  "schema": "HORDE_V2_INCREMENTAL_CONTAINER_RECEIPT_V1",
+  "source": {
+    "branch": "feature/horde-v2-integer-container",
+    "commit": "a1b318aeffc9c5b367f35540e44fb2783e3604d7",
+    "dirty": false,
+    "implementation_commits": [
+      "36810cc5844cdd7bd80392d161188bfd791a5907",
+      "ce398a5521ecde6d88cc476b8f31d4c2e1358d3d",
+      "a1b318aeffc9c5b367f35540e44fb2783e3604d7"
+    ]
+  },
+  "dependencies": {
+    "full_refresh_container_receipt": {
+      "path": "docs/horde/nnue-v2-integer-container-receipt.json",
+      "sha256": "9713E9A825752A8DC5A19735EA2FDEDCCC2F5DFA3ABDB62B6844ED26E5658963",
+      "source_commit": "f38a1a7c6b92be08afa6847c79191f7fbe68d0ad",
+      "incremental_eligible_at_that_commit": false
+    },
+    "width_receipt": {
+      "path": "docs/horde/nnue-v2-width-receipt.json",
+      "sha256": "E5E48A960F4278438B15D2BDB46333F5266C0EF120522BB24AC370739111E8B6",
+      "source_commit": "2468720a236b6d7b58052930040147df2843e022"
+    }
+  },
+  "implementation": {
+    "src_makefile_sha256": "7016B32F7771291638CDB83E6943ACB4F216D631D02A418C3C34B5DB02F9D179",
+    "backend_sha256": "4D0F4FAD92B9B64C5A27004B1F07EF3E49EA9BECC916F35039515776CB65D2D1",
+    "container_header_sha256": "5181647DE59133195E38FF02E0142A5BDB470A323F30C768223BAA034B70D49C",
+    "container_reader_sha256": "9D0CA3E184DC192877196D5BB1A25717558CC5295FFB78B3A51FFE005253F689",
+    "features_sha256": "F35B04C05633AE3328F083FF535187536C2A6B3EE4675EF08F22FE8F69605D31",
+    "lazy_stack_sha256": "E1AC56D2E8B3EFF892CE1FD2931AE04C461CA359BDD678918D7849A1A4B2B77B",
+    "backend_oracle_sha256": "25C55727703B9818C68C4FCDA3AB20376F6298F989868016BF84589174FD097D",
+    "container_oracle_sha256": "EA499066607C96FA2004C0B195947B9AF6BD9261B8DA2E6932AA82533991737B",
+    "container_parity_sha256": "D231A7A841E5248C4D47FF620A2046BFC6AF94FBCCCD996304C109B09881263B",
+    "position_stack_oracle_sha256": "83BEC7E535E167F2B9B7105E67A07D7B11C0A66CDE94DF35D971BC27CC322604",
+    "correctness_workflow_sha256": "9CCFDFC87634135500B2328F1B5F1D14F395B80FFF6C4D87E4CD4AD4A010D5ED"
+  },
+  "registered_schemas": {
+    "V2_BASE_P0_64X192": {
+      "network_schema_id": 65537,
+      "first_domain": "ROYAL",
+      "first_rows": 20480,
+      "first_lanes": 64,
+      "global_rows": 704,
+      "global_lanes": 192
+    },
+    "V2_C1_ABS_NONKING_64X192": {
+      "network_schema_id": 65538,
+      "first_domain": "ABSOLUTE_NONKING",
+      "first_rows": 640,
+      "first_lanes": 64,
+      "global_rows": 704,
+      "global_lanes": 192
+    }
+  },
+  "incremental_contract": {
+    "root": "full refresh from a validated Position",
+    "ordinary_child": "lazy DirtyPiece delta in both domains",
+    "royal_bucket_change": "refresh first Royal domain and retain a delta-updated Global domain",
+    "absolute_first_domain": "always delta-updated",
+    "black_king": "encoded only in Global and excluded from both first domains",
+    "null_move": "reuse the latest accumulator frame and change only side-to-move and rule-50 inputs",
+    "undo": "pop one accumulator slot",
+    "normal_dirty_validation": "reject malformed or unsupported DirtyPiece records",
+    "instrumented_exact_transition_validation": "reconstruct and compare the target physical board",
+    "ordinary_child_board_scan": false,
+    "lazy_batch_materialization": true,
+    "maximum_stack_slots": 247
+  },
+  "verification": {
+    "feature_contract": {
+      "global_indices": 704,
+      "royal_indices": 20480,
+      "full_refresh_active_rows": {
+        "global": 52,
+        "royal": 51
+      },
+      "incremental_transitions": {
+        "actual": 263,
+        "expected": 263
+      }
+    },
+    "lean_backend": {
+      "backends": [
+        "scalar",
+        "avx2"
+      ],
+      "reference_parity": "256+256",
+      "common_widths": 4,
+      "synthetic_transitions": 6
+    },
+    "integer_container": {
+      "schemas": {
+        "V2_BASE_P0_64X192": "A65BE53AA6B0",
+        "V2_C1_ABS_NONKING_64X192": "C0F1DFEDD376"
+      },
+      "cpp_oracles": 2,
+      "position_oracles": 1,
+      "python_layer_oracle": true,
+      "malformed_container_cases": 12
+    },
+    "real_position_stack": {
+      "focused_special_moves": 10,
+      "legal_moves": 192,
+      "null_moves": 15,
+      "royal_refreshes": 17,
+      "make_undo": true,
+      "lazy_six_ply_batch": true,
+      "container_schemas_exercised": 2,
+      "chess960_castling_fixtures": 4
+    },
+    "platforms": [
+      "linux",
+      "windows"
+    ],
+    "build_modes": [
+      "release",
+      "assertions",
+      "shadow-refresh",
+      "address-sanitizer",
+      "undefined-behavior-sanitizer"
+    ],
+    "run6b_benchmark": {
+      "nodes": 315576,
+      "bestmoves_sha256": "FE9A5001C1997125CE34BF0EF119EAB44570F5F363227BD4BAB8E0DB1F4E8592",
+      "repetitions": 3
+    }
+  },
+  "sanitizer_regression": {
+    "fault": "the Black king was compared with the Global sentinel after computing a Royal first-domain row",
+    "observed_invalid_row": 20480,
+    "masked_in_optimized_parity": "same-mirror king subtraction and addition cancelled before propagation",
+    "fix": "exclude the Black king from both first domains and use the domain-specific invalid sentinel",
+    "fix_commit": "a1b318aeffc9c5b367f35540e44fb2783e3604d7",
+    "asan_ubsan_after_fix": "success"
+  },
+  "performance": {
+    "exact_source_width_benchmark": {
+      "run_id": 31284859876,
+      "head_sha": "a1b318aeffc9c5b367f35540e44fb2783e3604d7",
+      "status": "success",
+      "artifact_id": 9029520262,
+      "artifact_bytes": 2891,
+      "artifact_archive_sha256": "B32C4AA1D97E2B9F86C437A8DDF1F7AB4346F7FF139BBD2D712FA6976316DCCD",
+      "receipt_sha256": "ABD2B462D2A868269DE23433FF29B6F086B139322228B88851B046923A57F3E6",
+      "rounds": 12,
+      "depth": 13,
+      "fastest_by_median": "64x192",
+      "nodes": 2190067,
+      "bestmoves_sha256": "C70B3DE48455427520354D66FB5CC60AA888B113DDF05DA53769AC2195832024",
+      "root_evals_sha256": "7495735C871DE29635D69809875FA98820D94489D37EEC5B892548579E0BF87B",
+      "root_scores_sha256": "F8E917366F04BD080B389D23795A6C6C93D3C855D190ECF628FF0B79E143B90A",
+      "widths": {
+        "64x192": {
+          "binary_sha256": "D259B5767B2BC0E5AEE2F3B1FCBE602367DFC5B27C71D3AF9D0D50B5C2D09797",
+          "median_nps": 1173356.5,
+          "ratio_to_fastest": 1.0,
+          "ratio_ci95_low": 1.0,
+          "ratio_ci95_high": 1.0,
+          "precision_gate": true,
+          "training_speed_gate": true
+        },
+        "128x128": {
+          "binary_sha256": "937BCEFB29331F69EA44C8B4D835883E390D4DAE1BE15D871556B0D114904B67",
+          "median_nps": 1161839.0,
+          "ratio_to_fastest": 0.9904782732776397,
+          "ratio_ci95_low": 0.985305793870552,
+          "ratio_ci95_high": 0.995343490906711,
+          "precision_gate": false,
+          "training_speed_gate": true
+        },
+        "128x256": {
+          "binary_sha256": "BEE055D786493B2C89D2ECF6F124B4542CA0646F252A2FE2E0CE355D026ED2CF",
+          "median_nps": 1040411.0,
+          "ratio_to_fastest": 0.8884344202921933,
+          "ratio_ci95_low": 0.8856223609739351,
+          "ratio_ci95_high": 0.8915471502988004,
+          "precision_gate": true,
+          "training_speed_gate": false
+        },
+        "256x256": {
+          "binary_sha256": "5EA870F795A602FC3B15F33F3735D7C6824AA8D615C31029DFCF7507669A46E3",
+          "median_nps": 943790.5,
+          "ratio_to_fastest": 0.8058174235673985,
+          "ratio_ci95_low": 0.8025644720316705,
+          "ratio_ci95_high": 0.8089774856609915,
+          "precision_gate": true,
+          "training_speed_gate": false
+        }
+      },
+      "decision": "64x192 remains the fastest initial V2 width; this is not a playing-strength selection"
+    },
+    "local_hot_path_ab": {
+      "classification": "exploratory and not a formal speed gate",
+      "fixture_sha256": "4F7F2E395F80759AD1BF276D767339A0C97661945C4E773F19DA3A3A0E3E6079",
+      "rounds": 16,
+      "nodes": 2190067,
+      "hot_path_median_nps": 514101.0,
+      "pre_incremental_median_nps": 503463.0,
+      "hot_path_to_pre_incremental_median_ratio": 1.021129656002532,
+      "reported_paired_ratio": "pre_incremental divided by hot_path",
+      "reported_paired_ratio_ci95_low": 0.9443596726761805,
+      "reported_paired_ratio_ci95_high": 1.0151533128422248,
+      "precision_gate": false,
+      "tree_identity": true
+    }
+  },
+  "ci": {
+    "initial_exact_correctness": {
+      "run_id": 31283837404,
+      "head_sha": "a1b318aeffc9c5b367f35540e44fb2783e3604d7",
+      "conclusion": "success",
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31283837404"
+    },
+    "exact_openbench_artifacts": {
+      "run_id": 31283837476,
+      "head_sha": "a1b318aeffc9c5b367f35540e44fb2783e3604d7",
+      "conclusion": "success",
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31283837476"
+    },
+    "exact_correctness_and_width": {
+      "run_id": 31284859876,
+      "head_sha": "a1b318aeffc9c5b367f35540e44fb2783e3604d7",
+      "conclusion": "success",
+      "url": "https://github.com/Belzedar94/Horde-Stockfish/actions/runs/31284859876"
+    }
+  },
+  "claims": {
+    "authenticated_integer_container": true,
+    "runtime_incremental_verified": true,
+    "incremental_full_refresh_parity": true,
+    "real_position_stack_verified": true,
+    "scalar_avx2_python_parity": true,
+    "sanitizer_clean": true,
+    "fail_closed_validation": true,
+    "production_dispatch": false,
+    "run6b_production_path_changed": false,
+    "strength_evidence": false
+  }
+}

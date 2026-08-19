@@ -66,7 +66,7 @@ def test_mate_mask() -> None:
     batch = control.LegacyBatch(
         legacy_white=torch.empty(0, dtype=torch.long),
         legacy_black=torch.empty(0, dtype=torch.long),
-        piece_offsets=torch.zeros(4, dtype=torch.long),
+        legacy_piece_offsets=torch.zeros(4, dtype=torch.long),
         side_to_move=torch.tensor([0, 1, 0]),
         piece_buckets=torch.zeros(3, dtype=torch.long),
         rule50_count=torch.zeros(3, dtype=torch.long),
@@ -97,7 +97,7 @@ def test_gradient_path() -> None:
     batch = control.LegacyBatch(
         legacy_white=fixture.legacy_white,
         legacy_black=fixture.legacy_black,
-        piece_offsets=fixture.piece_offsets,
+        legacy_piece_offsets=fixture.legacy_piece_offsets,
         side_to_move=fixture.side_to_move,
         piece_buckets=fixture.piece_buckets,
         rule50_count=torch.zeros_like(fixture.side_to_move),
@@ -126,7 +126,7 @@ def test_gradient_path() -> None:
         cuda_batch = control.LegacyBatch(
             legacy_white=batch.legacy_white.to("cuda"),
             legacy_black=batch.legacy_black.to("cuda"),
-            piece_offsets=batch.piece_offsets.to("cuda"),
+            legacy_piece_offsets=batch.legacy_piece_offsets.to("cuda"),
             side_to_move=batch.side_to_move.to("cuda"),
             piece_buckets=batch.piece_buckets.to("cuda"),
             rule50_count=batch.rule50_count.to("cuda"),
@@ -140,11 +140,304 @@ def test_gradient_path() -> None:
             raise AssertionError("legacy control forward is not CUDA-safe")
 
 
+def _parameter_ids(group: dict[str, object]) -> set[int]:
+    return {id(parameter) for parameter in group["params"]}
+
+
+def test_optimizer_learning_rate_arms() -> None:
+    learning_rate = control.DEFAULT_LEARNING_RATE
+    baseline_model = control._make_model("v2-c1-abs64x192", 0xC0FFEE)
+    reference_model = control._make_model("v2-c1-abs64x192", 0xC0FFEE)
+    reference_output = [reference_model.output_weights, reference_model.output_bias]
+    reference_output_ids = {id(parameter) for parameter in reference_output}
+    reference_body = [
+        parameter
+        for parameter in reference_model.parameters()
+        if id(parameter) not in reference_output_ids
+    ]
+    reference = torch.optim.RAdam(
+        [
+            {"params": reference_body, "lr": learning_rate},
+            {"params": reference_output, "lr": learning_rate / 10.0},
+        ],
+        betas=(0.9, 0.999),
+        eps=1.0e-7,
+        weight_decay=0.0,
+        foreach=False,
+    )
+    baseline = control._make_optimizer(baseline_model, learning_rate)
+    if baseline.state_dict() != reference.state_dict():
+        raise AssertionError("baseline optimizer state changed before its first step")
+    for (baseline_name, baseline_parameter), (reference_name, reference_parameter) in zip(
+        baseline_model.named_parameters(),
+        reference_model.named_parameters(),
+        strict=True,
+    ):
+        if baseline_name != reference_name:
+            raise AssertionError("baseline optimizer parameter order changed")
+        gradient = torch.full_like(baseline_parameter, 0.125)
+        baseline_parameter.grad = gradient
+        reference_parameter.grad = gradient.clone()
+    baseline.step()
+    reference.step()
+    if control._state_sha256(baseline_model) != control._state_sha256(reference_model):
+        raise AssertionError("baseline optimizer step is not bit-identical")
+
+    model = control._make_model("v2-c1-abs64x192", 0xC0FFEE)
+    output_ids = {id(model.output_weights), id(model.output_bias)}
+    dense_ids = {
+        id(getattr(model, name))
+        for name in (
+            "hidden0_weights",
+            "hidden0_bias",
+            "hidden1_weights",
+            "hidden1_bias",
+        )
+    }
+
+    baseline = control._make_optimizer(model, learning_rate)
+    if len(baseline.param_groups) != 2:
+        raise AssertionError("baseline optimizer group count changed")
+    if [group["lr"] for group in baseline.param_groups] != [
+        learning_rate,
+        learning_rate * control.DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+    ]:
+        raise AssertionError("baseline optimizer learning rates changed")
+    if _parameter_ids(baseline.param_groups[1]) != output_ids:
+        raise AssertionError("baseline output parameter group changed")
+    if not dense_ids.issubset(_parameter_ids(baseline.param_groups[0])):
+        raise AssertionError("baseline dense parameters left the body group")
+
+    dense_arm = control._make_optimizer(
+        model,
+        learning_rate,
+        dense_learning_rate_multiplier=0.1,
+    )
+    if len(dense_arm.param_groups) != 3:
+        raise AssertionError("dense-rate arm did not isolate the dense trunk")
+    if [group["lr"] for group in dense_arm.param_groups] != [
+        learning_rate,
+        learning_rate * 0.1,
+        learning_rate * control.DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+    ]:
+        raise AssertionError("dense-rate arm changed another learning rate")
+    if _parameter_ids(dense_arm.param_groups[1]) != dense_ids:
+        raise AssertionError("dense-rate arm parameter group is incomplete")
+    if _parameter_ids(dense_arm.param_groups[2]) != output_ids:
+        raise AssertionError("dense-rate arm changed the output parameter group")
+
+    output_arm = control._make_optimizer(
+        model,
+        learning_rate,
+        output_learning_rate_multiplier=1.0,
+    )
+    if len(output_arm.param_groups) != 2:
+        raise AssertionError("output-rate arm changed the optimizer group topology")
+    if [group["lr"] for group in output_arm.param_groups] != [
+        learning_rate,
+        learning_rate,
+    ]:
+        raise AssertionError("output-rate arm changed another learning rate")
+    if _parameter_ids(output_arm.param_groups[1]) != output_ids:
+        raise AssertionError("output-rate arm changed the output parameter group")
+
+    try:
+        control._make_optimizer(
+            model,
+            learning_rate,
+            dense_learning_rate_multiplier=0.1,
+            output_learning_rate_multiplier=1.0,
+        )
+    except control.TrainingError:
+        pass
+    else:
+        raise AssertionError("combined optimizer-factor experiment was accepted")
+
+    legacy_model = control._make_model(control.LEGACY_ARCHITECTURE, 0xC0FFEE)
+    legacy_dense_ids = {
+        id(getattr(legacy_model, name))
+        for name in (
+            "hidden0_weights",
+            "hidden0_bias",
+            "hidden1_weights",
+            "hidden1_bias",
+        )
+    }
+    legacy_output_ids = {
+        id(legacy_model.output_weights),
+        id(legacy_model.output_bias),
+    }
+    legacy_dense_arm = control._make_optimizer(
+        legacy_model,
+        learning_rate,
+        dense_learning_rate_multiplier=0.1,
+    )
+    if [group["lr"] for group in legacy_dense_arm.param_groups] != [
+        learning_rate,
+        learning_rate * 0.1,
+        learning_rate * control.DEFAULT_OUTPUT_LEARNING_RATE_MULTIPLIER,
+    ]:
+        raise AssertionError("legacy dense-rate control changed another learning rate")
+    if _parameter_ids(legacy_dense_arm.param_groups[1]) != legacy_dense_ids:
+        raise AssertionError("legacy dense-rate control did not isolate the dense trunk")
+    if _parameter_ids(legacy_dense_arm.param_groups[2]) != legacy_output_ids:
+        raise AssertionError("legacy dense-rate control changed the output parameter group")
+
+
+def test_v2_gradient_path() -> None:
+    fixture, _ = microfit.make_fixture_batch()
+    batch = control.V2Batch(
+        v2_global=fixture.v2_global,
+        v2_royal=fixture.v2_royal,
+        global_offsets=fixture.global_offsets,
+        royal_offsets=fixture.royal_offsets,
+        side_to_move=fixture.side_to_move,
+        rule50_count=torch.zeros_like(fixture.side_to_move),
+        scores=fixture.scores,
+        results=torch.round(2.0 * fixture.result_targets - 1.0).to(dtype=torch.long),
+        score_eligible=torch.ones_like(fixture.scores, dtype=torch.bool),
+    )
+    cuda_batch = None
+    if torch.cuda.is_available():
+        cuda_batch = control.V2Batch(
+            **{
+                field: getattr(batch, field).to("cuda")
+                for field in control.V2Batch.__dataclass_fields__
+            }
+        )
+    expected_architectures = {
+        "v2-64x192": (
+            "royal",
+            64,
+            192,
+            2_902_344,
+            "royal_transformer",
+        ),
+        "v2-128x128": (
+            "royal",
+            128,
+            128,
+            5_433_672,
+            "royal_transformer",
+        ),
+        "v2-c1-abs64x192": (
+            "absolute_nonking",
+            64,
+            192,
+            362_824,
+            "absolute_nonking_transformer",
+        ),
+        "v2-c1-rank8-64x192": (
+            "royal_rank8",
+            64,
+            192,
+            936_264,
+            "royal_rank8_transformer",
+        ),
+    }
+    common_initial_states: dict[tuple[str, tuple[int, ...]], torch.Tensor] = {}
+
+    for architecture, (
+        first_domain,
+        first_lanes,
+        global_lanes,
+        serialized_bytes,
+        first_gradient_group,
+    ) in expected_architectures.items():
+        structure = control._v2_structure(architecture)
+        if structure["structural_sha256"] != control._sha256_bytes(
+            control._compact_json(
+                {
+                    key: value
+                    for key, value in structure.items()
+                    if key != "structural_sha256"
+                }
+            )
+        ):
+            raise AssertionError(f"{architecture} structural hash is not self-consistent")
+        domains = structure["domains"]
+        if (
+            domains[0]["name"] != first_domain
+            or domains[0]["lanes"] != first_lanes
+            or domains[1]["lanes"] != global_lanes
+            or structure["serialized_parameter_bytes"] != serialized_bytes
+        ):
+            raise AssertionError(f"{architecture} width receipt changed: {structure}")
+
+        model = control._make_model(architecture, 0xC0FFEE)
+        if first_domain == "absolute_nonking":
+            absolute_indices, absolute_offsets = model.absolute_nonking_features(batch)
+            expected_indices = batch.v2_global[
+                batch.v2_global < control.V2_ABSOLUTE_NONKING_DIMENSIONS
+            ]
+            if not torch.equal(absolute_indices, expected_indices):
+                raise AssertionError("C1 absolute domain retained a non-physical G0 row")
+            if not torch.equal(absolute_offsets, batch.royal_offsets):
+                raise AssertionError("C1 absolute domain did not omit exactly the Black king")
+        elif first_domain == "royal_rank8":
+            rank8_indices, rank8_offsets = model.royal_rank8_features(batch)
+            rows_per_bucket = 10 * 64
+            expected_indices = (
+                torch.div(batch.v2_royal, rows_per_bucket * 4, rounding_mode="floor")
+                * rows_per_bucket
+                + torch.remainder(batch.v2_royal, rows_per_bucket)
+            )
+            if not torch.equal(rank8_indices, expected_indices):
+                raise AssertionError("C1 R8 projection changed its rank-bucket map")
+            if not torch.equal(rank8_offsets, batch.royal_offsets):
+                raise AssertionError("C1 R8 projection changed sparse record boundaries")
+        before = control._state_sha256(model)
+        for name in (
+            "global_weights",
+            "global_bias",
+            "hidden0_weights",
+            "hidden0_bias",
+            "hidden1_weights",
+            "hidden1_bias",
+            "output_weights",
+            "output_bias",
+        ):
+            value = getattr(model, name).detach().clone()
+            key = (name, tuple(value.shape))
+            if key in common_initial_states and not torch.equal(
+                common_initial_states[key], value
+            ):
+                raise AssertionError(f"shared V2 initialization changed for {name}")
+            common_initial_states.setdefault(key, value)
+
+        optimizer = control._make_optimizer(model, control.DEFAULT_LEARNING_RATE)
+        composite, *_ = control.loss_terms(model(batch), batch, 0.6, calibration())
+        composite.mean().backward()
+        norms = control._gradient_norms(model)
+        expected_groups = {
+            first_gradient_group,
+            "global_transformer",
+            "dense_trunk",
+            "output",
+        }
+        if set(norms) != expected_groups:
+            raise AssertionError(f"{architecture} gradient domains changed: {norms}")
+        optimizer.step()
+        control._clip_serialized_dense_weights(model)
+        if control._state_sha256(model) == before:
+            raise AssertionError(f"{architecture} optimizer step did not change the model")
+        if not control._all_finite(model):
+            raise AssertionError(f"{architecture} produced non-finite parameters")
+        if cuda_batch is not None:
+            cuda_model = control._make_model(architecture, 0xC0FFEE).to("cuda")
+            with torch.no_grad():
+                cuda_output = cuda_model(cuda_batch)
+            if cuda_output.device.type != "cuda" or not bool(
+                torch.isfinite(cuda_output).all().cpu()
+            ):
+                raise AssertionError(f"{architecture} forward is not CUDA-safe")
+
+
 def test_wdl_label_path() -> None:
     batch = control.LegacyBatch(
         legacy_white=torch.empty(0, dtype=torch.long),
         legacy_black=torch.empty(0, dtype=torch.long),
-        piece_offsets=torch.zeros(3, dtype=torch.long),
+        legacy_piece_offsets=torch.zeros(3, dtype=torch.long),
         side_to_move=torch.tensor([0, 0]),
         piece_buckets=torch.zeros(2, dtype=torch.long),
         rule50_count=torch.tensor([0, 100]),
@@ -266,6 +559,27 @@ def test_position_and_model_keys() -> None:
     if decoder.legacy_model_input_key(kingside) == decoder.legacy_model_input_key(changed_rule50):
         raise AssertionError("legacy evaluator-input key discarded rule50")
 
+    contextual_features = decoder.SparseFeatures(
+        legacy_white=features.legacy_white,
+        legacy_black=features.legacy_black,
+        v2_global=features.v2_global + (decoder.V2_GLOBAL_DIMENSIONS,),
+        v2_royal=features.v2_royal,
+        royal_bucket=features.royal_bucket,
+        royal_mirror=features.royal_mirror,
+    )
+    contextual_record = decoder.TrainingRecord(
+        **{**common, "features": contextual_features},
+        castling_rights=1,
+    )
+    sparse = decoder.make_sparse_batch((contextual_record,))
+    physical_count = sum(code != 0 for code in physical_board)
+    if sparse.legacy_piece_offsets != (0, physical_count):
+        raise AssertionError("legacy offsets were coupled to contextual Global rows")
+    if sparse.global_offsets != (0, physical_count + 1):
+        raise AssertionError("Global offsets did not include the contextual row")
+    if sparse.physical_piece_count != (physical_count,) or sparse.white_piece_count != (1,):
+        raise AssertionError("physical counts were derived from the complete Global stream")
+
 
 def main() -> int:
     torch.set_num_threads(1)
@@ -274,6 +588,8 @@ def main() -> int:
     test_schedule()
     test_mate_mask()
     test_gradient_path()
+    test_optimizer_learning_rate_arms()
+    test_v2_gradient_path()
     test_wdl_label_path()
     test_wdl_tensor_link()
     test_named_initialization()

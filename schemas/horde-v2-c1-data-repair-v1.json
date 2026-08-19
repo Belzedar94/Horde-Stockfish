@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-v2-c1-data-repair-v1.json",
+  "title": "Horde V2 C1 validation-role repair V1",
+  "schema_name": "HORDE_V2_C1_DATA_REPAIR_V1",
+  "status": "registered_not_run",
+  "purpose": "Create an exact, label-blind 250,000-record validation role without cross-role leakage or internal duplicate evaluator inputs.",
+  "campaign_contract": {
+    "schema": "HORDE_V2_C1_CAMPAIGN_V1",
+    "sha256": "7B5BDA9DC20AB7CF55DE2964085D2ADBBED83137A3071B418439A5CF7DD939DA"
+  },
+  "training_reference": {
+    "file_sha256": "0BFEB566EC1587256DBDB6111689DF51EAFD3063C7D47A2120655B917E29AC6A",
+    "header_sha256": "54113B0A36B44A4020CC051D62264F90EB3ED355B454FEC8480D939CB8E197D3",
+    "manifest_sha256": "374965FC3B06870FF6BA955746265DFBCA2B505FAA619345D4D9B7283333A8E4",
+    "payload_sha256": "46280E89FEF9A5C58D31CBAC36B91E2D8F13954DF17F90E803E7D3237B39EFD4",
+    "record_count": 250000,
+    "book_sha256": "1DC2DD829962CD29FA98CAFC1B0613AC2FCAAFF088B65977E10AAEAF76E96A55"
+  },
+  "failed_validation": {
+    "file_sha256": "AFF9F02537FAD4FA4035BEAC99F98BA7A8E2F8F695E58FB5FA2CA0A142839F42",
+    "header_sha256": "83ACD23E6D8CA9E65BE20BF93F6947D60D79C76633F1E55BD9097DF94690608C",
+    "manifest_sha256": "726403F06E2FA031288C07A67DD11F5DC0C5C0F0DE32A14F2E1F40495D0BA0CE",
+    "payload_sha256": "7CAF5D3F071FC36DB53B6DC9B39D7045A39865DD5E57D438618DC76973D017BB",
+    "record_count": 250000,
+    "book_sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A",
+    "seed": "2026080802",
+    "overlap_audit_sha256": "4ACD4316CCE94444FF6107DC46F4F309C9F12E844254DB56C7301B9A9AE634BB",
+    "physical_cross_role_overlap_samples": 128,
+    "legacy_cross_role_overlap_samples": 64,
+    "physical_validation_duplicate_samples": 118,
+    "legacy_validation_duplicate_samples": 19
+  },
+  "candidate": {
+    "schema": "HORDE_BIN_V1",
+    "schema_sha256": "B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4",
+    "requested_records": 254096,
+    "seed": "2026080803",
+    "book_sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A",
+    "same_normalized_generation_contract_as_training": true,
+    "same_teacher_and_label_contract_as_training": true
+  },
+  "selection": {
+    "schema": "HORDE_TRAINING_SELECTED_ROLE_V1",
+    "algorithm": "FIRST_ELIGIBLE_DUAL_KEY_V1",
+    "role": "validation",
+    "target_records": 250000,
+    "candidate_order": "local_record_index_ascending",
+    "selected_index_encoding": "uint64_little_endian",
+    "physical_key": "SHA-256(board, side, castling, en-passant)",
+    "legacy_model_input_key": "SHA-256(white rows, black rows, side, material bucket, rule50)",
+    "reject_training_physical_key": true,
+    "reject_training_legacy_model_input_key": true,
+    "reject_selected_physical_duplicate": true,
+    "reject_selected_legacy_model_input_duplicate": true,
+    "label_blind": true,
+    "forbidden_selection_inputs": [
+      "score",
+      "result",
+      "terminal_reason",
+      "side_to_move_coverage",
+      "royal_bucket_coverage",
+      "validation_loss",
+      "architecture_output"
+    ]
+  },
+  "postconditions": {
+    "effective_validation_records": 250000,
+    "physical_cross_role_overlap_samples": 0,
+    "legacy_cross_role_overlap_samples": 0,
+    "physical_validation_duplicate_samples": 0,
+    "legacy_validation_duplicate_samples": 0,
+    "coverage_contract": "HORDE_V2_C1_DATA_COVERAGE_V1",
+    "insufficient_candidate_records_fail_closed": true
+  },
+  "unchanged": [
+    "training dataset and WDL calibration",
+    "architectures and paired seeds",
+    "optimizer and learning-rate schedule",
+    "training exposures per model",
+    "quantized screen and playing gates",
+    "Run 6B production path"
+  ]
+}

@@ -84,15 +84,17 @@ production choice. They make refresh cost measurable before expensive training
 decides whether the king map has enough value.
 
 The current implementation checkpoint provides the G0/R0 index contract, a
-fail-closed full-refresh enumerator, and an engineering-only scalar P0 forward.
+fail-closed full-refresh enumerator, scalar and AVX2 integer forwards, an
+authenticated network container, and a production-layout incremental stack.
 The enumerator walks physical squares from A1 to H8, emits at most 52 Global
 and 51 Royal rows, rejects a White king, requires exactly one Black king, and
-enforces the 36/16 side capacities. The scalar path exercises non-zero bounded
-deterministic weights, both sparse transforms, the shared dense trunk, the two
-STM output rows, and the external rule-50 postprocessor. It has no production
-dispatch, file parser, production-layout accumulator, SIMD backend, or trained
-weights and therefore cannot replace the production evaluator. A separate
-engineering scalar incremental oracle exists for make/undo parity.
+enforces the 36/16 side capacities. The integer path exercises non-zero bounded
+weights, both sparse transforms, the shared dense trunk, the two STM output
+rows, and the external rule-50 postprocessor. It still has no production UCI
+default or strength-qualified trained weights and therefore cannot replace the
+production evaluator. An isolated build-time candidate dispatch now exists for
+authenticated `.hsv2` containers; it is an engineering and future OpenBench
+measurement path, not a promotion decision.
 
 ## Dual refresh domains
 
@@ -146,14 +148,15 @@ moves, ordinary captures, en passant, promotion captures, Black-king moves,
 the d/e mirror boundary, castling, null-head selection, 256 randomized
 fixed-role transitions, and source restoration.
 
-The separate scalar reference stack now consumes the exact `Dirties` object
-filled by real `Position::do_move()`. It validates that each `DirtyPiece`
-reconstructs the complete target board before accepting a frame, keeps Run 6B's
-production `AccumulatorStack` untouched, restores undo by popping the saved
-frame, and mirrors search by not pushing for null moves. The deterministic
-integration receipt covers six focused special moves, 192 generated legal
-moves, 15 null transitions, every corresponding undo, and 17 Royal refreshes.
-Full refresh is compared after every transition.
+The separate scalar reference stack consumes the exact `Dirties` object filled
+by real `Position::do_move()`. It validates that each `DirtyPiece` reconstructs
+the complete target board before accepting a frame, keeps Run 6B's production
+`AccumulatorStack` untouched, restores undo by popping the saved frame, and
+mirrors search by not pushing for null moves. The deterministic integration
+receipt covers ten focused special moves, including four overlapping Chess960
+castling layouts, 192 generated legal moves, 15 null transitions, every
+corresponding undo, and 17 Royal refreshes. Full refresh is compared after
+every transition.
 
 That trace-heavy scalar stack remains a correctness oracle. It validates the
 parameter object, scans the target board, stores a complete board identity and
@@ -182,19 +185,27 @@ The lean scalar checkpoint matches the trace oracle layer by layer at
 paired with AVX2 row-update and dense kernels using the same frame and payload;
 the AVX2 path passes the same layer and transition receipts.
 
-The lean backend also has a production-layout `Position` stack. It allocates
-aligned frames once, stores no board copies or dense traces, and reuses the top
-frame across null moves. Ordinary children derive `RoyalKey` directly from the
-Black king and queue their sparse delta without enumerating the board. The
-pending same-key chain is materialized only when evaluation needs it. A
-Black-king key transition refreshes Royal while its target position is still
-available; Global remains incremental. The direct `Position` extractor
-preserves the A1-to-H8 trainer order without first copying or scanning a
-64-square array. Make/undo/null receipts compare every materialized frame with
-full refresh, include an unevaluated six-ply lazy batch, and require the same
-evaluation digest for all four `PERF_COMMON_V1` widths. The stack is not yet
-owned by `Thread` or selected by production evaluation dispatch, so standalone
-timings alone are not width-selection evidence.
+The lean backend also has a generic production-layout `Position` stack shared
+with authenticated containers. It allocates aligned frames once, stores no
+dense traces, and reuses the top frame across null moves. `DirtyPiece` is first
+normalized so inactive, potentially indeterminate piece fields are never read;
+all removals precede additions, including promotion, en passant and overlapping
+Chess960 castling squares. Ordinary children derive the first-domain key in
+O(1) and queue their sparse delta without enumerating the board. The pending
+same-key chain is materialized only when evaluation needs it. A Black-king key
+transition extracts the final sparse rows once and refreshes Royal while Global
+remains incremental.
+
+The stack has two compile-time policies over the same transition code. The
+production policy performs no 64-square scan on push, pop or evaluate. The
+validating policy retains one exact 64-byte board shadow and rejects any source,
+dirty-list or target mismatch transactionally. Correctness tests exercise both
+policies: the production policy covers special moves, lazy batches, null moves
+and generated legal sequences; the validating policy covers poisoned inactive
+fields and malformed or contradictory transitions. Make/undo/null receipts
+compare every materialized frame with full refresh and require the same integer
+layers under scalar and AVX2. The stack is selected only by the isolated V2
+candidate build, so its engineering timings make no playing-strength claim.
 
 In an 80-game V3 opening-book probe, 876 of 5,303 Black mainline moves were king
 moves (16.5%, including 10 castlings). Search-node rates can differ materially,
@@ -258,6 +269,25 @@ Two measured constraints shape the first pawn experiments:
 
 The cheap initial path is boundary-oriented: at most one front and one rear
 pawn per file, followed by compact per-file summaries.
+
+The first five contextual candidates are ordered by information added per
+sparse row. Every candidate is additive alongside the immutable G0 stream and
+is trained and timed alone before any combination:
+
+| Order | Candidate | Rows | Maximum active rows | FT payload at G192 | FT payload at G128 |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1 | frontier White-pawn square | 56 | 8 | 21,504 bytes | 14,336 bytes |
+| 2 | rearmost White-pawn square | 56 | 8 | 21,504 bytes | 14,336 bytes |
+| 3 | frontmost pawn blocked by any occupancy, per file | 8 | 8 | 3,072 bytes | 2,048 bytes |
+| 4 | frontier pawn diagonally supported, per file | 8 | 8 | 3,072 bytes | 2,048 bytes |
+| 5 | White-pawn count by file | 56 | 8 | 21,504 bytes | 14,336 bytes |
+
+The 56-row square planes exclude rank 8, where a White pawn must promote, and
+retain the exact physical square rather than adding a
+redundant rank-only identity. The count block uses seven non-empty count states
+per file (`1..7`); an empty file activates no row. Payload figures count signed
+16-bit transformer weights only and are therefore direct additions to the
+chosen Global width.
 
 ### S1: objective-state factorizations
 
@@ -418,9 +448,10 @@ Horde positions.
 The Horde-native sparse batch ABI is:
 
 ```text
+legacy_piece_offsets, legacy_white_indices, legacy_black_indices,
 royal_offsets, royal_indices,
 global_offsets, global_indices,
-side_to_move, white_piece_count, rule50_count,
+physical_piece_count, white_piece_count, side_to_move, rule50_count,
 score_stm, result_stm
 ```
 
@@ -431,6 +462,13 @@ network. `white_piece_count` is an explicit decoded value. Receipts bind the
 whole input file, fixed header, manifest, record payload, book, producer,
 teacher network, sparse rows, physical states, evaluator inputs, and mate-mask
 eligibility. A sample identity is `(payload_sha256, local_record_index)`.
+
+Legacy, Global and Royal offsets are independent even while base G0 emits one
+Global row per physical piece. `physical_piece_count` and
+`white_piece_count` are derived from the retained board, never from the
+complete Global stream. Decoder receipts separately count and hash physical
+G0, every contextual block, complete Global, Royal and legacy streams for both
+the source position and its horizontal reflection.
 
 Opening roots are assigned by a horizontal-reflection canonical key before
 generation. After generation, both physical-state keys and complete
@@ -516,17 +554,95 @@ The container records at least:
 - whole-file SHA-256 registered by the engine;
 - training and data manifest identities.
 
-The engine dispatch order is explicit:
+The first executable contract is `HORDE_V2_INTEGER_NETWORK_V1`. It uses the
+distinct eight-byte magic `HSV2INT\0`, a fixed 2,048-byte little-endian header,
+and ten authenticated parameter sections. Schema `0x00010001` registers
+`V2_BASE_P0_64X192`; schema `0x00010002` registers
+`V2_C1_ABS_NONKING_64X192`; and schema `0x00010003` registers
+`V2_C1_ROYAL_RANK8_64X192`. The header carries both the container structural
+hash and the training architecture structural hash, plus the exact checkpoint,
+training receipt, train split, validation split, WDL calibration, and clean
+source-commit identities. A schema is never inferred from the file size or a
+shared hash.
 
-1. a complete SHA-256 match selects registered Run 6B and
-   `HORDETEST_HP_LEGACY_V1`;
-2. a V2 signature selects the V2 parser, which validates every structural and
-   integrity field;
-3. every other file is rejected.
+The frozen integer conversion uses round-to-nearest with ties to even,
+feature-transform scale 8,128, dense-weight scale 64, signed `int16` feature
+weights, signed `int8` dense weights, and signed `int32` biases and
+accumulators. Both activation stages compute
+`clip(max(affine, 0) >> 6, 0, 127)`. The selected side-to-move output is divided
+by 16 with truncation toward zero before the versioned rule-50 postprocessor.
+Every bias is bounded to magnitude `2^30`; the registered dimensions keep all
+legal full-refresh and dense sums inside signed 32-bit range.
+
+`tools/horde_v2_export.py` accepts only a clean, receipt-matched training
+checkpoint and writes the container exclusively. `tools/horde_v2_container.py`
+owns the canonical descriptor and an independent fail-closed reader.
+`src/nnue/horde_v2_container.cpp` owns the C++ reader and the container-specific
+full-refresh and incremental adapters. All three registered schemas use the
+shared lazy stack and dense propagation path. `tests/horde_v2_container_parity.py`
+independently reconstructs sparse rows and every integer layer, compares Python
+with scalar and AVX2 C++, invokes scalar and AVX2 real-`Position` stack oracles,
+and verifies adversarial header, provenance, directory, payload, truncation,
+and parameter-range failures on Linux and Windows. A separate build-time
+candidate dispatch connects these authenticated parameters to real search, but
+cannot replace Run 6B; it is an engineering gate for trained V2 checkpoints
+only.
+
+The accepted implementation and the two exported canary checkpoints are frozen
+in `docs/horde/nnue-v2-integer-container-receipt.json` at source commit
+`f38a1a7c`. The receipt records byte identities, exact training provenance,
+layer traces, scalar/AVX2/Python parity, malformed-container cases, and the green
+Linux/Windows CI runs. It carries no playing-strength or production-dispatch
+claim.
+
+The subsequent lazy incremental stack is frozen separately in
+`docs/horde/nnue-v2-incremental-container-receipt.json` at source commit
+`a1b318ae`. It verifies real-`Position` make/undo/null transitions, ordinary
+delta materialization, Royal-only refreshes after king-bucket changes, both
+schemas registered at that source commit, scalar/AVX2 parity, and ASan/UBSan.
+The older full-refresh receipt remains immutable and therefore retains its
+historical `incremental_eligible: false` field. Neither receipt promotes a
+production evaluator or makes a playing-strength claim.
+
+The engine dispatch boundary is explicit and fail-closed:
+
+1. a normal build remains the registered Run 6B
+   `HORDETEST_HP_LEGACY_V1` engine and accepts no V2 container;
+2. an OpenBench-style build whose `EVALFILE` ends in `.hsv2` selects the
+   isolated `HORDE_V2_CANDIDATE` binary; explicit build flags that contradict
+   the extension are rejected;
+3. the extension selects only the parser at the build boundary. The parser
+   independently validates magic, schema ID and name, structural and training
+   hashes, clean source provenance, section directory, complete file and
+   section SHA-256 identities, dimensions, and parameter bounds;
+4. a candidate binary accepts only one of the registered V2 schemas. Any
+   missing, corrupted, unknown, or contradictory artifact invalidates the
+   active parameters and the next evaluation or search exits unsuccessfully;
+   it never falls back to Run 6B, zero evaluation, or the previously loaded
+   V2 network.
 
 Network replacement clears the transposition table, accumulator stacks,
 contextual feature frames, and evaluation caches. The fresh H/P control uses a
 separate experimental identity and cannot be mistaken for production Run 6B.
+
+The candidate workers own only the V2 lazy accumulator stack used by search;
+they do not allocate or update the legacy per-worker accumulator and refresh
+cache. Every real `Position::do_move()` supplies the same `Dirties` object to
+the V2 stack, undo pops the corresponding frame, and null moves reuse the top
+frame. `HORDE_V2_CANDIDATE_SHADOW` replaces the production-layout stack with
+its exact-board validating policy and compares every search evaluation with a
+fresh full refresh. `tests/horde_v2_candidate_engine.py` independently checks
+integer outputs, a deterministic depth-1 benchmark containing en passant,
+castling and promotion positions, corrupted-container rejection, and exact
+search-stack/full-refresh agreement on Linux and Windows. The normal CI path
+continues to require the frozen Run 6B bench, so enabling this candidate route
+does not alter V1 behaviour.
+
+The exact dispatch implementation, local V1/V2 checks, and cross-platform CI
+run are frozen in
+`docs/horde/nnue-v2-candidate-dispatch-receipt.json`. The receipt explicitly
+records that this is an untrained experimental route with no strength or
+production-promotion claim.
 
 ## Correctness and performance gates
 
@@ -622,6 +738,15 @@ Only `64+192` and `128+128` advance to the first training comparison. This
 receipt does not choose a production width: the two survivors still require
 controlled training and fixed-node strength evidence.
 
+The deterministic reference trainer accepts both survivors directly from
+`HORDE_BIN_V1`. It uses the same authenticated split, side-specific WDL link,
+half-Brier objective, optimizer, schedule, rule-50 graph and semantic
+initialization as the fresh legacy control. Width-specific checkpoints carry a
+canonical structural hash and reject cross-width resume. This closes the
+real-data gradient and restart path; it does not authorize a width strength
+test before the C0 split-equivalence and C1 absolute-content controls establish
+that the Royal domain itself is useful.
+
 The first gradient-plumbing gate is frozen in
 `docs/horde/nnue-v2-microfit-receipt.json`. A 32-position engineering fixture
 covers both sides to move and all eight legacy material buckets. On one CPU
@@ -632,6 +757,163 @@ transformer, Global transformer, shared trunk, and both side-to-move heads.
 All three reduced the frozen lambda-0.6 objective in 24 steps. The receipt uses
 synthetic labels and therefore proves only deterministic data and gradient
 plumbing; its losses do not rank architectures and make no strength claim.
+
+The C0 split-equivalence gate is frozen in
+`docs/horde/nnue-v2-c0-receipt.json`. It initializes `G0_SINGLE_256`, clones
+exact row and lane slices into `G0_SPLIT_64_192` and
+`G0_SPLIT_128_128`, and exercises the same 32-position fixture through four
+RAdam steps. Both splits reproduce the single model's floating-point forward
+values, reassembled gradients, parameters, and optimizer state exactly. A
+canonical engineering quantizer also produces identical integer accumulator,
+hidden-layer, and output traces after reassembly. PyTorch floating-point hashes
+are explicitly runtime-scoped because named initialization can differ by an
+ULP across operating systems; CI instead requires the quantized payload and
+complete integer trace to match on Windows and Linux. The framed payload is
+marked `production_schema: false`: it is an equality oracle, not a V2 network
+container, trained candidate, or strength result. C0 therefore closes only the
+mechanical split control; C1 remains the first test of whether Royal-relative
+content is useful.
+
+The C1 trainer control is `v2-c1-abs64x192`, schema
+`V2_C1_ABS_NONKING_64X192`. Against `v2-64x192`, it preserves G0 192, the
+256-lane dense input, trunk, two STM heads, initialization policy, labels,
+optimizer, and schedule. Its first 64 lanes instead consume the ten absolute
+non-king G0 role planes: 640 rows, no Black-king bucket, and no reflection.
+This makes the first-domain representation the only semantic variable. It is
+not parameter matched: the absolute control serializes 362,824 parameter bytes
+and the Royal candidate 2,902,344. C1 must therefore judge any fixed-node gain
+against the Royal table's measured refresh, cache, and equal-time cost.
+
+The compact Royal control is `v2-c1-rank8-64x192`, schema
+`V2_C1_ROYAL_RANK8_64X192`. It keeps the same ten non-king roles, 64 first-domain
+lanes, G0 192, trunk, heads, initialization, labels, optimizer, and schedule.
+Its Royal key contains only the Black king rank and horizontal reflection: eight
+buckets, 5,120 rows, and 936,264 serialized parameter bytes. A king move within
+the same rank and mirrored half keeps the key and uses ordinary deltas; a rank
+or mirror-key transition refreshes only the first domain. This is a topology
+control, not a contextual pawn feature.
+
+The decisive C1 comparison is three-way: absolute, Rank-8 Royal, and the full
+32-bucket Royal map. It uses disjoint 250,000-position training and
+250,000-position validation sets, three paired seeds, and exactly 2,000,000
+training-example exposures per model. Dataset, labels, calibration, optimizer,
+widths, initialization policy, and export quantization remain identical. A tie
+selects the cheaper model. The 32-bucket map is retained only if it beats Rank-8
+after quantized training, establishes a fixed-node 95% lower bound above
+`+2 Elo`, and then establishes a positive equal-time 95% lower bound. No larger
+map advances on floating-point validation loss alone.
+
+The exact Rank-8 implementation and its cross-platform engineering evidence
+are frozen in `docs/horde/nnue-v2-rank8-control-receipt.json`. That receipt does
+not claim a speed result, completed training gate, playing strength, or
+production dispatch.
+
+The production comparison is registered in
+`schemas/horde-v2-c1-campaign-v1.json`. The planner
+`tools/horde_v2_c1_campaign.py` accepts no CLI override for record counts,
+architectures, seeds, epochs, optimizer, device, or selection margins. Its
+`plan` command authenticates the direct training and validation-candidate
+`HORDE_BIN_V1` files, the derived selected validation role, the reflection-safe
+V2 book split, zero physical and legacy-input cross-role overlap, the exact WDL
+calibration, Run 6B, the Rank-8 receipt, a clean trainer commit, all 32 Royal
+buckets, STM-by-Horde-material slices and side-specific WDL support before
+writing nine explicit train/export commands. Every trainer command binds the
+canonical plan and exact run id before epoch-zero validation. Seed one is
+designated for any later playing gate before training metrics exist. The plan
+remains a preflight artifact and makes no training or strength claim.
+
+The first direct 250,000-record validation generation correctly failed that
+preflight: despite a reflection-safe opening partition, later game
+transpositions produced 128 physical cross-role matches and 64 legacy-input
+matches. No training was started from that split. The hash-pinned
+`schemas/horde-v2-c1-data-repair-v1.json` addendum preserves the immutable
+training role and every C1 training setting. It freezes one 254,096-record
+direct validation candidate and a label-blind first-eligible selector that
+rejects training-key collisions and within-validation duplicates under both
+key definitions. The resulting 250,000-record role has explicit derived
+provenance and is independently reconstructed by the campaign planner and
+final verifier.
+
+That repaired role then exposed a separate preregistered-policy defect before
+any trainer invocation: the V1 Royal bucket minima required 500/200 positions,
+while the exact natural roles contained minima of 86/111. Royal-32 also had
+6,755 unseen validation activations out of 5,821,399, narrowly missing the old
+strict-below-0.1% gate. The failed V1 preflight remains preserved. The
+hash-pinned `schemas/horde-v2-c1-coverage-addendum-v1.json` replaces only
+`data.coverage` for these exact data, selection, split and WDL identities. It
+requires every ABS, Rank-8 and Royal-32 key and all ten fixed roles in both
+roles, at least one exact train/validation row intersection per key, and at
+least 99/100 of validation activation mass seen in training using integer
+arithmetic. Observed unseen fractions are 56, 1,975 and 6,755 out of 5,821,399
+for ABS, Rank-8 and Royal-32 respectively. Architectures, paired seeds, sample
+order, recipe, data and all later selection gates remain unchanged.
+
+After all nine runs and integer exports exist, the `verify` command checks the
+complete training receipts, checkpoint and metrics hashes, quantized container
+provenance, equal environments, and sample-order chains independently rebuilt
+from the frozen dataset, seed and shuffle schedule. It also recomputes leakage,
+duplicate and three-topology coverage receipts from the exact physical files.
+Successful verification
+authenticates the evidence but deliberately leaves architecture selection and
+playing-gate eligibility false. A later training-screen artifact plus
+fixed-node and equal-time evidence remain mandatory.
+
+That next artifact is registered as
+`schemas/horde-v2-c1-quantized-screen-v1.json`. It evaluates every authenticated
+container over the complete 250,000-position validation role using the exact
+integer forward path. The receipt reports the frozen half-Brier objective
+overall, by side to move and by all six White-piece-count bins. It also rejects
+weight sections with less than 1% non-zero parameters or more than 5% values at
+their storage-type boundaries.
+
+Each larger topology is compared with its nearest cheaper control and, for
+Royal-32, also with the absolute control. Advancement requires all three paired
+seeds to improve after quantization, a paired 95% lower bound above zero, an
+improvement for both sides to move in every seed, the same ordering in each of
+the last two floating-point epochs, no float-to-integer ranking reversal, and
+parameter health on both models. The paired interval uses the pre-registered
+Student critical value `t(0.975, 2) = 4.3026527297`. A tie therefore cannot
+promote the larger model.
+
+The screen may nominate at most one predesignated-seed fixed-node pairing. It
+does not select an architecture or provide strength evidence. Royal-32 must
+clear both Rank-8 and absolute before it can be nominated against Rank-8;
+otherwise a passing Rank-8 is compared with absolute. If Rank-8 fails absolute,
+Royal-32 can proceed only after clearing both controls and is then compared
+directly with absolute.
+
+```console
+python tools/horde_training_selected_role.py create TRAIN.bin CANDIDATE.bin \
+  --output SELECTED-VALIDATION
+
+python tools/horde_v2_c1_campaign.py plan TRAIN.bin SELECTED-VALIDATION/receipt.json \
+  --validation-candidate CANDIDATE.bin \
+  --book-split-receipt BOOK-SPLIT.json \
+  --wdl-calibration WDL-CALIBRATION.json --output C1-PLAN.json
+
+python tools/horde_v2_c1_campaign.py verify C1-PLAN.json RUNS-DIRECTORY \
+  --train-file TRAIN.bin --validation-candidate CANDIDATE.bin \
+  --validation-role SELECTED-VALIDATION/receipt.json \
+  --book-split-receipt BOOK-SPLIT.json \
+  --wdl-calibration WDL-CALIBRATION.json \
+  --output C1-VERIFICATION.json
+
+python tools/horde_v2_c1_screen.py C1-PLAN.json RUNS-DIRECTORY \
+  --train-file TRAIN.bin --validation-candidate CANDIDATE.bin \
+  --validation SELECTED-VALIDATION/receipt.json \
+  --book-split-receipt BOOK-SPLIT.json \
+  --wdl-calibration WDL-CALIBRATION.json \
+  --output C1-QUANTIZED-SCREEN.json
+```
+
+The existing real-data C1 plumbing canary is frozen in
+`docs/horde/nnue-v2-c1-real-canary-receipt.json`. Both architectures completed
+two byte-identical three-epoch CPU runs on the same authenticated 4,096/1,024
+split, and every first-domain, Global, dense, and output gradient group was
+non-zero. Their final validation losses differ by only `5.10e-6` in favour of
+the absolute control. One seed on this integration sample cannot rank either
+architecture, so the receipt explicitly forbids architecture selection and
+makes no strength claim.
 
 After training, fixed-node Elo and uninstrumented NPS remain separate axes.
 Practical equivalence margins are 2 Elo and 1% NPS. A larger/slower point must
@@ -661,18 +943,31 @@ advances because of validation loss alone.
 
 ### Architecture ablations
 
-6. A0: G0-only 512, one bucket, same dense trunk.
-7. A1: G0 256 + G0 256 implementation control, identical feature content and
-   total parameter budget.
-8. A2: replace the first G0 half with R0 256.
-9. If R0 is promising, test one Royal bucket map at a time, then the fixed
-   `256+256`, `128+256`, `128+128`, and `64+192` width points one at a time.
+6. C0 is an engineering-equality receipt, not an Elo test: compare one
+   `G0_SINGLE_256` table with `G0_SPLIT_64_192` and optionally
+   `G0_SPLIT_128_128`. Initialize split tensors from exact row/lane slices of
+   the single table and require identical forward values, gradients, optimizer
+   state and exported integer evaluations after reassembly.
+7. C1 isolates Royal content at the fastest surviving split: compare
+   `ABS_NONKING_64 + G0_192`, `ROYAL_RANK8_64 + G0_192`, and
+   `ROYAL_32_64 + G0_192`. All three use the same ten non-king roles and at most
+   51 active rows. This is a content/topology control, not a parameter-matched
+   claim; the three first domains intentionally own different row counts.
+8. C2 runs only if a Royal map passes C1: compare the accepted map at
+   `Royal_128 + G0_128` with `Royal_64 + G0_192`. These are the two width points
+   that survived the real AVX2 gate and have equal dense work, accumulator bytes
+   and quiet-move lane work.
+9. Freeze one no-context map and width before testing side-to-move, phase,
+   count, pawn-boundary, or relational features. Prefer the cheaper topology
+   unless a larger point establishes the required fixed-node lower bound and
+   then wins equal-time.
 10. Compare two final STM rows with one dense STM scalar or tiny embedding.
 11. Compare no count, one count feature, and White-count phase buckets as
     alternatives.
 12. Test each remaining scalar count independently.
-13. Test each per-file shape representation independently; frontier plane and
-    front-rank summary are alternatives first.
+13. Test one frontier-square pawn representation by itself. A front-rank
+    summary is a separate alternative and is not combined without individual
+    receipts.
 14. Test each P2 predicate independently.
 15. Only then test promotion-runner, king-ring, and relational threat blocks.
 
@@ -682,12 +977,15 @@ tested only after both individual receipts exist.
 
 ## Open questions before a frozen V2 schema
 
-- Does R0 beat the equal-parameter A1 control after its refresh cost?
-- Is the 32-bucket Royal map worth 10 MiB, or should it be coarser?
+- Does either Royal map beat the absolute non-king content control after its
+  refresh cost?
+- Is rank-only Royal context sufficient, or does the 32-bucket map justify its
+  larger table and higher refresh/cache cost?
 - Can a Royal refresh cache amortize the measured search-node king-move rate?
 - Do two final STM rows beat a post-transform STM scalar at equal NPS?
 - Which count or phase representation has adequate late-extinction coverage?
-- Which boundary pawn representation adds information beyond G0?
+- Does a frontier-square pawn representation add information beyond G0 before
+  any richer rank, file, or support encoding is introduced?
 - Which exact integer scales and bounds give safe, efficient inference?
 - Which score/result calibration best fits each side to move?
 - How much near-extinction and near-fortress oversampling helps without
@@ -695,3 +993,23 @@ tested only after both individual receipts exist.
 
 These questions are resolved through isolated technical and strength receipts,
 not by changing the production Run 6B path.
+
+## Selected Rank-8 scale campaign
+
+Rank-8 is the selected V2 first-domain representation. The selection receipt
+records a manual architecture decision from the local three-time-control
+comparison against the absolute non-king control; it is not a formal release
+gate and does not claim that the 250,000-position network beats Run 6B.
+
+The next training rung is frozen separately in
+`schemas/horde-v2-rank8-scale-v1.json`. It changes data scale only: the Rank-8
+topology, seed, labels, optimizer, widths, quantization and teacher recipe stay
+fixed. The first run consumes one deterministic 50,000,000-position pass. A
+separate 1,000,000-position candidate from the held-out V3 book supplies a
+label-blind 250,000-position validation role after exact physical and legacy
+input collisions with the completed training role are removed.
+
+No contextual pawn, count, phase, frontier or relational feature enters this
+run. After authenticated training, the predesignated seed must pass integer
+export, native parity, NPS/latency and equal-time play against Run 6B before a
+new feature ablation starts.

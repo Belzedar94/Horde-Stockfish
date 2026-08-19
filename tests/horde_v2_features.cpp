@@ -352,6 +352,30 @@ int main(int argc, char* argv[]) {
     for (const bool present : royalSeen)
         assert(present);
 
+    // R8 keeps the same mirror orientation while sharing all four canonical
+    // king files within one rank bucket.
+    std::array<bool, RoyalRankPieceSquareDimensions> rank8Seen{};
+    for (int rawRank = 0; rawRank < RANK_NB; ++rawRank)
+    {
+        const Square kingSquare = make_square(FILE_E, Rank(rawRank));
+        const auto   key        = royal_rank_key(kingSquare);
+        assert(is_valid_royal_rank_key(key));
+        assert(key.bucket == u32(rawRank));
+        assert(!key.mirror);
+
+        for (const Piece piece : RoyalPieces)
+            for (int rawSquare = 0; rawSquare < SQUARE_NB; ++rawSquare)
+            {
+                const auto index = royal_rank_piece_square_index(
+                  piece, Square(rawSquare), key);
+                assert(index < RoyalRankPieceSquareDimensions);
+                assert(!rank8Seen[index]);
+                rank8Seen[index] = true;
+            }
+    }
+    for (const bool present : rank8Seen)
+        assert(present);
+
     // Reflecting both the king and the piece preserves the Royal row.
     for (int rawKingSquare = 0; rawKingSquare < SQUARE_NB; ++rawKingSquare)
         for (const Piece piece : RoyalPieces)
@@ -370,6 +394,19 @@ int main(int argc, char* argv[]) {
     assert(d4Key != e4Key);
     assert(royal_piece_square_index(W_PAWN, SQ_A1, d4Key)
            == royal_piece_square_index(W_PAWN, SQ_H1, e4Key));
+
+    const RoyalKey e4Rank8Key = royal_rank_key(SQ_E4);
+    assert(e4Rank8Key == royal_rank_key(SQ_F4));
+    assert(e4Rank8Key != royal_rank_key(SQ_E5));
+    assert(royal_rank_key(SQ_D4).bucket == e4Rank8Key.bucket);
+    assert(royal_rank_key(SQ_D4).mirror != e4Rank8Key.mirror);
+    assert(royal_rank_piece_square_index(W_PAWN, SQ_A1, royal_rank_key(SQ_D4))
+           == royal_rank_piece_square_index(W_PAWN, SQ_H1, e4Rank8Key));
+    assert(royal_rank_index_from_royal(
+             royal_piece_square_index(W_PAWN, SQ_A1, d4Key))
+           == royal_rank_piece_square_index(W_PAWN, SQ_A1, royal_rank_key(SQ_D4)));
+    assert(royal_rank_index_from_royal(InvalidRoyalFeatureIndex)
+           == InvalidRoyalRankFeatureIndex);
 
     assert(!is_valid_royal_key(royal_key(SQ_NONE)));
     assert(royal_piece_square_index(W_KING, SQ_E1, SQ_E8) == InvalidRoyalFeatureIndex);

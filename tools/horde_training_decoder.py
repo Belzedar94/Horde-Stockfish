@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 import struct
 import sys
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 try:
     from . import horde_bin_v1 as wire
@@ -31,6 +31,7 @@ LEGACY_DIMENSIONS = 896
 V2_SCHEMA = "V2_BASE_P0"
 V2_GLOBAL_DIMENSIONS = 704
 V2_ROYAL_DIMENSIONS = 20_480
+V2_ROYAL_RANK8_DIMENSIONS = 5_120
 
 # HORDE_BIN_V1 physical piece codes are deliberately aligned with V2 fixed
 # roles after subtracting one. Legacy families preserve Run 6B's H/P split.
@@ -70,9 +71,11 @@ class TrainingRecord:
 class SparseBatch:
     source_payload_sha256: str
     record_indices: tuple[int, ...]
+    physical_boards: tuple[tuple[int, ...], ...]
     physical_position_keys: tuple[bytes, ...]
     legacy_model_input_keys: tuple[bytes, ...]
-    piece_offsets: tuple[int, ...]
+    legacy_piece_offsets: tuple[int, ...]
+    global_offsets: tuple[int, ...]
     royal_offsets: tuple[int, ...]
     legacy_white: tuple[int, ...]
     legacy_black: tuple[int, ...]
@@ -81,6 +84,7 @@ class SparseBatch:
     royal_buckets: tuple[int, ...]
     royal_mirrors: tuple[bool, ...]
     side_to_move: tuple[int, ...]
+    physical_piece_count: tuple[int, ...]
     white_piece_count: tuple[int, ...]
     rule50_count: tuple[int, ...]
     game_ply: tuple[int, ...]
@@ -111,6 +115,11 @@ def legacy_feature_index(perspective: int, square: int, piece_code: int) -> int:
     index = plane * 64 + oriented_square
     _require(index < LEGACY_DIMENSIONS, f"legacy feature index overflow {index}")
     return index
+
+
+def horizontal_reflect_board(board: Sequence[int]) -> tuple[int, ...]:
+    _require(len(board) == 64, f"reflection board has {len(board)} squares instead of 64")
+    return tuple(board[square ^ 7] for square in range(64))
 
 
 def extract_sparse_features(board: Sequence[int]) -> SparseFeatures:
@@ -272,9 +281,11 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
     _require(len(payload_identities) <= 1, "batch mixes multiple source payload identities")
     source_payload_sha256 = next(iter(payload_identities), "")
     record_indices: list[int] = []
+    physical_boards: list[tuple[int, ...]] = []
     physical_position_keys: list[bytes] = []
     legacy_model_input_keys: list[bytes] = []
-    piece_offsets = [0]
+    legacy_piece_offsets = [0]
+    global_offsets = [0]
     royal_offsets = [0]
     legacy_white: list[int] = []
     legacy_black: list[int] = []
@@ -283,6 +294,7 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
     royal_buckets: list[int] = []
     royal_mirrors: list[bool] = []
     side_to_move: list[int] = []
+    physical_piece_count: list[int] = []
     white_piece_count: list[int] = []
     rule50_count: list[int] = []
     game_ply: list[int] = []
@@ -295,31 +307,45 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
     for record in records:
         features = record.features
         _require(
-            len(features.legacy_white) == len(features.legacy_black) == len(features.v2_global),
-            f"record {record.index} piece-domain lengths differ",
+            len(record.board) == 64,
+            f"record {record.index} does not retain its complete physical board",
+        )
+        physical_features = extract_sparse_features(record.board)
+        physical_rows = len(physical_features.v2_global)
+        _require(
+            len(features.legacy_white) == len(features.legacy_black) == physical_rows,
+            f"record {record.index} physical piece-domain lengths differ",
         )
         _require(
-            len(features.v2_royal) + 1 == len(features.v2_global),
+            len(features.v2_royal) + 1 == physical_rows,
             f"record {record.index} Royal domain did not exclude exactly the Black king",
         )
+        _require(
+            features.legacy_white == physical_features.legacy_white
+            and features.legacy_black == physical_features.legacy_black
+            and features.v2_royal == physical_features.v2_royal,
+            f"record {record.index} changed a physical or Royal base stream",
+        )
+        _require(
+            features.v2_global[:physical_rows] == physical_features.v2_global,
+            f"record {record.index} Global stream does not begin with complete physical G0 rows",
+        )
         record_indices.append(record.index)
-        if record.board:
-            physical_position_keys.append(physical_position_key(record))
-        else:
-            physical_position_keys.append(b"")
+        physical_boards.append(record.board)
+        physical_position_keys.append(physical_position_key(record))
         legacy_model_input_keys.append(legacy_model_input_key(record))
         legacy_white.extend(features.legacy_white)
         legacy_black.extend(features.legacy_black)
         v2_global.extend(features.v2_global)
         v2_royal.extend(features.v2_royal)
-        piece_offsets.append(len(v2_global))
+        legacy_piece_offsets.append(len(legacy_white))
+        global_offsets.append(len(v2_global))
         royal_offsets.append(len(v2_royal))
         royal_buckets.append(features.royal_bucket)
         royal_mirrors.append(features.royal_mirror)
         side_to_move.append(record.side_to_move)
-        white_piece_count.append(
-            sum(index // 64 <= 4 for index in features.v2_global)
-        )
+        physical_piece_count.append(sum(code != 0 for code in record.board))
+        white_piece_count.append(sum(1 <= code <= 5 for code in record.board))
         rule50_count.append(record.rule50_count)
         game_ply.append(record.game_ply)
         scores.append(record.score)
@@ -331,9 +357,11 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
     return SparseBatch(
         source_payload_sha256=source_payload_sha256,
         record_indices=tuple(record_indices),
+        physical_boards=tuple(physical_boards),
         physical_position_keys=tuple(physical_position_keys),
         legacy_model_input_keys=tuple(legacy_model_input_keys),
-        piece_offsets=tuple(piece_offsets),
+        legacy_piece_offsets=tuple(legacy_piece_offsets),
+        global_offsets=tuple(global_offsets),
         royal_offsets=tuple(royal_offsets),
         legacy_white=tuple(legacy_white),
         legacy_black=tuple(legacy_black),
@@ -342,6 +370,7 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
         royal_buckets=tuple(royal_buckets),
         royal_mirrors=tuple(royal_mirrors),
         side_to_move=tuple(side_to_move),
+        physical_piece_count=tuple(physical_piece_count),
         white_piece_count=tuple(white_piece_count),
         rule50_count=tuple(rule50_count),
         game_ply=tuple(game_ply),
@@ -402,11 +431,16 @@ class HordeBinV1Dataset:
         if not self._file.closed:
             self._file.close()
 
-    def record(self, index: int) -> TrainingRecord:
+    def raw_record(self, index: int) -> bytes:
+        """Return the exact authenticated record bytes at ``index``."""
+
         _require(0 <= index < len(self), f"record index {index} is out of range")
         _require(self._mapping is not None, "dataset is closed")
         offset = wire.HEADER_SIZE + index * wire.RECORD_SIZE
-        raw = self._mapping[offset : offset + wire.RECORD_SIZE]
+        return bytes(self._mapping[offset : offset + wire.RECORD_SIZE])
+
+    def record(self, index: int) -> TrainingRecord:
+        raw = self.raw_record(index)
         record = decode_training_record(raw, index)
         return TrainingRecord(
             index=record.index,
@@ -428,10 +462,7 @@ class HordeBinV1Dataset:
     def label(self, index: int) -> tuple[int, int, int, int]:
         """Fully validate one record and return its calibration label fields."""
 
-        _require(0 <= index < len(self), f"record index {index} is out of range")
-        _require(self._mapping is not None, "dataset is closed")
-        offset = wire.HEADER_SIZE + index * wire.RECORD_SIZE
-        raw = self._mapping[offset : offset + wire.RECORD_SIZE]
+        raw = self.raw_record(index)
         decoded = wire.validate_record(raw, index)
         return decoded["side"], decoded["score"], decoded["result"], decoded["reason"]
 
@@ -448,23 +479,40 @@ def _update_index_list(digest: Any, indices: Sequence[int]) -> None:
         digest.update(struct.pack("<I", index))
 
 
-def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
+def dataset_receipt(
+    path: Path,
+    batch_size: int,
+    *,
+    dataset_factory: Callable[[Path], Any] = HordeBinV1Dataset,
+) -> dict[str, object]:
     digest = hashlib.sha256()
+    legacy_stream_digest = hashlib.sha256()
+    global_g0_stream_digest = hashlib.sha256()
+    global_contextual_stream_digest = hashlib.sha256()
+    global_complete_stream_digest = hashlib.sha256()
+    royal_stream_digest = hashlib.sha256()
+    reflected_legacy_stream_digest = hashlib.sha256()
+    reflected_global_g0_stream_digest = hashlib.sha256()
+    reflected_royal_stream_digest = hashlib.sha256()
     physical_digest = hashlib.sha256()
     model_input_digest = hashlib.sha256()
     eligibility_digest = hashlib.sha256()
     batches = 0
-    piece_rows = 0
+    legacy_rows = 0
+    global_g0_rows = 0
+    global_contextual_rows = 0
+    global_complete_rows = 0
     royal_rows = 0
-    with HordeBinV1Dataset(path) as dataset:
+    with dataset_factory(path) as dataset:
         for batch in dataset.batches(batch_size):
             batches += 1
             for row in range(len(batch)):
-                piece_begin, piece_end = batch.piece_offsets[row : row + 2]
+                legacy_begin, legacy_end = batch.legacy_piece_offsets[row : row + 2]
+                global_begin, global_end = batch.global_offsets[row : row + 2]
                 royal_begin, royal_end = batch.royal_offsets[row : row + 2]
                 digest.update(
                     struct.pack(
-                        "<QBHHhHHbBBBB",
+                        "<QBHHhHHbBBBBB",
                         batch.record_indices[row],
                         batch.side_to_move[row],
                         batch.rule50_count[row],
@@ -476,21 +524,62 @@ def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
                         batch.outcome_reasons[row],
                         batch.royal_buckets[row],
                         int(batch.royal_mirrors[row]),
+                        batch.physical_piece_count[row],
                         batch.white_piece_count[row],
                     )
                 )
                 physical_digest.update(batch.physical_position_keys[row])
                 model_input_digest.update(batch.legacy_model_input_keys[row])
                 eligibility_digest.update(bytes((abs(batch.scores[row]) < 31_507,)))
-                _update_index_list(digest, batch.legacy_white[piece_begin:piece_end])
-                _update_index_list(digest, batch.legacy_black[piece_begin:piece_end])
-                _update_index_list(digest, batch.v2_global[piece_begin:piece_end])
-                _update_index_list(digest, batch.v2_royal[royal_begin:royal_end])
-            piece_rows += len(batch.v2_global)
+                legacy_white = batch.legacy_white[legacy_begin:legacy_end]
+                legacy_black = batch.legacy_black[legacy_begin:legacy_end]
+                physical_count = batch.physical_piece_count[row]
+                global_g0_end = global_begin + physical_count
+                _require(
+                    global_g0_end <= global_end,
+                    f"record {batch.record_indices[row]} Global offsets omit physical G0 rows",
+                )
+                global_g0 = batch.v2_global[global_begin:global_g0_end]
+                global_contextual = batch.v2_global[global_g0_end:global_end]
+                global_complete = batch.v2_global[global_begin:global_end]
+                royal = batch.v2_royal[royal_begin:royal_end]
+                for stream in (legacy_white, legacy_black, global_complete, royal):
+                    _update_index_list(digest, stream)
+                _update_index_list(legacy_stream_digest, legacy_white)
+                _update_index_list(legacy_stream_digest, legacy_black)
+                _update_index_list(global_g0_stream_digest, global_g0)
+                _update_index_list(global_contextual_stream_digest, global_contextual)
+                _update_index_list(global_complete_stream_digest, global_complete)
+                _update_index_list(royal_stream_digest, royal)
+
+                board = batch.physical_boards[row]
+                reflected_board = horizontal_reflect_board(board)
+                _require(
+                    horizontal_reflect_board(reflected_board) == board,
+                    f"record {batch.record_indices[row]} failed horizontal reflection round trip",
+                )
+                reflected = extract_sparse_features(reflected_board)
+                _require(
+                    not global_contextual,
+                    "horizontal-reflection receipt requires a named contextual extractor",
+                )
+                _require(
+                    tuple(sorted(reflected.v2_royal)) == tuple(sorted(royal)),
+                    f"record {batch.record_indices[row]} changed canonical Royal rows "
+                    "under reflection",
+                )
+                _update_index_list(reflected_legacy_stream_digest, reflected.legacy_white)
+                _update_index_list(reflected_legacy_stream_digest, reflected.legacy_black)
+                _update_index_list(reflected_global_g0_stream_digest, reflected.v2_global)
+                _update_index_list(reflected_royal_stream_digest, reflected.v2_royal)
+            legacy_rows += len(batch.legacy_white)
+            global_g0_rows += sum(batch.physical_piece_count)
+            global_complete_rows += len(batch.v2_global)
+            global_contextual_rows += len(batch.v2_global) - sum(batch.physical_piece_count)
             royal_rows += len(batch.v2_royal)
 
         return {
-            "schema": "HORDE_TRAINING_DECODER_V1",
+            "schema": "HORDE_TRAINING_DECODER_V2",
             "source_schema": dataset.manifest["schema"],
             "source": {
                 "file_sha256": dataset.file_sha256,
@@ -513,8 +602,34 @@ def dataset_receipt(path: Path, batch_size: int) -> dict[str, object]:
                 "global_dimensions": V2_GLOBAL_DIMENSIONS,
                 "royal_dimensions": V2_ROYAL_DIMENSIONS,
             },
-            "piece_rows": piece_rows,
+            "piece_rows": global_g0_rows,
             "royal_rows": royal_rows,
+            "row_counts": {
+                "legacy_physical": legacy_rows,
+                "global_g0": global_g0_rows,
+                "global_contextual": (
+                    {"unnamed": global_contextual_rows} if global_contextual_rows else {}
+                ),
+                "global_contextual_total": global_contextual_rows,
+                "global_complete": global_complete_rows,
+                "royal": royal_rows,
+            },
+            "feature_stream_sha256": {
+                "unreflected": {
+                    "legacy": legacy_stream_digest.hexdigest().upper(),
+                    "global_g0": global_g0_stream_digest.hexdigest().upper(),
+                    "global_contextual": global_contextual_stream_digest.hexdigest().upper(),
+                    "global_complete": global_complete_stream_digest.hexdigest().upper(),
+                    "royal": royal_stream_digest.hexdigest().upper(),
+                },
+                "horizontal_reflection": {
+                    "legacy": reflected_legacy_stream_digest.hexdigest().upper(),
+                    "global_g0": reflected_global_g0_stream_digest.hexdigest().upper(),
+                    "global_contextual": global_contextual_stream_digest.hexdigest().upper(),
+                    "global_complete": reflected_global_g0_stream_digest.hexdigest().upper(),
+                    "royal": reflected_royal_stream_digest.hexdigest().upper(),
+                },
+            },
             "sparse_sha256": digest.hexdigest().upper(),
             "physical_position_sha256": physical_digest.hexdigest().upper(),
             "legacy_model_input_sha256": model_input_digest.hexdigest().upper(),

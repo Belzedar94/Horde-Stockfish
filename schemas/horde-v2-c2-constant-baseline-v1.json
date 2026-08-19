@@ -1,0 +1,53 @@
+{
+  "claims": {
+    "checkpoint_independent": true,
+    "strength_evidence": false,
+    "training_split_only": true
+  },
+  "fit": {
+    "constant_domain": {
+      "maximum": 31506,
+      "minimum": -31506,
+      "unit": "integer centipawns before rule-50 damping"
+    },
+    "model": "one integer constant for each side to move",
+    "search": "exhaustive ascending integer enumeration",
+    "tie_break": "exact binary64 loss, then (absolute score, signed score)"
+  },
+  "inputs": {
+    "allowed": [
+      "HORDE_BIN_V1 training split",
+      "HORDE_WDL_CALIBRATION_V1 fitted from that exact training split"
+    ],
+    "forbidden": [
+      "validation data",
+      "checkpoints",
+      "functional-health receipts",
+      "test results"
+    ]
+  },
+  "objective": {
+    "calibration_dtype": "IEEE-754 binary32",
+    "calibration_mapping": "trainer CPU torch.softmax over loss/draw/win logits",
+    "exact_audit": "float32 values scaled by 2^149; moment and histogram integer numerators must be identical",
+    "lambda": 0.6,
+    "lookup": {
+      "byte_order": "little",
+      "layout": "side_to_move, integer_score, loss_draw_win",
+      "score_maximum": 31506,
+      "score_minimum": -31506,
+      "storage_dtype": "IEEE-754 binary32"
+    },
+    "mate_policy": "exclude abs(teacher score) >= 31507 from the score term and retain every result term",
+    "normalization": "divide the composite sum by all records",
+    "reduction": "IEEE-754 binary64 group moments and math.fsum in ascending side and rule-50 order",
+    "result_classes": [
+      "loss",
+      "draw",
+      "win"
+    ],
+    "rule50": "sign(c) * floor(abs(c) * (100 - clamp(rule50, 0, 100)) / 100)",
+    "schema": "HORDE_WDL_HALF_BRIER_CANONICAL_CPU_V1"
+  },
+  "schema_name": "HORDE_V2_C2_CONSTANT_BASELINE_V1"
+}

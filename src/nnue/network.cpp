@@ -113,8 +113,8 @@ void Network::load(const fs::path& rootDirectory, fs::path evalfilePath, EvalFil
 bool Network::save(const EvalFile& evalFile, const std::optional<fs::path>& filename) const {
     (void) evalFile;
     (void) filename;
-    sync_cout << "Exporting the registered Run 6B network is disabled; use the canonical "
-                 "manifested artifact instead."
+    sync_cout << "Exporting registered legacy networks is disabled; use the manifested artifact "
+                 "instead."
               << sync_endl;
     return false;
 }
@@ -163,8 +163,7 @@ void Network::verify(const std::function<void(std::string_view)>& f,
     {
         if (f)
         {
-            std::string msg1 = "The registered HORDETEST_HP_LEGACY_V1 Run 6B network must be "
-                               "available.";
+            std::string msg1 = "A registered HORDETEST_HP_LEGACY_V1 network must be available.";
             std::string msg2 =
               "The network file " + evalfilePath.string() + " was not loaded successfully.";
             std::string msg3 = "The UCI option EvalFile might need to specify the full path, "
@@ -185,7 +184,8 @@ void Network::verify(const std::function<void(std::string_view)>& f,
     if (f)
     {
         f("NNUE evaluation using " + evalfilePath.string() + " [" + HordeLegacyNetwork::SchemaName
-          + ", SHA-256 " + HordeLegacyNetwork::Sha256 + ", (896, 1024, 16, 32, 1)]");
+          + ", artifact " + hordeLegacyNetwork.artifact_name() + ", SHA-256 "
+          + hordeLegacyNetwork.artifact_sha256() + ", (896, 1024, 16, 32, 1)]");
     }
 }
 

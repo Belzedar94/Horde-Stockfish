@@ -70,6 +70,17 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 \
             tests/horde_v2_backend.cpp -o /tmp/horde-v2-backend-avx2
           /tmp/horde-v2-backend-avx2
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o /tmp/horde-v2-container
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o /tmp/horde-v2-container-avx2
+          make -j2 -C src ARCH=x86-64 ${{ matrix.make_args }} horde-v2-position-test-bin
+          python3 tests/horde_v2_container_parity.py \
+            --oracle /tmp/horde-v2-container \
+            --oracle /tmp/horde-v2-container-avx2 \
+            --position-oracle src/horde-v2-position-test
       - name: Verify experimental V2 real Position stack
         run: |
           make -j2 -C src ARCH=x86-64 ${{ matrix.make_args }} horde-v2-position-test-bin
@@ -95,24 +106,57 @@ jobs:
           tests/horde_genfens.py
           tests/horde_v2_trainer_parity.py
           tests/horde_v2_engine_widths.py
+          tests/horde_v2_container_parity.py
+          tests/horde_v2_candidate_engine.py
+          tests/horde_v2_c1_campaign.py
+          tests/horde_v2_c1_coverage.py
+          tests/horde_v2_c1_screen.py
+          tests/horde_v2_c2_constant_baseline.py
+          tests/horde_v2_c2_qualification.py
+          tests/horde_v2_c3_confirmation_role.py
+          tests/horde_v2_c3_qualification.py
+          tests/horde_v2_functional_health.py
+          tests/horde_v2_integer_eval.py
+          tests/horde_v2_export.py
           tests/horde_nnue_parity.py
           tests/horde_nnue_determinism.py
           tests/horde_legacy_trainer_replay.py
           tests/horde_data_generator.py
           tests/horde_training_book_split.py
+          tests/horde_training_chunk_set.py
+          tests/horde_training_scale_selected_role.py
+          tests/horde_training_scale_adapter.py
+          tests/horde_training_c0.py
           tests/horde_training_control.py
           tests/horde_training_resume.py
+          tests/horde_training_selected_role.py
           tests/horde_wdl_calibration.py
           tools/horde_bin_v1.py
           tools/horde_compare_training_checkpoints.py
           tools/horde_fit_wdl.py
           tools/horde_run6b.py
           tools/horde_split_training_book.py
+          tools/horde_training_c0.py
+          tools/horde_training_chunk_set.py
+          tools/horde_training_scale_selected_role.py
           tools/horde_training_control.py
           tools/horde_training_decoder.py
+          tools/horde_training_models.py
+          tools/horde_training_selected_role.py
           tools/horde_training_split_audit.py
           tools/horde_training_microfit.py
           tools/horde_wdl.py
+          tools/horde_v2_container.py
+          tools/horde_v2_c1_campaign.py
+          tools/horde_v2_c1_screen.py
+          tools/horde_v2_c2_constant_baseline.py
+          tools/horde_v2_c2_objective.py
+          tools/horde_v2_c2_qualification.py
+          tools/horde_v2_c3_confirmation_role.py
+          tools/horde_v2_c3_qualification.py
+          tools/horde_v2_export.py
+          tools/horde_v2_functional_health.py
+          tools/horde_v2_integer_eval.py
       - name: Verify deterministic training-book split
         run: python3 tests/horde_training_book_split.py
 
@@ -144,8 +188,38 @@ jobs:
           --extra-index-url https://pypi.org/simple
       - name: Verify Horde WDL calibration
         run: python tests/horde_wdl_calibration.py
-      - name: Verify fresh legacy-control trainer
+      - name: Verify Horde legacy and V2 trainers
         run: python tests/horde_training_control.py
+      - name: Verify authenticated Horde training chunk sets
+        run: python tests/horde_training_chunk_set.py
+      - name: Verify bounded-memory scale validation selection
+        run: python tests/horde_training_scale_selected_role.py
+      - name: Verify Rank8 scale WDL and trainer adapter
+        run: python tests/horde_training_scale_adapter.py
+      - name: Verify Horde V2 C0 split equality
+        run: python tests/horde_training_c0.py
+      - name: Verify authenticated Horde V2 checkpoint export
+        run: python tests/horde_v2_export.py
+      - name: Verify frozen Horde V2 C1 campaign
+        run: python tests/horde_v2_c1_campaign.py
+      - name: Verify Horde V2 C1 coverage semantics
+        run: python tests/horde_v2_c1_coverage.py
+      - name: Verify selected C1 validation role
+        run: python tests/horde_training_selected_role.py
+      - name: Verify Horde V2 integer batch evaluation
+        run: python tests/horde_v2_integer_eval.py
+      - name: Verify frozen Horde V2 C1 quantized screen
+        run: python tests/horde_v2_c1_screen.py
+      - name: Verify Horde V2 functional-health gate
+        run: python tests/horde_v2_functional_health.py
+      - name: Verify Horde V2 C2 constant baseline
+        run: python tests/horde_v2_c2_constant_baseline.py
+      - name: Verify Horde V2 C2 qualification gate
+        run: python tests/horde_v2_c2_qualification.py
+      - name: Verify fresh Horde V2 C3 confirmation role
+        run: python tests/horde_v2_c3_confirmation_role.py
+      - name: Verify Horde V2 C3 representation qualification gate
+        run: python tests/horde_v2_c3_qualification.py
       - name: Verify interrupted trainer resume parity
         run: python tests/horde_training_resume.py
 
@@ -176,8 +250,15 @@ jobs:
             -fsanitize=address,undefined -fno-omit-frame-pointer \
             tests/horde_v2_backend.cpp -o /tmp/horde-v2-backend-sanitize
           /tmp/horde-v2-backend-sanitize
+          c++ -std=c++17 -O1 -g -D_GLIBCXX_ASSERTIONS \
+            -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o /tmp/horde-v2-container-sanitize
           make -j2 -C src ARCH=x86-64 sanitize="address undefined" debug=yes optimize=no \
             EXTRACXXFLAGS="-O1 -fno-inline" horde-v2-position-test-bin
+          python3 tests/horde_v2_container_parity.py \
+            --oracle /tmp/horde-v2-container-sanitize \
+            --position-oracle src/horde-v2-position-test
           src/horde-v2-position-test
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
@@ -291,7 +372,17 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 \
             tests/horde_v2_backend.cpp -o horde-v2-backend-avx2.exe
           ./horde-v2-backend-avx2.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o horde-v2-container.exe
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 -Isrc \
+            tests/horde_v2_container.cpp src/nnue/horde_v2_container.cpp \
+            src/data/sha256.cpp -o horde-v2-container-avx2.exe
           make -j2 -C src ARCH=x86-64 horde-v2-position-test-bin
+          python tests/horde_v2_container_parity.py \
+            --oracle ./horde-v2-container.exe \
+            --oracle ./horde-v2-container-avx2.exe \
+            --position-oracle src/horde-v2-position-test.exe
           src/horde-v2-position-test.exe
           python scripts/horde/verify_baseline.py
           python tests/horde_rules.py src/stockfish.exe
@@ -299,6 +390,85 @@ jobs:
           python tests/horde_network_contract.py src/stockfish.exe
           python tests/horde_bench.py src/stockfish.exe
           python tests/horde_genfens.py src/stockfish.exe
+
+  v2-candidate-linux:
+    name: Linux Horde V2 candidate dispatch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Create an authenticated Rank8 fixture
+        run: >-
+          python3 tests/horde_v2_candidate_engine.py fixture
+          /tmp/horde-v2-rank8.hsv2
+          --architecture v2-c1-rank8-64x192
+      - name: Reject contradictory build dispatch
+        shell: bash
+        run: |
+          if make -s -C src help HORDE_V2_CANDIDATE=no EVALFILE=/tmp/horde-v2-rank8.hsv2; then
+            echo "A .hsv2 container bypassed the candidate dispatch" >&2
+            exit 1
+          fi
+          if make -s -C src help HORDE_V2_CANDIDATE=yes EVALFILE=/tmp/not-a-container.nnue; then
+            echo "Candidate dispatch accepted a non-.hsv2 artifact" >&2
+            exit 1
+          fi
+      - name: Build the validating AVX2 candidate
+        run: >-
+          make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no
+          EVALFILE=/tmp/horde-v2-rank8.hsv2
+          EXTRACXXFLAGS=-DHORDE_V2_CANDIDATE_SHADOW build
+      - name: Verify integer parity, search stack, determinism, and fail-closed loading
+        run: >-
+          python3 tests/horde_v2_candidate_engine.py verify
+          src/stockfish /tmp/horde-v2-rank8.hsv2
+
+  v2-candidate-windows:
+    name: Windows Horde V2 candidate dispatch
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c # v2.31.1
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-python
+      - name: Create an authenticated Rank8 fixture
+        shell: msys2 {0}
+        run: >-
+          python tests/horde_v2_candidate_engine.py fixture
+          "$PWD/horde-v2-rank8.hsv2"
+          --architecture v2-c1-rank8-64x192
+      - name: Reject contradictory build dispatch
+        shell: msys2 {0}
+        run: |
+          if make -s -C src help HORDE_V2_CANDIDATE=no EVALFILE="$PWD/horde-v2-rank8.hsv2"; then
+            echo "A .hsv2 container bypassed the candidate dispatch" >&2
+            exit 1
+          fi
+          if make -s -C src help HORDE_V2_CANDIDATE=yes EVALFILE="$PWD/not-a-container.nnue"; then
+            echo "Candidate dispatch accepted a non-.hsv2 artifact" >&2
+            exit 1
+          fi
+      - name: Build the validating AVX2 candidate
+        shell: msys2 {0}
+        run: >-
+          make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no
+          EVALFILE="$PWD/horde-v2-rank8.hsv2"
+          EXTRACXXFLAGS=-DHORDE_V2_CANDIDATE_SHADOW build
+      - name: Verify integer parity, search stack, determinism, and fail-closed loading
+        shell: msys2 {0}
+        run: >-
+          python tests/horde_v2_candidate_engine.py verify
+          src/stockfish.exe "$PWD/horde-v2-rank8.hsv2"
 
   v2-width-benchmark:
     name: Paired AVX2 Horde V2 width benchmark
@@ -348,3 +518,26 @@ jobs:
           path: receipts/
           if-no-files-found: error
           retention-days: 30
+
+  release-contract:
+    name: Release contract tooling
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Authenticate frozen Horde inputs
+        run: python3 scripts/horde/verify_baseline.py
+      - name: Exercise manifest and provenance contracts
+        run: python3 tests/horde_release_contract.py
+      - name: Exercise fixed release-panel contract
+        run: python3 tests/horde_release_panel.py
+      - name: Verify release tooling syntax
+        run: |
+          bash -n scripts/horde/build_native_release.sh
+          python3 -m py_compile \
+            scripts/horde/release_manifest.py \
+            scripts/horde/release_provenance.py \
+            scripts/horde/run_release_panel.py \
+            tests/horde_release_panel.py \
+            tests/horde_release_contract.py

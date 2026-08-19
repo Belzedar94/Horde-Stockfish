@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-v2-c1-coverage-addendum-v1.json",
+  "title": "Horde V2 C1 coverage addendum V1",
+  "schema_name": "HORDE_V2_C1_COVERAGE_ADDENDUM_V1",
+  "status": "registered_before_training",
+  "purpose": "Replace only the miscalibrated position-count coverage policy while preserving the exact natural 250,000/250,000 C1 comparison.",
+  "parent_campaign": {
+    "schema": "HORDE_V2_C1_CAMPAIGN_V1",
+    "sha256": "7B5BDA9DC20AB7CF55DE2964085D2ADBBED83137A3071B418439A5CF7DD939DA"
+  },
+  "data_repair": {
+    "schema": "HORDE_V2_C1_DATA_REPAIR_V1",
+    "sha256": "307B7CA068A025B74443D1A657789D6AB0FDFA34E8EEB6A573E025ACA218535D"
+  },
+  "applies_only_to": {
+    "training": {
+      "file_sha256": "0BFEB566EC1587256DBDB6111689DF51EAFD3063C7D47A2120655B917E29AC6A",
+      "payload_sha256": "46280E89FEF9A5C58D31CBAC36B91E2D8F13954DF17F90E803E7D3237B39EFD4",
+      "manifest_sha256": "374965FC3B06870FF6BA955746265DFBCA2B505FAA619345D4D9B7283333A8E4",
+      "records": 250000
+    },
+    "validation_candidate": {
+      "file_sha256": "0969B736005BFEB3F4434206E610DF541D454C0508154FEAA4F00613F72D0712",
+      "payload_sha256": "628DFBEB99D69874C6891CAC2589F5225ABF5353316DF908E642F8E37124E64D",
+      "manifest_sha256": "908F87BD23B91FA4E3FE0992DFD14842A5E42D650F2FAFF544E7F949F266F462",
+      "records": 254096
+    },
+    "selected_validation": {
+      "receipt_sha256": "A5D47CC32B50EE82B396A6E1BB45ACA6C9A3A9AD17BCEBDB262D3020548FFFE4",
+      "selected_index_sha256": "0BEE4BF1F5A35A58A389CE47CA16ED92F64EEAC3B24F9904074FC17A9E764B13",
+      "decision_chain_sha256": "D4E8FD80FF37E23F497140CA40140FF18E80F82EBA55FE0DDFC46CEB28E9DD8A",
+      "record_order_sha256": "0AE5DB406EE79844E688FE284726DB162A0392606FE77EB7AD5A5949CD2FB880",
+      "materialized_sha256": "945983D43EEB7D180110765A73DF8C3E6E71CB6E7FE3C575478549F11E7A3A70",
+      "records": 250000
+    },
+    "book_split_receipt_sha256": "0301BAC3374D8DD4194E03686B27EEB1DBA2EAF0D8B09BD273EF04D33B715DD2",
+    "wdl_calibration_sha256": "37305639AEE6BC9885DAFC4E714367F7B973BDBAFFC81779BEC0C669B0F49479"
+  },
+  "amendment_timing": {
+    "original_preflight_receipt_preserved": true,
+    "trainer_invocations_before_registration": 0,
+    "epoch_zero_outputs_inspected": 0,
+    "model_losses_inspected": 0,
+    "quantized_outputs_inspected": 0,
+    "playing_results_inspected": 0
+  },
+  "original_failed_coverage": {
+    "schema": "HORDE_V2_C1_DATA_COVERAGE_V1",
+    "royal_bucket_position_minimums": {
+      "required_train": 500,
+      "observed_train": 86,
+      "required_validation": 200,
+      "observed_validation": 111
+    },
+    "unseen_validation_royal_activation_fraction": {
+      "required_maximum_exclusive": 0.001,
+      "observed_numerator": 6755,
+      "observed_denominator": 5821399
+    },
+    "passed": false
+  },
+  "replaces_only": "data.coverage",
+  "effective_coverage": {
+    "schema": "HORDE_V2_C1_DATA_COVERAGE_V2",
+    "exact_record_counts": {
+      "train": 250000,
+      "validation": 250000
+    },
+    "zero_physical_cross_role_overlap": true,
+    "zero_legacy_cross_role_overlap": true,
+    "zero_validation_physical_duplicates": true,
+    "zero_validation_legacy_duplicates": true,
+    "topologies": {
+      "absolute_nonking": {
+        "keys": 1,
+        "dimensions": 640
+      },
+      "royal_rank8": {
+        "keys": 8,
+        "dimensions": 5120
+      },
+      "royal32": {
+        "keys": 32,
+        "dimensions": 20480
+      }
+    },
+    "all_topology_keys_nonzero_in_both_roles": true,
+    "all_ten_fixed_roles_nonzero_in_both_roles": true,
+    "every_validation_key_has_an_exact_training_row_intersection": true,
+    "minimum_seen_validation_activation_mass": {
+      "numerator": 99,
+      "denominator": 100,
+      "comparison": "unseen_validation_activations * 100 <= total_validation_activations"
+    },
+    "validation_stm_white_piece_bin_minimum": 1000,
+    "white_piece_bins": [
+      "1-4",
+      "5-8",
+      "9-16",
+      "17-24",
+      "25-30",
+      "31-36"
+    ],
+    "side_result_classes_required": [
+      -1,
+      0,
+      1
+    ]
+  },
+  "measured_support_before_registration": {
+    "absolute_nonking": {
+      "unseen_validation_activations": 56,
+      "total_validation_activations": 5821399
+    },
+    "royal_rank8": {
+      "unseen_validation_activations": 1975,
+      "total_validation_activations": 5821399
+    },
+    "royal32": {
+      "unseen_validation_activations": 6755,
+      "total_validation_activations": 5821399
+    }
+  },
+  "seed_namespace": "HORDE_V2_C1_CAMPAIGN_V1",
+  "unchanged": [
+    "exact training and selected validation roles",
+    "validation selection and ordering",
+    "architectures and architecture order",
+    "paired seeds and sample order",
+    "optimizer and learning-rate schedule",
+    "training exposures and validation records",
+    "WDL calibration",
+    "quantized screen and playing gates",
+    "Run 6B production path"
+  ],
+  "prohibited": [
+    "coverage threshold CLI overrides",
+    "architecture-specific sampling, weighting or validation masking",
+    "bucket-specific augmentation",
+    "dropping records with unseen rows",
+    "special initialization of unseen rows",
+    "changing any model, data, recipe, seed, selection or playing gate"
+  ],
+  "claims": {
+    "coverage_policy_amended_before_model_inspection": true,
+    "training_started": false,
+    "architecture_selected": false,
+    "strength_evidence": false,
+    "production_network": false
+  }
+}
