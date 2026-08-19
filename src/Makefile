@@ -147,6 +147,14 @@ HORDE_BIN_V1_TEST_EXE = horde-bin-v1-tests$(if $(filter yes,$(target_windows)),.
 HORDE_BIN_V1_TEST_OBJS = $(filter-out main.o,$(OBJS)) horde_data_generator_sha256.o \
 	horde_data_generator_horde_bin_v1.o horde_bin_v1_tests.o
 
+# OpenBench generic DATAGEN builds pass OPENBENCH_DATAGEN=1 and bench the
+# resulting binary, so the main EXE must carry the in-engine generator:
+# swap search.o/uci.o for their generator-enabled twins and link the data
+# sources, exactly like the standalone data-generator target.
+ifeq ($(OPENBENCH_DATAGEN),1)
+OBJS := $(HORDE_DATA_GENERATOR_OBJS)
+endif
+
 VPATH = syzygy:nnue:nnue/features:data
 
 ### ==========================================================================
@@ -970,6 +978,14 @@ BUILD_DATE_FILE      := .build_date.txt
 BUILD_DIFFINDEX_FILE := .build_diffindex.txt
 GIT_SHA              := $(shell git rev-parse HEAD 2>/dev/null | cut -c 1-8 || true)
 GIT_FULL_SHA         := $(shell git rev-parse HEAD 2>/dev/null || true)
+# OpenBench workers build from a GitHub archive without .git and hand the
+# provenance over as GIT_SHA_FULL on the make command line; without this
+# bridge the generator refuses to run ("Source commit must be a nonzero
+# full 40-digit Git object ID").
+ifeq ($(GIT_FULL_SHA),)
+GIT_FULL_SHA         := $(GIT_SHA_FULL)
+GIT_SHA              := $(shell echo $(GIT_SHA_FULL) | cut -c 1-8)
+endif
 GIT_DATE             := $(shell git show -s --date=format:%Y%m%d --format=%cd HEAD 2>/dev/null || true)
 GIT_DIFFINDEX        := $(shell git update-index --refresh >/dev/null 2>&1; git -c core.filemode=false -c core.autocrlf=false  diff-index --quiet HEAD -- 2>/dev/null; [ $$? -eq 1 ] && echo 1 || true)
 COMPILER_DATE        := $(shell date +%Y%m%d 2>/dev/null)
