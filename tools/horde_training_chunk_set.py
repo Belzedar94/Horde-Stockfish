@@ -36,6 +36,31 @@ except ImportError:
 SCHEMA = "HORDE_TRAINING_CHUNK_SET_V1"
 SCHEMA_SHA256 = "CAAF9D19B4A04BA8854FDBC24B4A7D1948577B17FB652E39EF4DB4287BB0DD4E"
 SCALE_SCHEMA = "HORDE_V2_RANK8_SCALE_V1"
+# Contract vocabularies this tool can read. A contract still binds exactly one
+# architecture; that binding lives in the scale-contract registry, not here.
+SCALE_SCHEMAS = {SCALE_SCHEMA, "HORDE_V3_SCALE_V1"}
+
+# HORDE_DATA_CAMPAIGN_V1.  Data provenance and recipe provenance are independent
+# axes. A contract that trains a new architecture on an existing corpus does not
+# own that corpus: the chunks were generated, authenticated and receipted under
+# the campaign that produced them, and their receipts must never be rewritten to
+# claim otherwise, because the same bytes cannot carry two identities.
+#
+# Such a contract therefore DECLARES the data campaign it consumes, in an
+# optional `data_campaign` block, and the receipt comparison is made against the
+# declared campaign rather than against the contract's own identity. A contract
+# with no `data_campaign` is its own data campaign, which is the original
+# behaviour byte for byte.
+#
+# The honest form is that both axes are named. A contract that omitted the
+# declaration and matched loosely would be pretending the two coincide.
+DATA_CAMPAIGN_FIELDS = {
+    "contract_name",
+    "contract_schema",
+    "contract_sha256",
+    "campaign_id",
+    "cohort",
+}
 
 ROLE_BOOK = {
     "training": "training",
@@ -236,13 +261,17 @@ class CampaignExpectation:
     label_contract: dict[str, str]
     book_sha256: str
     generation_common: dict[str, int]
+    data_campaign: dict[str, str]
 
 
 def load_campaign_expectation(contract_path: Path, role: str) -> CampaignExpectation:
     _require(role in ROLE_BOOK, f"unsupported chunk-set role {role}")
     contract_resolved = contract_path.expanduser().resolve()
     contract, payload = _load_json(contract_resolved, "campaign contract")
-    _require(contract.get("schema_name") == SCALE_SCHEMA, "campaign contract schema mismatch")
+    _require(
+        contract.get("schema_name") in SCALE_SCHEMAS,
+        "campaign contract schema mismatch",
+    )
 
     openbench = _mapping(contract.get("openbench"), "campaign OpenBench section")
     generation = _mapping(contract.get("generation"), "campaign generation section")
@@ -345,6 +374,30 @@ def load_campaign_expectation(contract_path: Path, role: str) -> CampaignExpecta
     cohort = openbench.get("cohort")
     _require(isinstance(campaign_id, str) and campaign_id, "campaign id is invalid")
     _require(isinstance(cohort, str) and cohort, "campaign cohort is invalid")
+    # HORDE_DATA_CAMPAIGN_V1: a declared data campaign, or this contract itself.
+    own_campaign = {
+        "contract_name": contract_resolved.name,
+        "contract_schema": str(contract.get("schema_name")),
+        "contract_sha256": _sha256_bytes(payload),
+        "campaign_id": str(campaign_id),
+        "cohort": str(cohort),
+    }
+    declared = contract.get("data_campaign")
+    if declared is None:
+        data_campaign = own_campaign
+    else:
+        declared = _mapping(declared, "campaign data_campaign section")
+        _require(set(declared) == DATA_CAMPAIGN_FIELDS,
+                 "data_campaign fields are incomplete")
+        _require(declared["contract_schema"] in SCALE_SCHEMAS,
+                 "declared data campaign schema is unknown")
+        _require(_valid_sha256(declared["contract_sha256"]),
+                 "declared data campaign contract SHA-256 is invalid")
+        for field in ("contract_name", "campaign_id", "cohort"):
+            _require(isinstance(declared[field], str) and declared[field],
+                     "declared data campaign field is invalid")
+        data_campaign = {field: str(declared[field]) for field in DATA_CAMPAIGN_FIELDS}
+
     return CampaignExpectation(
         contract_name=contract_resolved.name,
         contract_sha256=_sha256_bytes(payload),
@@ -361,6 +414,7 @@ def load_campaign_expectation(contract_path: Path, role: str) -> CampaignExpecta
         label_contract={"schema": str(label_schema), "schema_sha256": str(label_sha256)},
         book_sha256=str(book_sha256),
         generation_common=generation_common,
+        data_campaign=data_campaign,
     )
 
 
@@ -492,12 +546,14 @@ def _validate_chunk_manifest(
 
 
 def _campaign_section(expectation: CampaignExpectation) -> dict[str, object]:
+    """The campaign a receipt records: the DATA campaign, never the recipe's."""
+
     return {
-        "contract_name": expectation.contract_name,
-        "contract_sha256": expectation.contract_sha256,
-        "contract_schema": SCALE_SCHEMA,
-        "campaign_id": expectation.campaign_id,
-        "cohort": expectation.cohort,
+        "contract_name": expectation.data_campaign["contract_name"],
+        "contract_sha256": expectation.data_campaign["contract_sha256"],
+        "contract_schema": expectation.data_campaign["contract_schema"],
+        "campaign_id": expectation.data_campaign["campaign_id"],
+        "cohort": expectation.data_campaign["cohort"],
     }
 
 
@@ -808,7 +864,10 @@ class HordeChunkSetDataset:
                 "receipt common manifest drifted",
             )
         else:
-            _require(campaign.get("contract_schema") == SCALE_SCHEMA, "receipt campaign schema drifted")
+            _require(
+                campaign.get("contract_schema") in SCALE_SCHEMAS,
+                "receipt campaign schema drifted",
+            )
             _require(_valid_sha256(campaign.get("contract_sha256")), "receipt contract SHA-256 is invalid")
             _require(self.receipt["format"] == _expected_format(), "receipt format drifted")
 

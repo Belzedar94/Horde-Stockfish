@@ -1,6 +1,7 @@
 {
   "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-v3-scale-v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "DATA_CAMPAIGN_NOTE": "Data provenance and recipe provenance are independent axes, and an honest contract names both instead of pretending they coincide. This contract owns the recipe: architecture v3-g1024-pawn-wpc8, lambda 1.0, the campaign seed. It does not own the corpus. Those 200 chunks were generated, authenticated and receipted under the Rank8 scale campaign named above, and their receipts are never rewritten, because the same bytes cannot carry two identities. The receipt comparison is therefore made against this declared data campaign.",
   "NOTE": "Authored registered and hash pinned rather than as a LOCAL staging file. The trainer has no fixture escape hatch, so a LOCAL contract could only be loaded by adding one to a gated path; pinning the hash here is the stricter option and needs no escape hatch. The teacher identities are the ones that actually generated the corpus.",
   "books": {
     "complete_partition": true,
@@ -26,6 +27,13 @@
     "architecture_selection": false,
     "production_network": false,
     "strength_evidence": false
+  },
+  "data_campaign": {
+    "campaign_id": "horde-v2-rank8-scale-20260810",
+    "cohort": "run6b-d4-v3-split",
+    "contract_name": "horde-v2-rank8-scale-v1.LOCAL.json",
+    "contract_schema": "HORDE_V2_RANK8_SCALE_V1",
+    "contract_sha256": "EFD8CF7A09C14EE99C8FF3019B42AFCAC1C1F393F71DE65A1A0172542203DCB6"
   },
   "dependencies": {
     "architecture_selection": {
