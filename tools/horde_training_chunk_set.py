@@ -90,7 +90,8 @@ ORDERING_FIELDS = {
     "expected_indices",
     "expected_seed_range",
 }
-TOTAL_FIELDS = {"chunks", "records", "payload_bytes", "file_bytes", "threads_seen"}
+TOTAL_FIELDS = {"chunks", "records", "payload_bytes", "file_bytes", "threads_seen",
+                "producers_seen"}  # HORDE_PRODUCER_SET_V1
 IDENTITY_FIELDS = {
     "logical_payload_sha256",
     "chunk_set_sha256",
@@ -230,7 +231,7 @@ class CampaignExpectation:
     chunk_count: int
     base_seed: int
     source_commit: str
-    producer_sha256: str
+    producer_sha256_allowed: tuple[str, ...]
     network: dict[str, str]
     label_contract: dict[str, str]
     book_sha256: str
@@ -299,8 +300,39 @@ def load_campaign_expectation(contract_path: Path, role: str) -> CampaignExpecta
         and all(character in "0123456789abcdefABCDEF" for character in source_commit),
         "campaign teacher source commit is invalid",
     )
+    # HORDE_PRODUCER_SET_V1: accept one producer SHA-256 or a list of them.
+    def _normalize_producers(value: object, label: str) -> tuple[str, ...]:
+        listed = [value] if isinstance(value, str) else value
+        _require(
+            isinstance(listed, list) and bool(listed),
+            f"{label} must be a SHA-256 string or a non-empty list",
+        )
+        for item in listed:
+            _require(_valid_sha256(item), f"{label} contains an invalid SHA-256")
+        normalized = tuple(sorted(str(item).upper() for item in listed))
+        _require(
+            len(set(normalized)) == len(normalized),
+            f"{label} contains duplicates",
+        )
+        return normalized
+
+    producer_allowed = _normalize_producers(
+        producer_sha256, "campaign teacher producer SHA-256"
+    )
+    # An optional per-role `generation.<role>.producer_sha256` narrows the global
+    # teacher list, so the training role cannot silently accept a build that only
+    # the validation role is allowed to use. It must be a subset.
+    role_producer = role_generation.get("producer_sha256")
+    if role_producer is not None:
+        role_allowed = _normalize_producers(
+            role_producer, f"campaign {role} producer SHA-256"
+        )
+        _require(
+            set(role_allowed) <= set(producer_allowed),
+            f"campaign {role} producer set is not a subset of the teacher producer set",
+        )
+        producer_allowed = role_allowed
     for value, label in (
-        (producer_sha256, "producer"),
         (network_sha256, "network"),
         (book_sha256, "book"),
         (label_sha256, "label contract"),
@@ -324,7 +356,7 @@ def load_campaign_expectation(contract_path: Path, role: str) -> CampaignExpecta
         chunk_count=chunk_count,
         base_seed=base_seed,
         source_commit=source_commit.lower(),
-        producer_sha256=str(producer_sha256),
+        producer_sha256_allowed=producer_allowed,
         network={"schema": str(network_schema), "sha256": str(network_sha256)},
         label_contract={"schema": str(label_schema), "schema_sha256": str(label_sha256)},
         book_sha256=str(book_sha256),
@@ -336,14 +368,66 @@ def _format_identity(manifest: Mapping[str, Any]) -> dict[str, object]:
     return {field: manifest[field] for field in FORMAT_FIELDS}
 
 
+# --- HORDE_PRODUCER_SET_V1 (local extension, not canonical) --------------------
+#
+# One OpenBench role can legitimately be produced by more than one build of the
+# data generator: workers rebuild, and a non-reproducible build changes the
+# producer binary SHA-256 without changing the source commit or any generation
+# setting. The 50M training role is exactly this case (chunks 0-189 from one
+# build, 190-199 from another), and the validation-candidate role carries a
+# third build again.
+#
+# This extension therefore moves `producer_sha256` OUT of the compared common
+# manifest and turns it into a per-chunk field checked for MEMBERSHIP against an
+# allowed list declared by the campaign contract. `source_commit` stays single
+# and mandatory: a differing commit is real source drift and must still fail.
+#
+# Compatibility: downstream consumers (horde_fit_wdl.py, horde_wdl.py,
+# horde_training_scale_selected_role.py, horde_training_control.py) read
+# `producer_sha256` as ONE 64-hex string. So the receipt keeps that key:
+#   * exactly one allowed producer -> the real binary hash, byte-identical to
+#     the pre-extension behaviour, so existing single-producer receipts do not
+#     churn;
+#   * two or more                  -> a domain-separated SET DIGEST over the
+#     sorted list.
+#
+# !! HAZARD, read before canonizing !!  In the plural case `producer_sha256` is
+# NOT any binary's hash. It is a digest of the set. It still fails closed (any
+# change to the producer set changes it), but a WDL artifact's
+# `teacher.producer_sha256` would then carry a set digest that LOOKS like a
+# binary hash. Decide at canonization whether downstream should instead learn to
+# read `producer_sha256_allowed` explicitly. The real hashes are never lost:
+# they are in `common_manifest.producer_sha256_allowed` and, with per-chunk
+# attribution, in `totals.producers_seen`.
+
+PRODUCER_SET_DIGEST_DOMAIN = b"HORDE_PRODUCER_SET_V1\x00"
+
+
+def _producer_set_identity(allowed: Sequence[str]) -> str:
+    """One 64-hex identity for a role's producer set (see hazard note above)."""
+    ordered = sorted(str(value).upper() for value in allowed)
+    _require(bool(ordered), "producer set is empty")
+    if len(ordered) == 1:
+        return ordered[0]
+    digest = hashlib.sha256(PRODUCER_SET_DIGEST_DOMAIN)
+    for value in ordered:
+        digest.update(value.encode("ascii"))
+        digest.update(b"\x00")
+    return digest.hexdigest().upper()
+
+
 def _common_manifest_identity(manifest: Mapping[str, Any]) -> dict[str, object]:
+    """Fields every chunk in a role must share EXACTLY.
+
+    `producer_sha256` is deliberately absent: it is per-chunk and checked for
+    membership by `_validate_chunk_manifest`.
+    """
     generation = _mapping(manifest.get("generation"), "chunk generation")
     return {
         "source_commit": str(manifest["source_commit"]).lower(),
         "source_dirty": manifest["source_dirty"],
         "network": manifest["network"],
         "book_sha256": manifest["book_sha256"],
-        "producer_sha256": manifest["producer_sha256"],
         "label_contract": manifest["label_contract"],
         "generation": {field: generation[field] for field in GENERATION_COMMON_FIELDS},
     }
@@ -366,7 +450,9 @@ def _expected_common(expectation: CampaignExpectation) -> dict[str, object]:
         "source_dirty": False,
         "network": expectation.network,
         "book_sha256": expectation.book_sha256,
-        "producer_sha256": expectation.producer_sha256,
+        # Kept for downstream string consumers; see HORDE_PRODUCER_SET_V1 note.
+        "producer_sha256": _producer_set_identity(expectation.producer_sha256_allowed),
+        "producer_sha256_allowed": list(expectation.producer_sha256_allowed),
         "label_contract": expectation.label_contract,
         "generation": expectation.generation_common,
     }
@@ -377,9 +463,16 @@ def _validate_chunk_manifest(
     expectation: CampaignExpectation,
 ) -> int:
     _require(_format_identity(manifest) == _expected_format(), "chunk format identity drifted")
+    expected_common = dict(_expected_common(expectation))
+    expected_common.pop("producer_sha256", None)
+    expected_common.pop("producer_sha256_allowed", None)
     _require(
-        _common_manifest_identity(manifest) == _expected_common(expectation),
+        _common_manifest_identity(manifest) == expected_common,
         "chunk common manifest identity drifted",
+    )
+    _require(
+        str(manifest["producer_sha256"]).upper() in expectation.producer_sha256_allowed,
+        "chunk producer SHA-256 is not in the campaign allowed producer set",
     )
     _require(
         manifest.get("record_count") == expectation.positions_per_chunk,
@@ -473,6 +566,8 @@ def assemble_chunk_set(
     paths_by_index: dict[int, Path] = {}
     file_hashes: set[str] = set()
     payload_hashes: set[str] = set()
+    # HORDE_PRODUCER_SET_V1: producer build -> chunk indices it contributed.
+    producer_attribution: dict[str, list[int]] = {}
 
     for path in resolved_paths:
         _require(path.is_file(), f"chunk does not exist: {path}")
@@ -498,6 +593,9 @@ def assemble_chunk_set(
                 "global_begin": 0,
                 "global_end": 0,
             }
+            producer_attribution.setdefault(
+                str(dataset.manifest["producer_sha256"]).upper(), []
+            ).append(index)
         entries_by_index[index] = entry
         paths_by_index[index] = path
         file_hashes.add(str(entry["file_sha256"]))
@@ -532,6 +630,11 @@ def assemble_chunk_set(
             "payload_bytes": cursor * wire.RECORD_SIZE,
             "file_bytes": sum(int(entry["file_bytes"]) for entry in entries),
             "threads_seen": sorted({int(entry["threads"]) for entry in entries}),
+            # HORDE_PRODUCER_SET_V1: which chunks each producer build contributed.
+            "producers_seen": {
+                producer: sorted(indices)
+                for producer, indices in sorted(producer_attribution.items())
+            },
         },
         "identity": {
             "logical_payload_sha256": _logical_payload_sha256(ordered_paths),
@@ -636,6 +739,7 @@ class HordeChunkSetDataset:
                 "network",
                 "book_sha256",
                 "producer_sha256",
+                "producer_sha256_allowed",
                 "label_contract",
                 "generation",
             },
@@ -661,6 +765,24 @@ class HordeChunkSetDataset:
             (common_manifest.get("producer_sha256"), "producer"),
         ):
             _require(_valid_sha256(value), f"receipt {label} SHA-256 is invalid")
+        # HORDE_PRODUCER_SET_V1: the allowed list must be sorted, unique, valid,
+        # and consistent with the single-string identity kept for downstream.
+        receipt_producers = common_manifest.get("producer_sha256_allowed")
+        _require(
+            isinstance(receipt_producers, list) and bool(receipt_producers),
+            "receipt producer allowed list is empty or not a list",
+        )
+        for value in receipt_producers:
+            _require(_valid_sha256(value), "receipt allowed producer SHA-256 is invalid")
+        _require(
+            receipt_producers == sorted({str(v).upper() for v in receipt_producers}),
+            "receipt producer allowed list is not sorted and unique",
+        )
+        _require(
+            common_manifest.get("producer_sha256")
+            == _producer_set_identity(receipt_producers),
+            "receipt producer set identity drifted",
+        )
         _require(
             common_manifest.get("network")
             == {"schema": "HORDETEST_HP_LEGACY_V1", "sha256": wire.RUN6B_SHA256},
@@ -697,6 +819,7 @@ class HordeChunkSetDataset:
         observed_file_hashes: set[str] = set()
         observed_payload_hashes: set[str] = set()
         observed_threads: set[int] = set()
+        observed_producers: dict[str, list[int]] = {}
         for raw_entry in chunks:
             entry = _mapping(raw_entry, "receipt chunk")
             _require(
@@ -728,9 +851,18 @@ class HordeChunkSetDataset:
                     _format_identity(manifest) == self.receipt["format"],
                     "receipt chunk format identity drifted",
                 )
+                receipt_common = dict(
+                    _mapping(self.receipt["common_manifest"], "receipt common manifest")
+                )
+                receipt_common.pop("producer_sha256", None)
+                receipt_allowed = receipt_common.pop("producer_sha256_allowed", [])
                 _require(
-                    _common_manifest_identity(manifest) == self.receipt["common_manifest"],
+                    _common_manifest_identity(manifest) == receipt_common,
                     "receipt chunk common manifest identity drifted",
+                )
+                _require(
+                    str(manifest["producer_sha256"]).upper() in receipt_allowed,
+                    "receipt chunk producer SHA-256 is not in the allowed producer set",
                 )
                 base_seed = ordering.get("base_seed")
                 _require(type(base_seed) is int and base_seed > 0, "receipt base seed is invalid")
@@ -762,6 +894,9 @@ class HordeChunkSetDataset:
             observed_file_hashes.add(dataset.file_sha256)
             observed_payload_hashes.add(manifest["payload_sha256"])
             observed_threads.add(int(manifest["generation"]["threads"]))
+            observed_producers.setdefault(
+                str(manifest["producer_sha256"]).upper(), []
+            ).append(expected_index)
             self._begins.append(cursor)
             cursor += len(dataset)
             self._ends.append(cursor)
@@ -783,6 +918,16 @@ class HordeChunkSetDataset:
             "file byte total drifted",
         )
         _require(totals.get("threads_seen") == sorted(observed_threads), "thread inventory drifted")
+        # HORDE_PRODUCER_SET_V1: per-producer chunk attribution must match exactly.
+        _require(
+            totals.get("producers_seen")
+            == {producer: sorted(idx) for producer, idx in sorted(observed_producers.items())},
+            "producer attribution drifted",
+        )
+        _require(
+            sorted(observed_producers) == sorted(common_manifest["producer_sha256_allowed"]),
+            "observed producers differ from the allowed producer set",
+        )
         if expectation is not None:
             _require(cursor == expectation.records, "receipt record total differs from campaign")
 
