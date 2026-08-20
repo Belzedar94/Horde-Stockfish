@@ -708,9 +708,17 @@ table. The arithmetic is identical:
 | gathers per refresh | 2 | 1 |
 | first dense layer MACs | 16 x 1024 = 16,384 | 16 x 1024 = 16,384 |
 
-V3 does strictly less work per refresh than legacy because it runs one gather
-instead of two, and identical work per incremental update, before the
-contextual blocks. Those blocks add bounded row operations: at most 8 active
+**Corrected by measurement.** The draft claimed V3 would do strictly less work
+per refresh than legacy because it gathers once instead of twice. That is wrong.
+The arithmetic half of the claim holds exactly, 53,248 lane additions over
+1,835,008 table bytes either way, confirmed by construction in
+[nnue-v3-kernel-timing-receipt.json](nnue-v3-kernel-timing-receipt.json). The
+speed half does not: over 9 paired invocations the single 1024 lane gather is
+0.8 percent slower hot and 2.5 percent slower streaming than two 512 lane
+gathers of the same rows. The correct statement is that **V3 at 1024 lanes costs
+the same as the incumbent's arithmetic shape to within a few percent**, which is
+what the width argument actually needs. It buys legacy's activated width at
+legacy's price rather than at a discount. Those blocks add bounded row operations: at most 8 active
 rows per block, and the V2 design already bounds a worst case bundled update
 across two changed files at 16 transformer row operations.
 
@@ -1039,7 +1047,25 @@ Unmeasured. If generation throughput at the new depth or node budget makes a
 may be a smaller but much better labelled corpus rather than the same size at
 greater depth. Probe P3 decides.
 
-**Fork 4. Does 1,024 activated lanes hold NPS?**
+**Fork 4. Does 1,024 activated lanes hold NPS? Kernel evidence in, engine
+evidence still missing.**
+
+The kernel campaign measures the V3 forward directly. The incremental path a
+search actually walks, one quiet transition plus dense propagation, is 1,207
+nanoseconds, and dense propagation is 80 percent of it. That dominant term is
+16 by 1024 multiply accumulates per evaluation, which is exactly legacy's dense
+shape, and the feature transformer update is 2,048 lane operations per quiet
+move, which is exactly legacy's too. The refresh comparison above closes the
+remaining gap: same arithmetic, same table bytes, within a few percent on time.
+
+So at kernel level 1024 lanes holds. V3 is incumbent class, not cheaper and not
+meaningfully dearer. What the kernels cannot answer is the frame stack: a V3
+frame is 4,224 bytes against roughly 2,048 for legacy, so a 64 ply stack grows
+from about 131 kilobytes to about 270 kilobytes, and whether that costs real
+nodes per second is a search question, not a kernel one. That is P4, and P4 and
+P1 both need the engine path.
+
+**Fork 4 as originally posed.**
 
 Unmeasured, and unmeasurable today. Section 2.2 argues the incremental
 arithmetic is identical to legacy and the refresh is cheaper by one gather, but
