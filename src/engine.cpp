@@ -41,6 +41,12 @@
 #if defined(HORDE_V2_PERF)
 #include "nnue/horde_v2_performance.h"
 #endif
+#if defined(HORDE_V3_CANDIDATE)
+#include "nnue/horde_v3_container.h"
+#endif
+#if defined(HORDE_V3_PERF)
+#include "nnue/horde_v3_performance.h"
+#endif
 #include "numa.h"
 #include "perft.h"
 #include "position.h"
@@ -60,8 +66,45 @@ namespace NN = Eval::NNUE;
 #error HORDE_V2_CANDIDATE requires HORDE_V2_EVALFILE
 #endif
 constexpr const char* EngineEvalFileDefaultName = HORDE_V2_EVALFILE;
+#elif defined(HORDE_V3_CANDIDATE)
+#ifndef HORDE_V3_EVALFILE
+#error HORDE_V3_CANDIDATE requires HORDE_V3_EVALFILE
+#endif
+constexpr const char* EngineEvalFileDefaultName = HORDE_V3_EVALFILE;
 #else
 constexpr const char* EngineEvalFileDefaultName = EvalFileDefaultName;
+#endif
+
+#if defined(HORDE_V3_CANDIDATE)
+namespace {
+
+// One authenticated full refresh of the V3 candidate, used by the diagnostic
+// commands. It never falls back: an invalid network, an unusable position or a
+// side to move outside {WHITE, BLACK} leaves the result invalid and the caller
+// exits unsuccessfully.
+struct V3FullRefresh {
+    NN::HordeV3::V3EvalResult result{};
+    bool                      valid = false;
+};
+
+V3FullRefresh v3_full_refresh(const NN::HordeV3::V3DefaultNetwork& network, const Position& pos) {
+    V3FullRefresh refresh{};
+    if (!network.valid() || (pos.side_to_move() != WHITE && pos.side_to_move() != BLACK))
+        return refresh;
+
+    // The frame and the dense scratch are over-aligned and together larger
+    // than a comfortable automatic object, so they are heap owned here.
+    auto frame   = std::make_unique<NN::HordeV3::V3AccumulatorFrame>();
+    auto scratch = std::make_unique<NN::HordeV3::V3DenseScratch>();
+    if (!network.full_refresh(*frame, pos.piece_array()))
+        return refresh;
+
+    refresh.result = network.propagate(*frame, *scratch, pos.side_to_move(), pos.rule50_count());
+    refresh.valid  = refresh.result.value != VALUE_NONE;
+    return refresh;
+}
+
+}  // namespace
 #endif
 
 constexpr int MaxHashMB  = Is64Bit ? 33554432 : 2048;
@@ -81,6 +124,10 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
     networkFile{std::nullopt, ""},
     network(numaContext, get_default_network())
 #if defined(HORDE_V2_CANDIDATE)
+    , candidateNetworkParameters(),
+    candidateNetwork(candidateNetworkParameters)
+#endif
+#if defined(HORDE_V3_CANDIDATE)
     , candidateNetworkParameters(),
     candidateNetwork(candidateNetworkParameters)
 #endif
@@ -173,7 +220,7 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
       }));
 
     threads.clear();
-#if defined(HORDE_V2_CANDIDATE)
+#if defined(HORDE_V2_CANDIDATE) || defined(HORDE_V3_CANDIDATE)
     resize_threads();
     load_network(path_from_utf8(EngineEvalFileDefaultName));
 #else
@@ -286,7 +333,7 @@ bool Engine::set_numa_config_from_option(const std::string& o) {
 
 void Engine::resize_threads() {
     threads.wait_for_search_finished();
-#if defined(HORDE_V2_CANDIDATE)
+#if defined(HORDE_V2_CANDIDATE) || defined(HORDE_V3_CANDIDATE)
     threads.set(numaContext.get_numa_config(),
                 {options, threads, tt, sharedHists, candidateNetwork}, updateContext);
 #else
@@ -332,6 +379,32 @@ void Engine::verify_network() const {
                         + candidateNetworkParameters.schemaName + ", SHA-256 "
                         + candidateNetworkParameters.fileSha256 + ", parameter SHA-256 "
                         + candidateNetworkParameters.parameterSha256 + ", (64, 192, 32, 32, 2)]");
+#elif defined(HORDE_V3_CANDIDATE)
+    if (candidateNetworkFile != file || !candidateNetwork.valid())
+    {
+        if (onVerifyNetwork)
+        {
+            std::string message =
+              "ERROR: A registered Horde V3 integer container must be available.\n"
+              "ERROR: The network file "
+              + file.string() + " was not loaded successfully.\n";
+            if (!candidateNetworkLoadError.empty())
+                message += "ERROR: " + candidateNetworkLoadError + "\n";
+            message += "ERROR: Search was not started.\n";
+            onVerifyNetwork(message);
+        }
+        std::exit(EXIT_FAILURE);
+    }
+
+    if (onVerifyNetwork)
+        onVerifyNetwork("NNUE evaluation using " + file.string() + " ["
+                        + candidateNetworkParameters.schemaName + ", SHA-256 "
+                        + candidateNetworkParameters.fileSha256 + ", parameter SHA-256 "
+                        + candidateNetworkParameters.parameterSha256 + ", (896, 1024, 16, 32, 2)"
+#if defined(HORDE_V3_CANDIDATE_SHADOW)
+                        + ", shadow"
+#endif
+                        + "]");
 #else
     network->verify(onVerifyNetwork, networkFile, file);
 
@@ -400,6 +473,33 @@ void Engine::load_network(const std::filesystem::path& file) {
     // schema transition, including a failed transition.
     tt.clear(threads);
     threads.clear();
+#elif defined(HORDE_V3_CANDIDATE)
+    wait_for_search_finished();
+    auto loaded = NN::HordeV3::load_v3_container(file);
+
+    candidateNetworkFile = file;
+    if (loaded)
+    {
+        candidateNetworkParameters = std::move(loaded.parameters);
+        candidateNetworkLoadError.clear();
+    }
+    else
+    {
+        // A default-constructed parameter set has an all-zero phase lookup,
+        // which valid() rejects, so a failed load leaves an unusable network
+        // rather than the previously loaded one.
+        candidateNetworkParameters = NN::HordeV3::V3Parameters{};
+        candidateNetworkLoadError =
+          std::string(NN::HordeV3::v3_container_load_error_name(loaded.error));
+        if (!loaded.message.empty())
+            candidateNetworkLoadError += ": " + loaded.message;
+    }
+
+    // Never retain evaluations, accumulator frames or contextual feature
+    // frames across an artifact or schema transition, including a failed
+    // transition. Thread clear drops the per-worker V3 stack outright.
+    tt.clear(threads);
+    threads.clear();
 #else
     network.modify_and_replicate(
       [this, &file](NN::Network& network_) { network_.load(binaryDirectory, file, networkFile); });
@@ -416,6 +516,9 @@ void Engine::save_network(const std::optional<std::filesystem::path>& file) {
 #if defined(HORDE_V2_CANDIDATE)
     (void) file;
     sync_cout << "Exporting authenticated Horde V2 candidate containers is disabled." << sync_endl;
+#elif defined(HORDE_V3_CANDIDATE)
+    (void) file;
+    sync_cout << "Exporting authenticated Horde V3 candidate containers is disabled." << sync_endl;
 #else
     network.modify_and_replicate(
       [&file, this](NN::Network& network_) { network_.save(networkFile, file); });
@@ -455,6 +558,32 @@ void Engine::trace_eval() const {
     const auto result = performanceNetwork.propagate(frame, scratch, pos.side_to_move(),
                                                      pos.rule50_count());
     sync_cout << "horde-v2-perf-eval " << int(result.value) << sync_endl;
+#elif defined(HORDE_V3_CANDIDATE)
+    verify_network();
+    const auto trace = v3_full_refresh(candidateNetwork, pos);
+    if (!trace.valid)
+    {
+        sync_cout << "horde-v3-candidate-eval invalid" << sync_endl;
+        return;
+    }
+    sync_cout << "horde-v3-candidate-eval schema=" << candidateNetworkParameters.schemaName
+              << " file_sha256=" << candidateNetworkParameters.fileSha256
+              << " parameter_sha256=" << candidateNetworkParameters.parameterSha256
+              << " output_affine=" << trace.result.outputAffine
+              << " pre_rule50=" << trace.result.preRule50Value
+              << " value=" << int(trace.result.value) << sync_endl;
+#elif defined(HORDE_V3_PERF)
+    const auto& performanceNetwork = Eval::NNUE::HordeV3::performance_network();
+    auto        frame   = std::make_unique<Eval::NNUE::HordeV3::PerformanceFrame>();
+    auto        scratch = std::make_unique<Eval::NNUE::HordeV3::PerformanceScratch>();
+    if (!performanceNetwork.valid() || !performanceNetwork.full_refresh(*frame, pos.piece_array()))
+    {
+        sync_cout << "horde-v3-perf-eval invalid" << sync_endl;
+        return;
+    }
+    const auto result =
+      performanceNetwork.propagate(*frame, *scratch, pos.side_to_move(), pos.rule50_count());
+    sync_cout << "horde-v3-perf-eval " << int(result.value) << sync_endl;
 #else
     StateListPtr trace_states(new std::deque<StateInfo>(1));
     Position     p;
@@ -474,6 +603,14 @@ Eval::NNUE::RawNetworkOutput Engine::raw_evaluation() const {
     if (!trace.valid())
         std::exit(EXIT_FAILURE);
     return {0, trace.outputAffine};
+#elif defined(HORDE_V3_CANDIDATE)
+    verify_network();
+    const auto trace = v3_full_refresh(candidateNetwork, pos);
+    if (!trace.valid)
+        std::exit(EXIT_FAILURE);
+    // V3 does carry a PSQT skip, so the two halves are reported separately and
+    // their sum is the quantity the output divisor is applied to.
+    return {trace.result.psqtSum, trace.result.outputAffine};
 #else
     auto accumulators = std::make_unique<Eval::NNUE::AccumulatorStack>();
     auto caches       = std::make_unique<Eval::NNUE::AccumulatorCaches>(*network);
@@ -491,6 +628,12 @@ Value Engine::static_evaluation() const {
     if (!trace.valid())
         std::exit(EXIT_FAILURE);
     return trace.value;
+#elif defined(HORDE_V3_CANDIDATE)
+    verify_network();
+    const auto trace = v3_full_refresh(candidateNetwork, pos);
+    if (!trace.valid)
+        std::exit(EXIT_FAILURE);
+    return trace.result.value;
 #else
     auto accumulators = std::make_unique<Eval::NNUE::AccumulatorStack>();
     auto caches       = std::make_unique<Eval::NNUE::AccumulatorCaches>(*network);

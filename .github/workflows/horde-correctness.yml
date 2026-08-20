@@ -125,6 +125,7 @@ jobs:
           tests/horde_v3_batch.py
           tests/horde_v3_microfit.py
           tests/horde_v2_candidate_engine.py
+          tests/horde_v3_candidate_engine.py
           tests/horde_v2_c1_campaign.py
           tests/horde_v2_c1_coverage.py
           tests/horde_v2_c1_screen.py
@@ -497,6 +498,73 @@ jobs:
         run: >-
           python tests/horde_v2_candidate_engine.py verify
           src/stockfish.exe "$PWD/horde-v2-rank8.hsv2"
+
+  v3-candidate-linux:
+    name: Linux Horde V3 candidate dispatch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install the reference forward dependencies
+        run: python3 -m pip install --break-system-packages --disable-pip-version-check numpy
+      - name: Create an authenticated V3 fixture
+        run: >-
+          python3 tests/horde_v3_candidate_engine.py fixture
+          /tmp/horde-v3-fixture.hsv3
+      - name: Reject contradictory build dispatch
+        run: >-
+          python3 tests/horde_v3_candidate_engine.py build-guard
+          --source src
+      - name: Build the shadow AVX2 candidate
+        run: >-
+          make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no
+          EVALFILE=/tmp/horde-v3-fixture.hsv3
+          EXTRACXXFLAGS=-DHORDE_V3_CANDIDATE_SHADOW build
+      - name: Verify integer parity, search stack, determinism, and fail-closed loading
+        run: >-
+          python3 tests/horde_v3_candidate_engine.py verify
+          src/stockfish /tmp/horde-v3-fixture.hsv3
+
+  v3-candidate-windows:
+    name: Windows Horde V3 candidate dispatch
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c # v2.31.1
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-python-numpy
+      - name: Create an authenticated V3 fixture
+        shell: msys2 {0}
+        run: >-
+          python tests/horde_v3_candidate_engine.py fixture
+          "$PWD/horde-v3-fixture.hsv3"
+      - name: Reject contradictory build dispatch
+        shell: msys2 {0}
+        run: >-
+          python tests/horde_v3_candidate_engine.py build-guard
+          --source src
+      - name: Build the shadow AVX2 candidate
+        shell: msys2 {0}
+        run: >-
+          make -j2 -C src ARCH=x86-64-avx2 optimize=yes debug=no
+          EVALFILE="$PWD/horde-v3-fixture.hsv3"
+          EXTRACXXFLAGS=-DHORDE_V3_CANDIDATE_SHADOW build
+      - name: Verify integer parity, search stack, determinism, and fail-closed loading
+        shell: msys2 {0}
+        run: >-
+          python tests/horde_v3_candidate_engine.py verify
+          src/stockfish.exe "$PWD/horde-v3-fixture.hsv3"
 
   v2-width-benchmark:
     name: Paired AVX2 Horde V2 width benchmark

@@ -38,6 +38,9 @@
 #if defined(HORDE_V2_CANDIDATE)
 #include "nnue/horde_v2_container.h"
 #endif
+#if defined(HORDE_V3_CANDIDATE)
+#include "nnue/horde_v3_container.h"
+#endif
 #include "numa.h"
 #include "position.h"
 #include "search.h"
@@ -148,6 +151,12 @@ class Engine {
     Eval::NNUE::HordeV2::ContainerNetwork<>  candidateNetwork;
     std::filesystem::path                    candidateNetworkFile;
     std::string                              candidateNetworkLoadError;
+#endif
+#if defined(HORDE_V3_CANDIDATE)
+    Eval::NNUE::HordeV3::V3Parameters     candidateNetworkParameters;
+    Eval::NNUE::HordeV3::V3DefaultNetwork candidateNetwork;
+    std::filesystem::path                 candidateNetworkFile;
+    std::string                           candidateNetworkLoadError;
 #endif
 
     Search::SearchManager::UpdateContext  updateContext;

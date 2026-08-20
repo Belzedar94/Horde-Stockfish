@@ -38,11 +38,16 @@
 #include "misc.h"
 #if defined(HORDE_V2_CANDIDATE)
 #include "nnue/horde_v2_container.h"
+#elif defined(HORDE_V3_CANDIDATE)
+#include "nnue/horde_v3_container.h"
 #else
 #include "nnue/nnue_accumulator.h"
 #endif
 #if defined(HORDE_V2_PERF)
 #include "nnue/horde_v2_performance.h"
+#endif
+#if defined(HORDE_V3_PERF)
+#include "nnue/horde_v3_performance.h"
 #endif
 #include "numa.h"
 #include "position.h"
@@ -72,8 +77,19 @@ class Network;
 #error HORDE_V2_CANDIDATE and HORDE_V2_PERF are mutually exclusive
 #endif
 
+#if defined(HORDE_V3_CANDIDATE) && defined(HORDE_V3_PERF)
+#error HORDE_V3_CANDIDATE and HORDE_V3_PERF are mutually exclusive
+#endif
+
+#if (defined(HORDE_V2_CANDIDATE) || defined(HORDE_V2_PERF)) \
+  && (defined(HORDE_V3_CANDIDATE) || defined(HORDE_V3_PERF))
+#error The Horde V2 and Horde V3 evaluators are mutually exclusive
+#endif
+
 #if defined(HORDE_V2_CANDIDATE)
 using SearchEvalNetwork = Eval::NNUE::HordeV2::ContainerNetwork<>;
+#elif defined(HORDE_V3_CANDIDATE)
+using SearchEvalNetwork = Eval::NNUE::HordeV3::V3DefaultNetwork;
 #else
 using SearchEvalNetwork = LazyNumaReplicatedSystemWide<Eval::NNUE::Network>;
 #endif
@@ -460,6 +476,11 @@ class Worker {
 #else
     Eval::NNUE::HordeV2::ContainerAccumulatorStack<> accumulatorStack;
 #endif
+#elif defined(HORDE_V3_CANDIDATE)
+    // A V3 candidate worker owns the V3 stack and nothing else: the legacy
+    // per-worker accumulator and its refresh cache are never allocated.
+    Eval::NNUE::HordeV3::V3DefaultStack  accumulatorStack;
+    Eval::NNUE::HordeV3::V3DenseScratch  evaluationScratch;
 #else
     // Used by the registered legacy NNUE.
     Eval::NNUE::AccumulatorStack  accumulatorStack;
@@ -467,6 +488,10 @@ class Worker {
 #endif
 #if defined(HORDE_V2_PERF)
     Eval::NNUE::HordeV2::PerformanceStack hordeV2PerformanceStack;
+#endif
+#if defined(HORDE_V3_PERF)
+    Eval::NNUE::HordeV3::PerformanceStack   hordeV3PerformanceStack;
+    Eval::NNUE::HordeV3::PerformanceScratch hordeV3PerformanceScratch;
 #endif
 
     bool hordePreservePawnQsearchCaptureSee = false;

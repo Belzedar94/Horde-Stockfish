@@ -186,7 +186,7 @@ Search::Worker::Worker(SharedState&                    sharedState,
     threads(sharedState.threads),
     tt(sharedState.tt),
     network(sharedState.network)
-#if defined(HORDE_V2_CANDIDATE)
+#if defined(HORDE_V2_CANDIDATE) || defined(HORDE_V3_CANDIDATE)
     , accumulatorStack(network)
 #else
     , refreshTable(network[token])
@@ -194,12 +194,15 @@ Search::Worker::Worker(SharedState&                    sharedState,
 #if defined(HORDE_V2_PERF)
     , hordeV2PerformanceStack(Eval::NNUE::HordeV2::performance_network())
 #endif
+#if defined(HORDE_V3_PERF)
+    , hordeV3PerformanceStack(Eval::NNUE::HordeV3::performance_network())
+#endif
 {
     clear();
 }
 
 void Search::Worker::ensure_network_replicated() {
-#if defined(HORDE_V2_CANDIDATE)
+#if defined(HORDE_V2_CANDIDATE) || defined(HORDE_V3_CANDIDATE)
     // The authenticated candidate network is process-wide and immutable while
     // workers are searching.
     (void) network;
@@ -215,11 +218,19 @@ void Search::Worker::start_searching() {
 #if defined(HORDE_V2_CANDIDATE)
     if (accumulatorStack.reset(rootPos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
         std::abort();
+#elif defined(HORDE_V3_CANDIDATE)
+    if (accumulatorStack.reset(rootPos.piece_array()) != Eval::NNUE::HordeV3::V3StackError::NONE)
+        std::abort();
 #else
     accumulatorStack.reset();
 #endif
 #if defined(HORDE_V2_PERF)
     if (hordeV2PerformanceStack.reset(rootPos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#endif
+#if defined(HORDE_V3_PERF)
+    if (hordeV3PerformanceStack.reset(rootPos.piece_array())
+        != Eval::NNUE::HordeV3::V3StackError::NONE)
         std::abort();
 #endif
     hordePreservePawnQsearchCaptureSee =
@@ -872,7 +883,7 @@ void Search::Worker::do_move(
     bool capture = pos.capture_stage(move);
     ++nodes;
 
-#if defined(HORDE_V2_CANDIDATE)
+#if defined(HORDE_V2_CANDIDATE) || defined(HORDE_V3_CANDIDATE)
     Dirties dirties{};
 #else
     Dirties& dirties = accumulatorStack.push();
@@ -881,9 +892,17 @@ void Search::Worker::do_move(
 #if defined(HORDE_V2_CANDIDATE)
     if (accumulatorStack.push(dirties, pos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
         std::abort();
+#elif defined(HORDE_V3_CANDIDATE)
+    if (accumulatorStack.push(dirties.dirtyPiece) != Eval::NNUE::HordeV3::V3StackError::NONE)
+        std::abort();
 #endif
 #if defined(HORDE_V2_PERF)
     if (hordeV2PerformanceStack.push(dirties, pos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
+        std::abort();
+#endif
+#if defined(HORDE_V3_PERF)
+    if (hordeV3PerformanceStack.push(dirties.dirtyPiece)
+        != Eval::NNUE::HordeV3::V3StackError::NONE)
         std::abort();
 #endif
 
@@ -907,7 +926,7 @@ void Search::Worker::do_null_move(Position& pos, StateInfo& st, Stack* const ss)
 
 void Search::Worker::undo_move(Position& pos, const Move move) {
     pos.undo_move(move);
-#if defined(HORDE_V2_CANDIDATE)
+#if defined(HORDE_V2_CANDIDATE) || defined(HORDE_V3_CANDIDATE)
     if (!accumulatorStack.pop())
         std::abort();
 #else
@@ -915,6 +934,10 @@ void Search::Worker::undo_move(Position& pos, const Move move) {
 #endif
 #if defined(HORDE_V2_PERF)
     if (!hordeV2PerformanceStack.pop())
+        std::abort();
+#endif
+#if defined(HORDE_V3_PERF)
+    if (!hordeV3PerformanceStack.pop())
         std::abort();
 #endif
 }
@@ -946,10 +969,20 @@ void Search::Worker::clear() {
     for (usize i = 1; i < reductions.size(); ++i)
         reductions[i] = int(2872 / 128.0 * std::log(i));
 
-#if !defined(HORDE_V2_CANDIDATE)
-    refreshTable.clear(network[numaAccessToken]);
-#else
+#if defined(HORDE_V2_CANDIDATE)
     accumulatorStack.clear();
+#elif defined(HORDE_V3_CANDIDATE)
+    // A network replacement reaches here through ThreadPool::clear(), so the
+    // retained contextual feature frames are dropped explicitly and the dense
+    // scratch is zeroed. Nothing derived from the previous artifact survives.
+    accumulatorStack.clear_frames();
+    evaluationScratch = Eval::NNUE::HordeV3::V3DenseScratch{};
+#else
+    refreshTable.clear(network[numaAccessToken]);
+#endif
+#if defined(HORDE_V3_PERF)
+    hordeV3PerformanceStack.clear_frames();
+    hordeV3PerformanceScratch = Eval::NNUE::HordeV3::V3DenseScratch{};
 #endif
 }
 
@@ -2441,11 +2474,43 @@ Value Search::Worker::evaluate(const Position& pos) {
         std::abort();
     #endif
     return result.result.value;
+#elif defined(HORDE_V3_CANDIDATE)
+    const auto result =
+      accumulatorStack.evaluate(evaluationScratch, pos.side_to_move(), pos.rule50_count());
+    if (result.value == VALUE_NONE)
+        std::abort();
+    #if defined(HORDE_V3_CANDIDATE_SHADOW)
+    // Every evaluated node is re-derived from a fresh full refresh of the same
+    // board. Both the propagated integers and the frame the incremental stack
+    // holds, contextual state included, must agree exactly.
+    Eval::NNUE::HordeV3::V3AccumulatorFrame shadowFrame{};
+    Eval::NNUE::HordeV3::V3DenseScratch     shadowScratch{};
+    if (!network.full_refresh(shadowFrame, pos.piece_array()))
+        std::abort();
+    const auto full =
+      network.propagate(shadowFrame, shadowScratch, pos.side_to_move(), pos.rule50_count());
+    const auto* live = accumulatorStack.latest();
+    if (live == nullptr || live->accumulator != shadowFrame.accumulator
+        || live->psqt != shadowFrame.psqt || live->pawns != shadowFrame.pawns
+        || live->whitePieceCount != shadowFrame.whitePieceCount
+        || live->blackPieceCount != shadowFrame.blackPieceCount
+        || full.bucket != result.bucket || full.outputRow != result.outputRow
+        || full.outputAffine != result.outputAffine || full.psqtSum != result.psqtSum
+        || full.preRule50Value != result.preRule50Value || full.value != result.value)
+        std::abort();
+    #endif
+    return result.value;
 #elif defined(HORDE_V2_PERF)
     const auto result = hordeV2PerformanceStack.evaluate(pos);
     if (!result.valid())
         std::abort();
     return result.result.value;
+#elif defined(HORDE_V3_PERF)
+    const auto result = hordeV3PerformanceStack.evaluate(hordeV3PerformanceScratch,
+                                                         pos.side_to_move(), pos.rule50_count());
+    if (result.value == VALUE_NONE)
+        std::abort();
+    return result.value;
 #else
     return Eval::evaluate(network[numaAccessToken], pos, accumulatorStack, refreshTable,
                           optimism[pos.side_to_move()]);

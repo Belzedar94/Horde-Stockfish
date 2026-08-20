@@ -109,6 +109,38 @@ else
   endif
 endif
 
+### An OpenBench-assigned integer Horde V3 container selects the isolated
+### candidate evaluator at build time. Legacy .nnue builds remain unchanged.
+HORDE_V3_CANDIDATE ?= auto
+ifeq ($(HORDE_V3_CANDIDATE),auto)
+  ifneq ($(filter %.hsv3 %.HSV3,$(strip $(EVALFILE))),)
+    override HORDE_V3_CANDIDATE := yes
+  else
+    override HORDE_V3_CANDIDATE := no
+  endif
+endif
+ifneq ($(HORDE_V3_CANDIDATE),$(filter $(HORDE_V3_CANDIDATE),yes no))
+  $(error HORDE_V3_CANDIDATE must be auto, yes, or no)
+endif
+ifeq ($(HORDE_V3_CANDIDATE),yes)
+  ifeq ($(strip $(EVALFILE)),)
+    $(error HORDE_V3_CANDIDATE=yes requires EVALFILE=<registered .hsv3 container>)
+  endif
+  ifeq ($(filter %.hsv3 %.HSV3,$(strip $(EVALFILE))),)
+    $(error HORDE_V3_CANDIDATE=yes requires a .hsv3 EVALFILE)
+  endif
+else
+  ifneq ($(filter %.hsv3 %.HSV3,$(strip $(EVALFILE))),)
+    $(error A .hsv3 EVALFILE cannot be built with HORDE_V3_CANDIDATE=no)
+  endif
+endif
+
+### One build selects one candidate evaluator. A single EVALFILE cannot carry
+### both extensions, so this only ever fires when both dispatches are forced.
+ifeq ($(HORDE_V2_CANDIDATE)-$(HORDE_V3_CANDIDATE),yes-yes)
+  $(error A .hsv2 and a .hsv3 EVALFILE are mutually exclusive; select one candidate evaluator)
+endif
+
 ### Source and object files
 SRCS = attacks.cpp benchmark.cpp bitboard.cpp evaluate.cpp genfens.cpp main.cpp \
 	misc.cpp movegen.cpp movepick.cpp position.cpp \
@@ -121,6 +153,10 @@ ifeq ($(HORDE_V2_CANDIDATE),yes)
 SRCS += nnue/horde_v2_container.cpp data/sha256.cpp
 endif
 
+ifeq ($(HORDE_V3_CANDIDATE),yes)
+SRCS += nnue/horde_v3_container.cpp data/sha256.cpp
+endif
+
 OTHER_SRCS = universal/entry_x86.cpp universal/entry_arm64.cpp universal/entry_riscv64.cpp universal/nnue_embed.cpp
 
 HEADERS = attacks.h benchmark.h bitboard.h evaluate.h genfens.h misc.h movegen.h movepick.h history.h \
@@ -130,7 +166,8 @@ HEADERS = attacks.h benchmark.h bitboard.h evaluate.h genfens.h misc.h movegen.h
 		nnue/nnue_architecture.h nnue/nnue_common.h nnue/nnue_feature_transformer.h nnue/simd.h \
 		nnue/nnz_helper.h nnue/horde_legacy_network.h position.h search.h syzygy/tbprobe.h thread.h thread_native.h timeman.h \
 		tt.h tune.h types.h uci.h ucioption.h perft.h nnue/network.h nnue/horde_legacy_features.h nnue/horde_v2_features.h \
-		nnue/horde_v2_full_refresh.h nnue/horde_v2_widths.h nnue/horde_v2_scalar.h nnue/horde_v2_backend.h nnue/horde_v2_stack.h nnue/horde_v2_container.h nnue/horde_v2_performance.h engine.h score.h numa.h memory.h shm.h shm_unix.h
+		nnue/horde_v2_full_refresh.h nnue/horde_v2_widths.h nnue/horde_v2_scalar.h nnue/horde_v2_backend.h nnue/horde_v2_stack.h nnue/horde_v2_container.h nnue/horde_v2_performance.h \
+		nnue/horde_v3_features.h nnue/horde_v3_scalar.h nnue/horde_v3_backend.h nnue/horde_v3_stack.h nnue/horde_v3_container.h nnue/horde_v3_performance.h engine.h score.h numa.h memory.h shm.h shm_unix.h
 
 OBJS = $(notdir $(SRCS:.cpp=.o))
 HORDE_V2_POSITION_TEST_OBJS = horde_v2_position_stack_test.o horde_v2_container_test_impl.o \
@@ -562,6 +599,9 @@ CXXFLAGS = $(ENV_CXXFLAGS) -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRAC
 
 ifeq ($(HORDE_V2_CANDIDATE),yes)
 CXXFLAGS += -DHORDE_V2_CANDIDATE -DHORDE_V2_EVALFILE='"$(EVALFILE)"'
+endif
+ifeq ($(HORDE_V3_CANDIDATE),yes)
+CXXFLAGS += -DHORDE_V3_CANDIDATE -DHORDE_V3_EVALFILE='"$(EVALFILE)"'
 endif
 DEPENDFLAGS = $(ENV_DEPENDFLAGS) -std=c++17
 LDFLAGS = $(ENV_LDFLAGS) $(EXTRALDFLAGS)

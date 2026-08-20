@@ -135,6 +135,16 @@ class V3AccumulatorStack {
 
     void clear() noexcept { size_ = 0; }
 
+    // Drop every retained frame, not only the logical size. A frame carries
+    // the contextual state the six pawn blocks are keyed on, so an artifact or
+    // schema transition must discard it explicitly: reusing a frame would
+    // carry the previous network's per-file pawn state into the next search.
+    void clear_frames() noexcept {
+        clear();
+        for (Slot& slot : slots_)
+            slot = Slot{};
+    }
+
     [[nodiscard]] std::size_t size() const noexcept { return size_; }
 
     [[nodiscard]] const Frame* latest() const noexcept {
