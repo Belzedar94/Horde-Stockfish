@@ -454,6 +454,72 @@ V3_PHASE_LOOKUP: tuple[int, ...] = (
 )
 
 
+def v3_structure() -> dict[str, object]:
+    """Canonical training-architecture receipt for the V3 topology.
+
+    The container binds this hash, so it must be derived from the architecture
+    alone and never from a run, a seed or a dataset. Field order follows the V2
+    structure receipt so the two remain diffable.
+    """
+
+    import hashlib
+    import json
+
+    from horde_training_decoder import (  # local import keeps the module import graph flat
+        V3_BLOCK_BASES,
+        V3_BLOCK_ORDER,
+        V3_BLOCK_WIDTHS,
+        V3_MAX_ACTIVE_ROWS,
+    )
+
+    structure: dict[str, object] = {
+        "schema": "V3_G1024_PAWN_WPC8",
+        "feature_schema": "V3_G1024_PAWN_WPC8",
+        "feature_order": "physical squares A1 through H8",
+        "domains": [
+            {
+                "name": "v3_stream",
+                "dimensions": V3_GLOBAL_DIMENSIONS,
+                "lanes": V3_LANES,
+                "fixed_roles": 11,
+                "includes_black_king": True,
+                "g0_rows": 704,
+                "contextual_rows": V3_GLOBAL_DIMENSIONS - 704,
+                "active_rows_max": V3_MAX_ACTIVE_ROWS,
+            }
+        ],
+        "contextual_features": [
+            {
+                "name": name,
+                "base": V3_BLOCK_BASES[name],
+                "width": V3_BLOCK_WIDTHS[name],
+                "max_active_rows": 8,
+            }
+            for name in V3_BLOCK_ORDER
+        ],
+        "transformed_lanes": V3_LANES,
+        "dense_lanes": [V3_LANES, V3_HIDDEN0_LANES, HIDDEN1_LANES, 2],
+        "side_to_move_heads": {"white": WHITE, "black": 1 - WHITE},
+        "phase_buckets": V3_PHASE_BUCKETS,
+        "phase_lookup": list(V3_PHASE_LOOKUP),
+        "phase_source": "white_piece_count",
+        "psqt": {
+            "columns": V3_PHASE_BUCKETS * 2,
+            "index": "bucket * 2 + side_to_move",
+            "perspectives": 1,
+        },
+        "training_activation": "clamp(x, 0, 1)",
+        "network_to_score": NNUE_TO_SCORE,
+        "training_only_factorizer": False,
+        "initialization": NAMED_INITIALIZATION_SCHEMA,
+        "serialized_parameter_bytes": 2_033_765,
+    }
+    payload = json.dumps(
+        structure, ensure_ascii=True, allow_nan=False, separators=(",", ":"), sort_keys=True
+    ).encode("ascii")
+    return {**structure, "structural_sha256": hashlib.sha256(payload).hexdigest().upper()}
+
+
 class V3ModelBatch(Protocol):
     v3_global: Tensor
     global_offsets: Tensor

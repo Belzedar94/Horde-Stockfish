@@ -141,14 +141,38 @@ Two consequences follow.
   put the number in Elo; its receipt slot is below and stays empty until it
   lands.
 
-| Receipt | Question | Status |
-| --- | --- | --- |
-| `scaleab` | same network, 600 against 508, what is the scale worth in Elo | in flight, not yet filed |
+### The scaleab receipt
 
-Until that lands, the honest statement is direction and mechanism only: the
-defect changes the search materially, it is the same failure family as the
-inverted label scaling that cost 32 Elo in the Spell generation 2 gate, and its
-own magnitude is unmeasured.
+`rank8-l0p8-s600` against `rank8-l0p8-s508`, the same trained weights differing
+only in output quantization, at 2+0.02. Artifacts in
+`D:\horde-train\matches\tournament-20aug\3tc_scaleab_vstc.*`.
+
+| Games | Result for the corrected arm | Score | Elo | 95% CI | LOS |
+| ---: | --- | ---: | ---: | --- | ---: |
+| 432 | 223-195-14 | 53.24% | +22.6 | -9.6 to +55.1 | 91.5% |
+
+The direction is what the mechanism predicted: the compression was costing real
+strength. The magnitude is modest at this time control and the result is not
+sealed. Three qualifications belong with the number.
+
+- **The interval straddles zero.** A point estimate of +23 with a 95 percent
+  interval from -10 to +55 is evidence of direction, not a measured size. Quote
+  it as "roughly 20 to 40 Elo at very short time control, unsealed", never as
+  "+23".
+- **The stop was adjudicated, so the nominal error rate does not apply.** The
+  pairing reached +38 at 97.9 percent LOS by game 341 and regressed to +23 by
+  the cut. Stopping after watching a trajectory inflates a stated LOS in
+  general. Here the bias runs the other way: the cut was taken at the lower of
+  the two observed values rather than at the peak, so if anything the filed
+  number understates. That is luck rather than method, and the method should
+  still be a fixed stopping rule next time.
+- **One time control only.** Short and long controls are unmeasured, and a
+  pruning-margin effect has no reason to be constant in search depth.
+
+The mechanism and the magnitude agree in sign and are consistent in scale: a
+2.18 times change in tree size at fixed depth produced a couple of dozen Elo,
+which is what a search-shape effect that is not also an evaluation-quality
+effect should look like.
 
 ### The decision this blocks
 
@@ -194,7 +218,46 @@ rather than align the prediction and the engine.
 V3 therefore never carries the defect, and the V3 parity gates measure a network
 whose value is `600 * v` by construction.
 
-## 3. What was verified
+## 3. Dense resolution, a raised concern and what the data says
+
+The V3 export work raised a specific alarm: `HordeV3Model` initializes dense
+weights at a radius of 0.012, and at the frozen dense scale of 64 that quantizes
+to the set `{-1, 0, +1}`, which would destroy the trunk. If trained weights
+stayed near their initialization the exported network would be worthless.
+
+The concern is answered by the shipped networks rather than by argument. Both
+existing architectures use the same 0.012 initialization radius and the same
+dense scale of 64, so their trained export statistics settle it:
+
+| Network | layer | trained float range | quantized int8 range | share of int8 range |
+| --- | --- | --- | --- | ---: |
+| legacy `l0p8` | hidden0 | -0.2548 to +0.2239 | -16 to +14 | 12.6% |
+| legacy `l0p8` | hidden1 | -0.2398 to +0.2425 | -15 to +16 | 12.6% |
+| rank8 `l0p8` | hidden0 | -0.3485 to +0.3084 | -22 to +20 | 17.3% |
+| rank8 `l0p8` | hidden1 | -0.2767 to +0.1559 | -18 to +10 | 14.2% |
+
+Training moves dense weights 16 to 22 times away from their initialization, so
+they land at int8 magnitudes of 10 to 22 rather than collapsing onto
+`{-1, 0, +1}`. V3 inherits the same radius and the same scale as legacy, so it
+should behave the same way. **The alarm is not confirmed, and no change is
+made.**
+
+A real and adjacent finding does fall out of the same table, and it applies to
+the incumbent as much as to V3: **the dense trunk uses only 13 to 17 percent of
+the available int8 range**, so roughly two and a half of its eight bits are
+never used. A larger dense weight scale would recover them.
+
+That is deliberately not changed here. Raising the dense scale would require
+moving the dense activation shift to keep the activation at `127 * a`, which is
+a header field and therefore a contract change, and it would tighten the
+trainer's weight clip from 1.984 to a value the observed 0.35 magnitudes could
+start to press against. More importantly it would break the property this V3
+was designed around: the dense arithmetic is matched to legacy exactly so that
+the first V3 comparison isolates the feature and width changes. Dense
+requantization is registered as a later single-variable rung, not smuggled into
+the first one.
+
+## 4. What was verified
 
 | Item | Status |
 | --- | --- |

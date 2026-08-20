@@ -61,9 +61,29 @@ information the teacher score does not already have, the conclusion is not that
 lambda should be tuned but that **the result term should be dropped entirely for
 a depth-4 teacher.** Its whole measured contribution is negative.
 
-Changing the architecture from legacy to Rank-8 at fixed lambda 0.8 is worth
-zero: the owner reports 496-484-20 over 1000 very short time control games, with
-short and long time controls also flat.
+Changing the architecture from legacy to Rank-8 at fixed lambda 0.8 measured as
+worth zero: 496-484-20 over 1000 very short time control games, which is +4.2
+Elo for legacy with a 95 percent interval of -17 to +26, with short and long
+time controls also flat.
+
+**That tie can no longer be read as an architecture result.** The Rank-8 arm
+played through the `.hsv2` path and the legacy arm through `.nnue`, and the
+`.hsv2` export carried the output-scale defect described in
+[nnue-v3-integer-bounds.md](nnue-v3-integer-bounds.md). The `scaleab` pairing
+puts that handicap at roughly 20 to 40 Elo at this time control, unsealed. A
+handicap of that size sits right on top of a 1000 game interval of plus or minus
+21, so the measured tie is consistent with anything from legacy modestly ahead
+to Rank-8 modestly ahead. It does not establish that the architecture change is
+worth zero, and it does not establish the opposite either. The rerun on
+corrected exports is what settles it, and it is already on the list in
+[v2-output-scale-repair.md](v2-output-scale-repair.md).
+
+What this does not touch is the rest of section 1. The teacher ceiling in 1.2,
+the teacher and student agreement in 1.3 and the feature audit in 1.5 are
+computed from the corpus and from float checkpoints, never from an exported
+container, so none of them moves. The capacity audit in 1.4 is a layout
+comparison and does not move either. The one claim that loses its evidence is
+the match-based one, and it was never the load-bearing part of the diagnosis.
 
 The single most important line in this document is the ratio between those two
 numbers. The label term is worth about a hundred Elo. The architecture choice

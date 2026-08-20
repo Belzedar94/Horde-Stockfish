@@ -32,7 +32,19 @@ import tempfile
 from typing import Callable, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "tools"))
+TOOLS = REPO_ROOT / "tools"
+sys.path.insert(0, str(TOOLS))
+
+# This file shares its module name with the codec it tests. If ``tests`` ever
+# precedes ``tools`` on sys.path the import below silently resolves to this
+# file, so bind the codec explicitly and fail loudly instead.
+if "horde_v3_container" in sys.modules:
+    _resolved = Path(getattr(sys.modules["horde_v3_container"], "__file__", "")).resolve()
+    if _resolved != (TOOLS / "horde_v3_container.py").resolve():
+        raise SystemExit(
+            f"horde_v3_container resolved to {_resolved}; the tests/ copy is shadowing "
+            f"the codec in {TOOLS}. Run this file as a script, not as a package module."
+        )
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
@@ -63,6 +75,12 @@ from horde_v3_container import (  # noqa: E402
     read_container,
     structural_sha256,
 )
+import horde_v3_container as _codec  # noqa: E402
+
+if Path(_codec.__file__).resolve() != (TOOLS / "horde_v3_container.py").resolve():
+    raise SystemExit(
+        f"horde_v3_container resolved to {_codec.__file__}; expected the codec in {TOOLS}"
+    )
 
 
 REGISTERED_STRUCTURAL_SHA256 = (
@@ -99,7 +117,9 @@ RATIO_TOLERANCE = 0.02
 RATIO_FLOOR = 100
 MINIMUM_RATIO_SAMPLES = 256
 
-TRACE_RECORD_INDICES = (0, 1, 7, 64, 1000, 20_000, 120_000, 249_999)
+# Eight records chosen once from the default corpus so that all eight phase
+# buckets, both sides to move and a damping rule-50 count are all exercised.
+TRACE_RECORD_INDICES = (5_819, 36_320, 62_518, 192_065, 125_081, 156_260, 187_501, 218_797)
 
 FAILURES: list[str] = []
 REJECTIONS: list[tuple[str, str]] = []
@@ -148,6 +168,97 @@ def reference_score(raw_value: np.ndarray, rule50: np.ndarray) -> np.ndarray:
     value = np.trunc(raw_value * float(NETWORK_TO_SCORE)).astype(np.int64)
     damped = trunc_div(value * (100 - np.clip(rule50, 0, 100)), 100)
     return np.clip(damped, -VALUE_TB_WIN_IN_MAX_PLY + 1, VALUE_TB_WIN_IN_MAX_PLY - 1)
+
+
+def scalar_trunc(value: int, divisor: int) -> int:
+    magnitude = abs(value) // divisor
+    return -magnitude if value < 0 else magnitude
+
+
+class ScalarOracle:
+    """A pure-Python transcription of the V3 contract.
+
+    No NumPy, no GEMM, no fancy indexing: the point is to re-derive the bucket
+    -major addressing and the shift/clip arithmetic by hand so a mistake in the
+    vectorized evaluator cannot hide behind the same mistake in its oracle.
+    """
+
+    def __init__(self, sections: dict[str, bytes]) -> None:
+        def unpack(name: str, code: str) -> tuple[int, ...]:
+            spec = SECTIONS_BY_NAME[name]
+            return struct.unpack(f"<{spec.elements}{code}", sections[name])
+
+        self.ft_weights = unpack("ft_weights", "h")
+        self.ft_bias = unpack("ft_bias", "i")
+        self.psqt_weights = unpack("psqt_weights", "i")
+        self.hidden0_weights = unpack("hidden0_weights", "b")
+        self.hidden0_bias = unpack("hidden0_bias", "i")
+        self.hidden1_weights = unpack("hidden1_weights", "b")
+        self.hidden1_bias = unpack("hidden1_bias", "i")
+        self.output_weights = unpack("output_weights", "b")
+        self.output_bias = unpack("output_bias", "i")
+        self.phase_lookup = unpack("phase_lookup", "b")
+
+    def evaluate(
+        self, rows: Sequence[int], side_to_move: int, white_piece_count: int, rule50: int
+    ) -> dict[str, object]:
+        lanes = 1024
+        accumulator = list(self.ft_bias)
+        for row in rows:
+            base = row * lanes
+            for lane in range(lanes):
+                accumulator[lane] += self.ft_weights[base + lane]
+        activation = [min(max(value, 0) >> 6, 127) for value in accumulator]
+
+        bucket = self.phase_lookup[white_piece_count]
+
+        hidden0 = []
+        for lane in range(16):
+            row = bucket * 16 + lane
+            base = row * lanes
+            total = self.hidden0_bias[row]
+            for index in range(lanes):
+                total += self.hidden0_weights[base + index] * activation[index]
+            hidden0.append(total)
+        hidden0_activated = [min(max(value, 0) >> 6, 127) for value in hidden0]
+
+        hidden1 = []
+        for lane in range(32):
+            row = bucket * 32 + lane
+            base = row * 16
+            total = self.hidden1_bias[row]
+            for index in range(16):
+                total += self.hidden1_weights[base + index] * hidden0_activated[index]
+            hidden1.append(total)
+        hidden1_activated = [min(max(value, 0) >> 6, 127) for value in hidden1]
+
+        head = bucket * 2 + side_to_move
+        output_pre = self.output_bias[head]
+        for index in range(32):
+            output_pre += self.output_weights[head * 32 + index] * hidden1_activated[index]
+
+        psqt_sum = 0
+        for row in rows:
+            psqt_sum += self.psqt_weights[row * 16 + head]
+
+        value = scalar_trunc(output_pre + psqt_sum, OUTPUT_DIVISOR)
+        damped = scalar_trunc(value * (100 - min(rule50, 100)), 100)
+        score = max(
+            -VALUE_TB_WIN_IN_MAX_PLY + 1, min(VALUE_TB_WIN_IN_MAX_PLY - 1, damped)
+        )
+        return {
+            "bucket": bucket,
+            "accumulator": accumulator,
+            "activation": activation,
+            "hidden0_pre": hidden0,
+            "hidden0": hidden0_activated,
+            "hidden1_pre": hidden1,
+            "hidden1": hidden1_activated,
+            "output_pre": output_pre,
+            "psqt_sum": psqt_sum,
+            "value": value,
+            "score": score,
+        }
 
 
 # --------------------------------------------------------------------------
@@ -807,6 +918,35 @@ def test_layer_trace(
     batch, decoded = batch_for_indices(payload, indices)
     layers = network.evaluate_layers(batch)
 
+    # Re-derive every traced position by hand before it is written down.
+    oracle = ScalarOracle(dict(network.container.sections))
+    for position, index in enumerate(indices):
+        expected = oracle.evaluate(
+            batch.active_rows(position),
+            int(batch.side_to_move[position]),
+            int(batch.white_piece_count[position]),
+            int(batch.rule50_count[position]),
+        )
+        for key in (
+            "bucket",
+            "output_pre",
+            "psqt_sum",
+            "value",
+            "score",
+        ):
+            actual = int(layers[key][position])
+            check(
+                actual == int(expected[key]),
+                f"record {index}: vectorized {key} is {actual}, scalar oracle says "
+                f"{int(expected[key])}",
+            )
+        for key in ("accumulator", "activation", "hidden0_pre", "hidden0", "hidden1_pre", "hidden1"):
+            actual_lanes = [int(value) for value in layers[key][position]]
+            check(
+                actual_lanes == list(expected[key]),
+                f"record {index}: vectorized {key} disagrees with the scalar oracle",
+            )
+
     positions = []
     for position, index in enumerate(indices):
         raw = payload[index * wire.RECORD_SIZE : (index + 1) * wire.RECORD_SIZE]
@@ -892,9 +1032,21 @@ def test_layer_trace(
         json.dumps(trace, indent=2, sort_keys=True, allow_nan=False).encode("ascii") + b"\n"
     )
     buckets = sorted({entry["phase_bucket"] for entry in positions})
+    sides = sorted({entry["side_to_move"] for entry in positions})
+    damped = sum(1 for entry in positions if entry["rule50"] > 0)
+    check(
+        buckets == list(range(PHASE_BUCKETS)),
+        f"the trace fixture only reaches buckets {buckets}; it must cover all "
+        f"{PHASE_BUCKETS}. Re-select TRACE_RECORD_INDICES for this corpus.",
+    )
+    check(sides == [0, 1], f"the trace fixture only reaches sides {sides}")
+    check(damped > 0, "no traced record exercises the rule-50 damping")
     print(f"  trace written          : {TRACE_PATH}")
     print(f"  trace bytes            : {TRACE_PATH.stat().st_size}")
+    print(f"  scalar oracle          : agrees on all layers for all 8 records")
     print(f"  buckets covered        : {buckets}")
+    print(f"  sides covered          : {sides}")
+    print(f"  rule50-damped records  : {damped}")
     print(f"  values                 : {[entry['value'] for entry in positions]}")
 
 
