@@ -798,10 +798,23 @@ class ScaleSelectedRoleDataset:
         _require(payload == _canonical_json(self.receipt), "selected-role receipt is not canonical")
         _require(self.receipt.get("schema") == SCHEMA, "selected-role schema mismatch")
         self.receipt_sha256 = _sha256_bytes(payload)
-        _, contract_sha256 = load_contract(contract_path, allow_fixture=_allow_fixture)
+        contract, contract_sha256 = load_contract(contract_path, allow_fixture=_allow_fixture)
+        # HORDE_DATA_CAMPAIGN_V1: the selected role is DATA. It was materialized
+        # under the campaign that produced it, and its receipt is never rewritten.
+        # A contract that consumes an existing role therefore declares that
+        # campaign, and the identity is compared against the declaration. A
+        # contract with no declaration is its own data campaign, byte for byte
+        # the previous behaviour.
+        declared = contract.get("data_campaign")
+        if declared is None:
+            expected_contract = {"schema": CONTRACT_SCHEMA, "sha256": contract_sha256}
+        else:
+            expected_contract = {
+                "schema": str(declared["contract_schema"]),
+                "sha256": str(declared["contract_sha256"]),
+            }
         _require(
-            self.receipt.get("contract")
-            == {"schema": CONTRACT_SCHEMA, "sha256": contract_sha256},
+            self.receipt.get("contract") == expected_contract,
             "selected-role contract identity drifted",
         )
         selection = _mapping(self.receipt.get("selection"), "selected-role selection")
