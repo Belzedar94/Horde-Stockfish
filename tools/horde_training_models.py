@@ -669,6 +669,18 @@ class C0SingleG0Model(nn.Module):
         all_heads = functional.linear(hidden1, self.output_weights, self.output_bias)
         return all_heads.gather(1, batch.side_to_move.unsqueeze(1)).squeeze(1)
 
+    def gradient_groups(self) -> dict[str, Iterable[nn.Parameter]]:
+        return {
+            "global_transformer": (self.global_weights, self.global_bias),
+            "dense_trunk": (
+                self.hidden0_weights,
+                self.hidden0_bias,
+                self.hidden1_weights,
+                self.hidden1_bias,
+            ),
+            "output": (self.output_weights, self.output_bias),
+        }
+
 
 class C0SplitG0Model(nn.Module):
     """The same C0 G0 content split into two independently updated tensors."""

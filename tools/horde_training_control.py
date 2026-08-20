@@ -43,20 +43,27 @@ try:
         V2_GLOBAL_DIMENSIONS,
         V2_ROYAL_RANK8_DIMENSIONS,
         V2_ROYAL_DIMENSIONS,
+        V3_GLOBAL_DIMENSIONS,
+        V3_MAX_ACTIVE_ROWS,
         WHITE,
         dataset_receipt,
         make_sparse_batch,
+        v3_contextual_rows,
     )
     from .horde_training_models import (
         AbsoluteNonKingV2Model,
+        C0SingleG0Model,
         HIDDEN0_LANES,
         HIDDEN1_LANES,
         HordeV2Model,
+        HordeV3Model,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
         RoyalRank8V2Model,
         V2_ABSOLUTE_NONKING_DIMENSIONS,
+        v3_phase_bucket,
+        v3_structure,
     )
     from .horde_training_chunk_set import HordeChunkSetDataset
     from .horde_training_split_audit import audit_pair
@@ -86,20 +93,27 @@ except ImportError:
         V2_GLOBAL_DIMENSIONS,
         V2_ROYAL_RANK8_DIMENSIONS,
         V2_ROYAL_DIMENSIONS,
+        V3_GLOBAL_DIMENSIONS,
+        V3_MAX_ACTIVE_ROWS,
         WHITE,
         dataset_receipt,
         make_sparse_batch,
+        v3_contextual_rows,
     )
     from horde_training_models import (
         AbsoluteNonKingV2Model,
+        C0SingleG0Model,
         HIDDEN0_LANES,
         HIDDEN1_LANES,
         HordeV2Model,
+        HordeV3Model,
         LEGACY_BUCKETS,
         LegacyHPModel,
         NNUE_TO_SCORE,
         RoyalRank8V2Model,
         V2_ABSOLUTE_NONKING_DIMENSIONS,
+        v3_phase_bucket,
+        v3_structure,
     )
     from horde_training_chunk_set import HordeChunkSetDataset
     from horde_training_split_audit import audit_pair
@@ -130,6 +144,15 @@ LEGACY_ARCHITECTURE = "fresh-legacy-hp"
 V2_TRAINING_SCHEMA = "HORDE_V2_BASE_TRAINING_V1"
 V2_CHECKPOINT_SCHEMA = "HORDE_V2_BASE_CHECKPOINT_V1"
 V2_FEATURE_SCHEMA = "V2_BASE_P0"
+V3_TRAINING_SCHEMA = "HORDE_V3_TRAINING_V1"
+V3_CHECKPOINT_SCHEMA = "HORDE_V3_CHECKPOINT_V1"
+# The container binds this hash.  It is derived from the architecture alone by
+# models.v3_structure(); the constant exists so a silent drift fails closed here
+# rather than at export time.
+V3_STRUCTURAL_SHA256 = (
+    "5B49DC20A9EF5424687A649A7E1BEA8665FE96F3AB839A2BA4CEAE8289EC69EC"
+)
+RANK8_SCALE_ARCHITECTURE = "v2-c1-rank8-64x192"
 C1_PLAN_SCHEMA = "HORDE_V2_C1_CAMPAIGN_PLAN_V2"
 C1_BINDING_SCHEMA = "HORDE_V2_C1_TRAINER_BINDING_V1"
 SCALE_BINDING_SCHEMA = "HORDE_V2_RANK8_SCALE_TRAINER_BINDING_V1"
@@ -171,7 +194,31 @@ V2_ARCHITECTURES = {
         "serialized_parameter_bytes": 936_264,
     },
 }
-ARCHITECTURE_CHOICES = (LEGACY_ARCHITECTURE, *V2_ARCHITECTURES)
+# Single-domain V2-shaped controls.  They consume the ordinary V2 batch, so they
+# reuse the V2 training and checkpoint schemas, but their structure receipt has
+# one domain rather than two and therefore its own structural hash.
+CONTROL_ARCHITECTURES = {
+    "v2-c0-g0single-256": {
+        "schema": "G0_SINGLE_256",
+        "global_lanes": 256,
+        "serialized_parameter_bytes": 371_016,
+        "role": "R2 control: one absolute G0 table against the V2 dual domain",
+    },
+}
+# V3 consumes its own batch: the same Global stream extended with the named
+# contextual tail, plus a white_piece_count phase bucket per record.
+V3_ARCHITECTURES = {
+    "v3-g1024-pawn-wpc8": {
+        "schema": "V3_G1024_PAWN_WPC8",
+        "serialized_parameter_bytes": 2_033_765,
+    },
+}
+ARCHITECTURE_CHOICES = (
+    LEGACY_ARCHITECTURE,
+    *V2_ARCHITECTURES,
+    *CONTROL_ARCHITECTURES,
+    *V3_ARCHITECTURES,
+)
 BOOK_SPLIT_SCHEMAS = {
     "HORDE_TRAINING_BOOK_SPLIT_V1",
     "HORDE_TRAINING_BOOK_SPLIT_V2",
@@ -251,6 +298,26 @@ class V2Batch:
     global_offsets: Tensor
     royal_offsets: Tensor
     side_to_move: Tensor
+    rule50_count: Tensor
+    scores: Tensor
+    results: Tensor
+    score_eligible: Tensor
+
+
+@dataclass(frozen=True, slots=True)
+class V3Batch:
+    """One V3 batch: the complete Global stream plus its phase bucket.
+
+    ``v3_global`` carries the immutable G0 rows of each record followed by that
+    record's contextual tail, in the single stream ``global_offsets`` frames.
+    There is no Royal domain and no second perspective, so the batch is a strict
+    subset of V2Batch plus ``phase_buckets``.
+    """
+
+    v3_global: Tensor
+    global_offsets: Tensor
+    side_to_move: Tensor
+    phase_buckets: Tensor
     rule50_count: Tensor
     scores: Tensor
     results: Tensor
@@ -398,17 +465,26 @@ def _architecture_name(args: argparse.Namespace) -> str:
 
 
 def _architecture_schema(name: str) -> str:
-    return ARCHITECTURE_SCHEMA if name == LEGACY_ARCHITECTURE else str(
-        V2_ARCHITECTURES[name]["schema"]
-    )
+    if name == LEGACY_ARCHITECTURE:
+        return ARCHITECTURE_SCHEMA
+    for table in (V2_ARCHITECTURES, CONTROL_ARCHITECTURES, V3_ARCHITECTURES):
+        if name in table:
+            return str(table[name]["schema"])
+    raise TrainingError(f"unknown training architecture: {name}")
 
 
 def _training_schema(name: str) -> str:
-    return SCHEMA if name == LEGACY_ARCHITECTURE else V2_TRAINING_SCHEMA
+    _require(name in ARCHITECTURE_CHOICES, f"unknown training architecture: {name}")
+    if name == LEGACY_ARCHITECTURE:
+        return SCHEMA
+    return V3_TRAINING_SCHEMA if name in V3_ARCHITECTURES else V2_TRAINING_SCHEMA
 
 
 def _checkpoint_schema(name: str) -> str:
-    return CHECKPOINT_SCHEMA if name == LEGACY_ARCHITECTURE else V2_CHECKPOINT_SCHEMA
+    _require(name in ARCHITECTURE_CHOICES, f"unknown training architecture: {name}")
+    if name == LEGACY_ARCHITECTURE:
+        return CHECKPOINT_SCHEMA
+    return V3_CHECKPOINT_SCHEMA if name in V3_ARCHITECTURES else V2_CHECKPOINT_SCHEMA
 
 
 def _v2_structure(name: str) -> dict[str, object]:
@@ -478,9 +554,85 @@ def _v2_structure(name: str) -> dict[str, object]:
     }
 
 
+def _control_structure(name: str) -> dict[str, object]:
+    """Structure receipt for a single-domain V2-shaped control.
+
+    Field order follows ``_v2_structure`` so the two remain diffable; the only
+    difference is that the domain list holds the Global table alone.
+    """
+
+    config = CONTROL_ARCHITECTURES[name]
+    global_lanes = int(config["global_lanes"])
+    structure: dict[str, object] = {
+        "schema": config["schema"],
+        "feature_schema": V2_FEATURE_SCHEMA,
+        "feature_order": "physical squares A1 through H8",
+        "domains": [
+            {
+                "name": "global",
+                "dimensions": V2_GLOBAL_DIMENSIONS,
+                "lanes": global_lanes,
+                "fixed_roles": 11,
+                "includes_black_king": True,
+            }
+        ],
+        "transformed_lanes": global_lanes,
+        "dense_lanes": [global_lanes, HIDDEN0_LANES, HIDDEN1_LANES, 2],
+        "side_to_move_heads": {"white": WHITE, "black": BLACK},
+        "contextual_features": [],
+        "phase_buckets": 1,
+        "training_activation": "clamp(x, 0, 1)",
+        "network_to_score": NNUE_TO_SCORE,
+        "serialized_parameter_bytes": int(config["serialized_parameter_bytes"]),
+    }
+    return {
+        **structure,
+        "structural_sha256": _sha256_bytes(_compact_json(structure)),
+    }
+
+
+def _v3_structure(name: str) -> dict[str, object]:
+    """Canonical V3 receipt, taken from the model module and pinned here."""
+
+    structure = v3_structure()
+    config = V3_ARCHITECTURES[name]
+    _require(
+        structure["structural_sha256"] == V3_STRUCTURAL_SHA256,
+        f"V3 structure receipt drifted: {structure['structural_sha256']}",
+    )
+    _require(
+        structure["schema"] == config["schema"]
+        and structure["serialized_parameter_bytes"]
+        == int(config["serialized_parameter_bytes"]),
+        "V3 registry entry disagrees with the canonical structure receipt",
+    )
+    return structure
+
+
+def _architecture_structure(name: str) -> dict[str, object]:
+    """Dispatch one architecture to its own structure receipt.
+
+    The legacy control keeps its hand-written receipt in ``train``; every other
+    registered architecture answers here, so no architecture can silently
+    inherit another one's structural hash.
+    """
+
+    if name in V3_ARCHITECTURES:
+        return _v3_structure(name)
+    if name in CONTROL_ARCHITECTURES:
+        return _control_structure(name)
+    _require(name in V2_ARCHITECTURES, f"unknown training architecture: {name}")
+    return _v2_structure(name)
+
+
 def _make_model(name: str, seed: int) -> nn.Module:
     if name == LEGACY_ARCHITECTURE:
         return LegacyHPModel(seed)
+    if name in V3_ARCHITECTURES:
+        return HordeV3Model(seed)
+    if name in CONTROL_ARCHITECTURES:
+        return C0SingleG0Model(seed)
+    _require(name in V2_ARCHITECTURES, f"unknown training architecture: {name}")
     config = V2_ARCHITECTURES[name]
     first_lanes = int(config["first_lanes"])
     global_lanes = int(config["global_lanes"])
@@ -630,16 +782,88 @@ def _torch_v2_batch(sparse: SparseBatch, device: torch.device) -> V2Batch:
     )
 
 
+def _torch_v3_batch(sparse: SparseBatch, device: torch.device) -> V3Batch:
+    """Build one V3 batch from a sparse batch decoded WITH the contextual tail.
+
+    Fails closed on every stream invariant the model relies on: the immutable
+    G0 rows must be present and come first, the contextual tail must stay inside
+    its reserved range, rows must be unique within a record, and the record must
+    respect the registered active-row bound.
+    """
+
+    records = len(sparse)
+    piece_counts = list(sparse.physical_piece_count)
+    offsets = sparse.global_offsets
+    rows = sparse.v2_global
+    _require(all(1 <= count <= 52 for count in piece_counts), "invalid V3 piece count")
+    _require(
+        len(offsets) == records + 1 and offsets[0] == 0 and offsets[-1] == len(rows),
+        "V3 Global offsets do not tile the row array",
+    )
+    for index in range(records):
+        begin, end = offsets[index], offsets[index + 1]
+        _require(begin <= end, f"record {sparse.record_indices[index]} has inverted V3 offsets")
+        pieces = piece_counts[index]
+        active = end - begin
+        _require(
+            active >= pieces,
+            f"record {sparse.record_indices[index]} V3 stream omits a physical G0 row",
+        )
+        _require(
+            active <= V3_MAX_ACTIVE_ROWS,
+            f"record {sparse.record_indices[index]} activated {active} V3 rows, "
+            f"above the registered bound of {V3_MAX_ACTIVE_ROWS}",
+        )
+        record_rows = rows[begin:end]
+        _require(
+            len(set(record_rows)) == active,
+            f"record {sparse.record_indices[index]} repeats a V3 stream row",
+        )
+        _require(
+            all(0 <= row < V2_GLOBAL_DIMENSIONS for row in record_rows[:pieces]),
+            f"record {sparse.record_indices[index]} G0 prefix left the immutable rows",
+        )
+        _require(
+            all(
+                V2_GLOBAL_DIMENSIONS <= row < V3_GLOBAL_DIMENSIONS
+                for row in record_rows[pieces:]
+            ),
+            f"record {sparse.record_indices[index]} contextual row escaped "
+            f"[{V2_GLOBAL_DIMENSIONS}, {V3_GLOBAL_DIMENSIONS})",
+        )
+    try:
+        phase_buckets = v3_phase_bucket(
+            torch.tensor(sparse.white_piece_count, dtype=torch.long, device=device)
+        )
+    except ValueError as error:
+        raise TrainingError(f"V3 phase bucket is undefined: {error}") from error
+    scores = torch.tensor(sparse.scores, dtype=torch.float32, device=device)
+    return V3Batch(
+        v3_global=torch.tensor(rows, dtype=torch.long, device=device),
+        global_offsets=torch.tensor(offsets, dtype=torch.long, device=device),
+        side_to_move=torch.tensor(sparse.side_to_move, dtype=torch.long, device=device),
+        phase_buckets=phase_buckets,
+        rule50_count=torch.tensor(sparse.rule50_count, dtype=torch.long, device=device),
+        scores=scores,
+        results=torch.tensor(sparse.results, dtype=torch.long, device=device),
+        score_eligible=torch.abs(scores) < MATE_SCORE_THRESHOLD,
+    )
+
+
 def _model_batch(
     architecture: str,
     sparse: SparseBatch,
     device: torch.device,
-) -> LegacyBatch | V2Batch:
-    return (
-        _torch_batch(sparse, device)
-        if architecture == LEGACY_ARCHITECTURE
-        else _torch_v2_batch(sparse, device)
+) -> LegacyBatch | V2Batch | V3Batch:
+    if architecture == LEGACY_ARCHITECTURE:
+        return _torch_batch(sparse, device)
+    if architecture in V3_ARCHITECTURES:
+        return _torch_v3_batch(sparse, device)
+    _require(
+        architecture in V2_ARCHITECTURES or architecture in CONTROL_ARCHITECTURES,
+        f"unknown training architecture: {architecture}",
     )
+    return _torch_v2_batch(sparse, device)
 
 
 def _rule50_postprocess(output: Tensor, rule50_count: Tensor) -> Tensor:
@@ -685,7 +909,7 @@ def _wdl_probabilities(
 
 def loss_terms(
     output: Tensor,
-    batch: LegacyBatch | V2Batch,
+    batch: LegacyBatch | V2Batch | V3Batch,
     lambda_value: float,
     calibration: DavidsonCalibration,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
@@ -1267,8 +1491,11 @@ def _load_scale_binding(
     architecture_contract = _mapping(
         training.get("architecture"), "scale architecture contract"
     )
+    # The Rank8 scale contract is bound to exactly one architecture.  Any other
+    # registered architecture, V3 and the single-domain controls included, must
+    # be rejected here rather than inheriting the Rank8 scale binding.
     _require(
-        architecture == "v2-c1-rank8-64x192"
+        architecture == RANK8_SCALE_ARCHITECTURE
         and architecture_contract.get("name") == architecture
         and architecture_contract.get("schema") == _architecture_schema(architecture),
         "scale contract does not select the Rank8 architecture",
@@ -1493,8 +1720,28 @@ def _dataset_payload_identity(dataset: Any) -> str:
     return value.upper()
 
 
-def _load_sparse_batch(dataset: Any, indices: Sequence[int]) -> SparseBatch:
-    return make_sparse_batch(tuple(dataset.record(index) for index in indices))
+def _contextual_extractor(architecture: str):
+    """Return the named contextual row extractor one architecture requires.
+
+    Only V3 extends the Global stream.  The legacy control, every V2 rung and
+    the single-domain controls consume the immutable G0 rows alone, so they must
+    never see a contextual tail: routing it to them would change their feature
+    content without changing their name.
+    """
+
+    _require(architecture in ARCHITECTURE_CHOICES, f"unknown training architecture: {architecture}")
+    return v3_contextual_rows if architecture in V3_ARCHITECTURES else None
+
+
+def _load_sparse_batch(
+    architecture: str,
+    dataset: Any,
+    indices: Sequence[int],
+) -> SparseBatch:
+    return make_sparse_batch(
+        tuple(dataset.record(index) for index in indices),
+        contextual=_contextual_extractor(architecture),
+    )
 
 
 def _evaluate(
@@ -1513,7 +1760,7 @@ def _evaluate(
             indices = tuple(range(begin, min(begin + batch_size, len(dataset))))
             batch = _model_batch(
                 architecture,
-                _load_sparse_batch(dataset, indices),
+                _load_sparse_batch(architecture, dataset, indices),
                 device,
             )
             composite, score_error, result_error, prediction = loss_terms(
@@ -1662,7 +1909,7 @@ def _training_settings(
             "output": output_multiplier,
         }
     if architecture != LEGACY_ARCHITECTURE:
-        structure = _v2_structure(architecture)
+        structure = _architecture_structure(architecture)
         settings["architecture"] = {
             "name": architecture,
             "schema": structure["schema"],
@@ -2059,7 +2306,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
 
                 batch = _model_batch(
                     architecture,
-                    _load_sparse_batch(train_dataset, indices),
+                    _load_sparse_batch(architecture, train_dataset, indices),
                     device,
                 )
                 optimizer.zero_grad(set_to_none=True)
@@ -2203,8 +2450,10 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
             }
         else:
+            # Every non-legacy architecture answers through the dispatcher, so
+            # V3 carries its own canonical receipt and hash instead of the V2 one.
             architecture_receipt = {
-                **_v2_structure(architecture),
+                **_architecture_structure(architecture),
                 "name": architecture,
                 "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
                 "training_only_factorizer": False,

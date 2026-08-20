@@ -1,0 +1,630 @@
+{
+  "arms": {
+    "avx2": {
+      "asserts_enabled": true,
+      "backend": "avx2",
+      "cases": {
+        "contextual_transition": {
+          "hot": {
+            "across_invocation_spread_pct": 5.04,
+            "max_ns": 687.11,
+            "median_ns": 662.7,
+            "min_ns": 653.71
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 6.96,
+            "max_ns": 827.34,
+            "median_ns": 808.59,
+            "min_ns": 771.09
+          }
+        },
+        "dense_propagation": {
+          "hot": {
+            "across_invocation_spread_pct": 0.64,
+            "max_ns": 975,
+            "median_ns": 970.7,
+            "min_ns": 968.75
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 2.4,
+            "max_ns": 985.94,
+            "median_ns": 977.73,
+            "min_ns": 962.5
+          }
+        },
+        "frame_copy": {
+          "hot": {
+            "across_invocation_spread_pct": 1.29,
+            "max_ns": 68.8,
+            "median_ns": 68.36,
+            "min_ns": 67.92
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 11.72,
+            "max_ns": 93.68,
+            "median_ns": 86.62,
+            "min_ns": 83.52
+          }
+        },
+        "ft_refresh_incumbent_2x512": {
+          "hot": {
+            "across_invocation_spread_pct": 4.04,
+            "max_ns": 2350,
+            "median_ns": 2318.75,
+            "min_ns": 2256.25
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 3.09,
+            "max_ns": 2309.38,
+            "median_ns": 2272.66,
+            "min_ns": 2239.06
+          }
+        },
+        "ft_refresh_v3_1x1024": {
+          "hot": {
+            "across_invocation_spread_pct": 5.97,
+            "max_ns": 2446.88,
+            "median_ns": 2355.47,
+            "min_ns": 2306.25
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 3.16,
+            "max_ns": 2389.06,
+            "median_ns": 2350.78,
+            "min_ns": 2314.84
+          }
+        },
+        "full_evaluation": {
+          "hot": {
+            "across_invocation_spread_pct": 3.83,
+            "max_ns": 5743.75,
+            "median_ns": 5668.75,
+            "min_ns": 5526.56
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 3.03,
+            "max_ns": 5787.5,
+            "median_ns": 5715.62,
+            "min_ns": 5614.06
+          }
+        },
+        "full_refresh_rows_0": {
+          "hot": {
+            "across_invocation_spread_pct": 1.27,
+            "max_ns": 67.75,
+            "median_ns": 67.31,
+            "min_ns": 66.89
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 6.03,
+            "max_ns": 72.02,
+            "median_ns": 70.04,
+            "min_ns": 67.8
+          }
+        },
+        "full_refresh_rows_1": {
+          "hot": {
+            "across_invocation_spread_pct": 5.58,
+            "max_ns": 110.06,
+            "median_ns": 104.98,
+            "min_ns": 104.2
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 5.46,
+            "max_ns": 125.54,
+            "median_ns": 123.39,
+            "min_ns": 118.8
+          }
+        },
+        "full_refresh_rows_max": {
+          "hot": {
+            "across_invocation_spread_pct": 3.87,
+            "max_ns": 4762.5,
+            "median_ns": 4684.38,
+            "min_ns": 4581.25
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 2.94,
+            "max_ns": 4750,
+            "median_ns": 4673.44,
+            "min_ns": 4612.5
+          }
+        },
+        "quiet_transition": {
+          "hot": {
+            "across_invocation_spread_pct": 17.5,
+            "max_ns": 273.24,
+            "median_ns": 237.11,
+            "min_ns": 231.74
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 5.4,
+            "max_ns": 318.46,
+            "median_ns": 312.99,
+            "min_ns": 301.56
+          }
+        }
+      },
+      "invocations": 5,
+      "seeds": [
+        101,
+        202,
+        303,
+        404,
+        505
+      ],
+      "two_gather_ratio": {
+        "hot": {
+          "interpretation": "above 1 means V3 one-gather is slower than the incumbent two-gather shape",
+          "max": 1.0412,
+          "median": 1.0192,
+          "min": 1.0063,
+          "paired": true
+        },
+        "streaming": {
+          "interpretation": "above 1 means V3 one-gather is slower than the incumbent two-gather shape",
+          "max": 1.0409,
+          "median": 1.0338,
+          "min": 1.0206,
+          "paired": true
+        }
+      }
+    },
+    "avx2nd": {
+      "asserts_enabled": false,
+      "backend": "avx2",
+      "cases": {
+        "contextual_transition": {
+          "hot": {
+            "across_invocation_spread_pct": 6.15,
+            "max_ns": 705.86,
+            "median_ns": 680.08,
+            "min_ns": 664.06
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 3.76,
+            "max_ns": 825.39,
+            "median_ns": 815.23,
+            "min_ns": 794.73
+          }
+        },
+        "dense_propagation": {
+          "hot": {
+            "across_invocation_spread_pct": 2.86,
+            "max_ns": 986.72,
+            "median_ns": 970.31,
+            "min_ns": 958.98
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 2.74,
+            "max_ns": 1000,
+            "median_ns": 983.2,
+            "min_ns": 973.05
+          }
+        },
+        "frame_copy": {
+          "hot": {
+            "across_invocation_spread_pct": 1.96,
+            "max_ns": 69.24,
+            "median_ns": 68.33,
+            "min_ns": 67.9
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 7.86,
+            "max_ns": 92.5,
+            "median_ns": 88.87,
+            "min_ns": 85.52
+          }
+        },
+        "ft_refresh_incumbent_2x512": {
+          "hot": {
+            "across_invocation_spread_pct": 2.71,
+            "max_ns": 2360.16,
+            "median_ns": 2339.06,
+            "min_ns": 2296.88
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 4.16,
+            "max_ns": 2357.81,
+            "median_ns": 2292.19,
+            "min_ns": 2262.5
+          }
+        },
+        "ft_refresh_v3_1x1024": {
+          "hot": {
+            "across_invocation_spread_pct": 3.12,
+            "max_ns": 2382.03,
+            "median_ns": 2353.91,
+            "min_ns": 2308.59
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 2.11,
+            "max_ns": 2378.91,
+            "median_ns": 2337.5,
+            "min_ns": 2329.69
+          }
+        },
+        "full_evaluation": {
+          "hot": {
+            "across_invocation_spread_pct": 4.28,
+            "max_ns": 5876.56,
+            "median_ns": 5737.5,
+            "min_ns": 5631.25
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 4.01,
+            "max_ns": 5959.38,
+            "median_ns": 5850,
+            "min_ns": 5725
+          }
+        },
+        "full_refresh_rows_0": {
+          "hot": {
+            "across_invocation_spread_pct": 1.92,
+            "max_ns": 68.43,
+            "median_ns": 67.55,
+            "min_ns": 67.14
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 3.22,
+            "max_ns": 71.36,
+            "median_ns": 69.7,
+            "min_ns": 69.12
+          }
+        },
+        "full_refresh_rows_1": {
+          "hot": {
+            "across_invocation_spread_pct": 7.71,
+            "max_ns": 110.89,
+            "median_ns": 103.91,
+            "min_ns": 102.88
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 7.76,
+            "max_ns": 124.41,
+            "median_ns": 121.39,
+            "min_ns": 114.99
+          }
+        },
+        "full_refresh_rows_max": {
+          "hot": {
+            "across_invocation_spread_pct": 3.68,
+            "max_ns": 4782.81,
+            "median_ns": 4718.75,
+            "min_ns": 4609.38
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 3.63,
+            "max_ns": 4831.25,
+            "median_ns": 4775,
+            "min_ns": 4657.81
+          }
+        },
+        "quiet_transition": {
+          "hot": {
+            "across_invocation_spread_pct": 2.73,
+            "max_ns": 238.28,
+            "median_ns": 236.33,
+            "min_ns": 231.84
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 2.92,
+            "max_ns": 315.62,
+            "median_ns": 311.52,
+            "min_ns": 306.54
+          }
+        }
+      },
+      "invocations": 9,
+      "seeds": [
+        101,
+        202,
+        303,
+        404,
+        505,
+        606,
+        707,
+        808,
+        909
+      ],
+      "two_gather_ratio": {
+        "hot": {
+          "interpretation": "above 1 means V3 one-gather is slower than the incumbent two-gather shape",
+          "max": 1.0248,
+          "median": 1.0078,
+          "min": 0.998,
+          "paired": true
+        },
+        "streaming": {
+          "interpretation": "above 1 means V3 one-gather is slower than the incumbent two-gather shape",
+          "max": 1.0335,
+          "median": 1.0254,
+          "min": 1.0089,
+          "paired": true
+        }
+      }
+    },
+    "scalarnd": {
+      "asserts_enabled": false,
+      "backend": "scalar",
+      "cases": {
+        "contextual_transition": {
+          "hot": {
+            "across_invocation_spread_pct": 4.3,
+            "max_ns": 1377.73,
+            "median_ns": 1371.09,
+            "min_ns": 1318.75
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 1.89,
+            "max_ns": 1472.27,
+            "median_ns": 1466.8,
+            "min_ns": 1444.53
+          }
+        },
+        "dense_propagation": {
+          "hot": {
+            "across_invocation_spread_pct": 2.42,
+            "max_ns": 1544.14,
+            "median_ns": 1532.81,
+            "min_ns": 1507.03
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 2.88,
+            "max_ns": 1566.02,
+            "median_ns": 1548.83,
+            "min_ns": 1521.48
+          }
+        },
+        "frame_copy": {
+          "hot": {
+            "across_invocation_spread_pct": 4.97,
+            "max_ns": 69.24,
+            "median_ns": 68.8,
+            "min_ns": 65.82
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 8.67,
+            "max_ns": 92.19,
+            "median_ns": 90.43,
+            "min_ns": 84.35
+          }
+        },
+        "ft_refresh_incumbent_2x512": {
+          "hot": {
+            "across_invocation_spread_pct": 1.98,
+            "max_ns": 4879.69,
+            "median_ns": 4812.5,
+            "min_ns": 4784.38
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 1.91,
+            "max_ns": 4851.56,
+            "median_ns": 4815.62,
+            "min_ns": 4759.38
+          }
+        },
+        "ft_refresh_v3_1x1024": {
+          "hot": {
+            "across_invocation_spread_pct": 3.81,
+            "max_ns": 5567.19,
+            "median_ns": 5540.62,
+            "min_ns": 5356.25
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 1.44,
+            "max_ns": 5601.56,
+            "median_ns": 5535.94,
+            "min_ns": 5521.88
+          }
+        },
+        "full_evaluation": {
+          "hot": {
+            "across_invocation_spread_pct": 3.16,
+            "max_ns": 12675,
+            "median_ns": 12550,
+            "min_ns": 12278.12
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 2.07,
+            "max_ns": 12806.25,
+            "median_ns": 12687.5,
+            "min_ns": 12543.75
+          }
+        },
+        "full_refresh_rows_0": {
+          "hot": {
+            "across_invocation_spread_pct": 4.88,
+            "max_ns": 68.97,
+            "median_ns": 68.53,
+            "min_ns": 65.62
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 4.23,
+            "max_ns": 72.8,
+            "median_ns": 69.87,
+            "min_ns": 69.85
+          }
+        },
+        "full_refresh_rows_1": {
+          "hot": {
+            "across_invocation_spread_pct": 2.12,
+            "max_ns": 159.42,
+            "median_ns": 158.69,
+            "min_ns": 156.05
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 3.09,
+            "max_ns": 170.51,
+            "median_ns": 167.68,
+            "min_ns": 165.33
+          }
+        },
+        "full_refresh_rows_max": {
+          "hot": {
+            "across_invocation_spread_pct": 1.56,
+            "max_ns": 9421.88,
+            "median_ns": 9403.12,
+            "min_ns": 9275
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 1.83,
+            "max_ns": 9531.25,
+            "median_ns": 9393.75,
+            "min_ns": 9359.38
+          }
+        },
+        "quiet_transition": {
+          "hot": {
+            "across_invocation_spread_pct": 12.32,
+            "max_ns": 391.41,
+            "median_ns": 359.18,
+            "min_ns": 347.17
+          },
+          "streaming": {
+            "across_invocation_spread_pct": 2.93,
+            "max_ns": 443.16,
+            "median_ns": 439.84,
+            "min_ns": 430.27
+          }
+        }
+      },
+      "invocations": 5,
+      "seeds": [
+        101,
+        202,
+        303,
+        404,
+        505
+      ],
+      "two_gather_ratio": {
+        "hot": {
+          "interpretation": "above 1 means V3 one-gather is slower than the incumbent two-gather shape",
+          "max": 1.1581,
+          "median": 1.1508,
+          "min": 1.1137,
+          "paired": true
+        },
+        "streaming": {
+          "interpretation": "above 1 means V3 one-gather is slower than the incumbent two-gather shape",
+          "max": 1.1602,
+          "median": 1.1551,
+          "min": 1.144,
+          "paired": true
+        }
+      }
+    }
+  },
+  "assert_overhead_hot": {
+    "contextual_transition": 0.974,
+    "dense_propagation": 1.0,
+    "frame_copy": 1.0,
+    "ft_refresh_incumbent_2x512": 0.991,
+    "ft_refresh_v3_1x1024": 1.001,
+    "full_evaluation": 0.988,
+    "full_refresh_rows_0": 0.996,
+    "full_refresh_rows_1": 1.01,
+    "full_refresh_rows_max": 0.993,
+    "quiet_transition": 1.003
+  },
+  "claims": {
+    "engine_nps_measured": false,
+    "p1_width_gate": false,
+    "strength_evidence": false
+  },
+  "derived": {
+    "contextual_delta_ns_excluding_frame_copy": 611.75,
+    "dense_share_of_incremental_path_pct": 80.4,
+    "incremental_eval_path_ns": 1206.64,
+    "internal_consistency": {
+      "agreement_pct": 0.84,
+      "full_evaluation_ns": 5737.5,
+      "refresh_max_plus_dense_ns": 5689.06
+    },
+    "per_row_refresh_ns": 46.51,
+    "quiet_delta_ns_excluding_frame_copy": 168.0
+  },
+  "geometry": {
+    "frame_bytes": 4224,
+    "ft_table_bytes": 1835008,
+    "lanes": 1024,
+    "psqt_columns": 16,
+    "scratch_bytes": 1344,
+    "stream_rows": 896
+  },
+  "machine_state": {
+    "background_cores_busy_at_start": 3.94,
+    "killed_before_measuring": "a runaway msys64 date.exe spinning at 1.3 cores with 13.6 days of accumulated CPU, predating this session",
+    "not_silenced": [
+      "remoting_host (Chrome Remote Desktop)",
+      "ChatGPT desktop x2"
+    ],
+    "note": "measurements are single threaded and paired, so background load adds spread rather than bias"
+  },
+  "notes": [
+    "feature enumeration is outside every timed region; the refresh cases time the accumulation over a pre-enumerated row set",
+    "the transition cases include the frame copy the transition performs; subtract frame_copy to isolate the delta",
+    "page faults, allocation, validation and logging are outside every timed region; every table and pool page is touched once before timing",
+    "every pool slot of a given case does identical work, so the hot and streaming medians of a case are comparable; full_evaluation refreshes the maximum-row boards, so its median should track full_refresh_rows_max plus dense_propagation",
+    "dense_propagation walks the parity fixtures, whose phase buckets differ, so its streaming schedule also walks distinct regions of the hidden0 table; the trunk's instruction count does not depend on the frame",
+    "the two-gather accumulator pools are laid out at a 1024-accumulator stride from a 64-byte aligned base, so both sides are page aligned; a production V3AccumulatorFrame is not, and 4K aliasing between the gathered rows and the accumulator can differ between the two shapes. Read the two-gather ratio as a statement about arithmetic and gather structure, not about the engine's frame placement",
+    "the scalar build's two-gather ratio also carries whatever the auto-vectorizer chose for the 1024-lane and the 512-lane instantiation of the same source loop; the AVX2 build's kernels are hand written and identical in shape, so the AVX2 ratio is the one that speaks to the design claim"
+  ],
+  "purpose": "kernel-level cost of the V3 evaluator; this is NOT the P1 engine width probe, which needs a V3 engine path that does not exist",
+  "row_counts": {
+    "frozen_ceiling": 100,
+    "max_row_board_fen": "kbrqnbrq/N2B4/nn6/PPnnnnnn/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP",
+    "refresh_max": 100,
+    "refresh_max_contextual": 48,
+    "refresh_max_g0": 52,
+    "refresh_one": 1,
+    "refresh_zero": 0,
+    "zero_row_note": "a legal board always carries the Black king, so one is the smallest board-reachable row count; the zero-row case is a V3Features with an empty row set and isolates the bias copy plus the PSQT clear"
+  },
+  "schema": "HORDE_V3_KERNEL_TIMING_CAMPAIGN_V1",
+  "transitions": {
+    "contextual": {
+      "contextual_added_first": 5,
+      "contextual_added_max": 5,
+      "contextual_added_min": 5,
+      "contextual_removed_first": 4,
+      "contextual_removed_max": 4,
+      "contextual_removed_min": 4,
+      "g0_added": 1,
+      "g0_removed": 1
+    },
+    "quiet": {
+      "contextual_added": 0,
+      "contextual_removed": 0,
+      "g0_added": 1,
+      "g0_removed": 1
+    }
+  },
+  "two_gather_reference": {
+    "claim": "V3 at 1024 lanes performs the same accumulator arithmetic as two 512-lane perspectives while doing one gather instead of two",
+    "emulation_disclaimer": "ft_refresh_incumbent_2x512 is an EMULATION of the incumbent's arithmetic shape, not the incumbent's actual code: two perspectives of 512 lanes, two independent row-index streams, two feature tables whose bytes sum exactly to the V3 table's bytes, driven by the same lane-parametric kernel primitive as the V3 side",
+    "hot": {
+      "ci95": [
+        0.982011992,
+        1.003044732
+      ],
+      "ratio": 0.990644838
+    },
+    "incumbent_lanes_per_perspective": 512,
+    "lane_adds_incumbent": 53248,
+    "lane_adds_v3": 53248,
+    "psqt_included": false,
+    "ratio_definition": "incumbent_2x512 median / v3_1x1024 median; above one means the single gather is faster",
+    "rows_per_gather": 52,
+    "streaming": {
+      "ci95": [
+        0.9849567285,
+        0.9960501952
+      ],
+      "ratio": 0.9911330049
+    },
+    "table_bytes_incumbent": 1835008,
+    "table_bytes_v3": 1835008,
+    "v3_lanes": 1024
+  }
+}

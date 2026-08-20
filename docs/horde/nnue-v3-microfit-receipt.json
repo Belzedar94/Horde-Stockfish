@@ -1,0 +1,290 @@
+{
+  "claims": {
+    "comparable_across_models": false,
+    "float_receipt_scope": "exact only within one pinned runtime",
+    "labels": "fixture labels under a frozen unit-slope Davidson link; the loss value carries no meaning beyond decreasing",
+    "production_network": false,
+    "proves": "the V3 decoder path builds a batch the model accepts, two independent fits are bit identical, and a gradient reaches every named group, every phase bucket head and both PSQT columns of every bucket",
+    "ranks_architectures": false,
+    "strength_evidence": false
+  },
+  "execution": {
+    "cuda_available_but_unused": true,
+    "deterministic_algorithms": true,
+    "device": "cpu",
+    "float32_matmul_precision": "highest",
+    "interop_threads": 1,
+    "mkldnn": false,
+    "platform": "Windows-10-10.0.19045-SP0",
+    "python": "3.12.0",
+    "threads": 1,
+    "torch": "2.7.1+cu118"
+  },
+  "fixture": {
+    "cells_covered": 16,
+    "contextual_rows": 3836,
+    "derived_side_policy": "same board in the opposite side-to-move frame; score, result and ply parity follow the frame",
+    "derived_side_records": 0,
+    "g0_rows": 3126,
+    "records": 128,
+    "records_per_cell": 8,
+    "records_per_phase_bucket": {
+      "0": 16,
+      "1": 16,
+      "2": 16,
+      "3": 16,
+      "4": 16,
+      "5": 16,
+      "6": 16,
+      "7": 16
+    },
+    "records_per_side_to_move": {
+      "0": 64,
+      "1": 64
+    },
+    "sha256": "AA37FD5ABEA8D6AC903C2CF652D9B8C42CBB96B9E369642BA0DBEE37BA870703",
+    "source": {
+      "available_records": 250000,
+      "kind": "authenticated HORDE_BIN_V1 records",
+      "name": "selected-records.bin",
+      "scanned_records": 4000
+    }
+  },
+  "implementation": {
+    "control_sha256": "21259D3FD7AA888DEE9A624C122EE2698DB69F7B2007ADBD2F47EFA35202234A",
+    "decoder_sha256": "6F684331E4EBACFA7BB7E56AE04691E8938F5FF851A2BDD222EB181F15D78C02",
+    "microfit_sha256": "1AAACFFE1E7D71EE44D0CEA2B19EA6BF9746DFC02CF53697E5598F9118A481EA",
+    "models_sha256": "E8CF1C3A3A89AA726629C9B506B4C310D6C53580F5C9D694370FBC00BF8276EF"
+  },
+  "models": [
+    {
+      "architecture": "v3-g1024-pawn-wpc8",
+      "bucket_gradient_reach": {
+        "hidden0_bias": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "hidden0_weights": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "hidden1_bias": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "hidden1_weights": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "output_bias": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "output_weights": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "psqt_columns": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      },
+      "checkpoint_schema": "HORDE_V3_CHECKPOINT_V1",
+      "final_loss": 0.09962786734104156,
+      "final_state_sha256": "525E015E7DE43A67EC979439666DD938AA2335C1423F86142F8491C4FC72A2FE",
+      "first_step_gradient_l2": {
+        "dense_trunk": 0.0071915867406223515,
+        "feature_transformer": 0.00046652115757640946,
+        "output": 0.10132145399432503,
+        "psqt": 0.4526766231285092
+      },
+      "gradient_groups_exercised": [
+        "dense_trunk",
+        "feature_transformer",
+        "output",
+        "psqt"
+      ],
+      "head_window_mean_loss": 0.272925540804863,
+      "initial_loss": 0.2803175747394562,
+      "initial_state_sha256": "F2B9E956B718EDA5F0833B3DEDF4836E0BFF6815AF7981378E2102A254B49A2F",
+      "loss_monotone": true,
+      "loss_reduction": 0.1806897073984146,
+      "loss_sha256": "1E6F08201104A7F46F19AAFA3053AAFC88CB2DB18956308D5E5B5591D3A45799",
+      "losses": [
+        0.2803175747394562,
+        0.2774319052696228,
+        0.2744266092777252,
+        0.2714502513408661,
+        0.2684386670589447,
+        0.26548823714256287,
+        0.25951847434043884,
+        0.2521840035915375,
+        0.24369259178638458,
+        0.23441198468208313,
+        0.22468392550945282,
+        0.21449299156665802,
+        0.20405647158622742,
+        0.19344589114189148,
+        0.18289658427238464,
+        0.17255955934524536,
+        0.1625005602836609,
+        0.1528152972459793,
+        0.1436302661895752,
+        0.13494449853897095,
+        0.1268199235200882,
+        0.11922020465135574,
+        0.1121840700507164,
+        0.1056549996137619,
+        0.09962786734104156
+      ],
+      "name": "v3-g1024",
+      "parameter_count": 1068944,
+      "repeat_count": 2,
+      "repeat_exact": true,
+      "schema": "V3_G1024_PAWN_WPC8",
+      "structural_sha256": "5B49DC20A9EF5424687A649A7E1BEA8665FE96F3AB839A2BA4CEAE8289EC69EC",
+      "tail_window_mean_loss": 0.11640859395265579,
+      "training_schema": "HORDE_V3_TRAINING_V1"
+    },
+    {
+      "architecture": "v2-c0-g0single-256",
+      "checkpoint_schema": "HORDE_V2_BASE_CHECKPOINT_V1",
+      "final_loss": 0.27568262815475464,
+      "final_state_sha256": "23AB02C76C1907F259B92BC5A143861E15DA931CC573D89ADADB8D780D0AC29D",
+      "first_step_gradient_l2": {
+        "dense_trunk": 0.004793079235375924,
+        "global_transformer": 0.000468887854620179,
+        "output": 0.06442577808299504
+      },
+      "gradient_groups_exercised": [
+        "dense_trunk",
+        "global_transformer",
+        "output"
+      ],
+      "head_window_mean_loss": 0.2810828685760498,
+      "initial_loss": 0.281107634305954,
+      "initial_state_sha256": "68022DFD59F849F3BBFDCECE1766FC6F3D2D838A1A668F06AEB18C5B96692D42",
+      "loss_monotone": true,
+      "loss_reduction": 0.005425006151199341,
+      "loss_sha256": "E313B6F42F4356DD2939FF728F07FB343E332A92DEB923EFCA61C010B708B0C8",
+      "losses": [
+        0.281107634305954,
+        0.281107634305954,
+        0.281107634305954,
+        0.28105810284614563,
+        0.28105810284614563,
+        0.28105810284614563,
+        0.2809939682483673,
+        0.28089311718940735,
+        0.2807438373565674,
+        0.2804630994796753,
+        0.28026074171066284,
+        0.28001680970191956,
+        0.2796814739704132,
+        0.2791890501976013,
+        0.27904513478279114,
+        0.2786847651004791,
+        0.27853652834892273,
+        0.27826958894729614,
+        0.2779144048690796,
+        0.2776767611503601,
+        0.27725350856781006,
+        0.2769469618797302,
+        0.2765955626964569,
+        0.27619361877441406,
+        0.27568262815475464
+      ],
+      "name": "r2-g0single-256",
+      "parameter_count": 189826,
+      "repeat_count": 2,
+      "repeat_exact": true,
+      "schema": "G0_SINGLE_256",
+      "structural_sha256": "DACCA4FC7388877D0C9E390BF0EDF919E6B872BD3FB9CD5F7B6DD91C501FCB31",
+      "tail_window_mean_loss": 0.276724840203921,
+      "training_schema": "HORDE_V2_BASE_TRAINING_V1"
+    }
+  ],
+  "purpose": "deterministic data and gradient plumbing receipt; no strength claim",
+  "schema": "HORDE_V3_MICROFIT_V1",
+  "training": {
+    "dense_weight_clipping": true,
+    "fixture_seed": 20260820,
+    "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
+    "lambda": 0.6,
+    "learning_rate": 0.015,
+    "learning_rate_note": "micro-fit rate chosen so both topologies move within 24 steps; not the production schedule",
+    "mate_score_threshold": 31507,
+    "minimum_loss_decrease": 0.0005,
+    "model_seed": 6211413096620315215,
+    "objective": "HORDE_WDL_HALF_BRIER_V1 via horde_training_control.loss_terms",
+    "optimizer": "torch.optim.RAdam",
+    "optimizer_source": "horde_training_control._make_optimizer",
+    "rule50": "the trainer's integer postprocessor with its truncation STE",
+    "steps": 24,
+    "wdl_calibration": {
+      "fixture": true,
+      "parameters": {
+        "black_to_move": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "white_to_move": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      }
+    }
+  }
+}

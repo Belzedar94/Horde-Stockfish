@@ -500,7 +500,18 @@ def training_record_fen(record: TrainingRecord) -> str:
     )
 
 
-def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
+def make_sparse_batch(
+    records: Sequence[TrainingRecord],
+    contextual: Callable[[Sequence[int]], tuple[int, ...]] | None = None,
+) -> SparseBatch:
+    """Build one CSR sparse batch.
+
+    ``contextual`` optionally appends a named contextual tail after the
+    immutable G0 rows of the Global stream, which is the extension point the
+    offsets were separated for. ``physical_piece_count`` still counts only the
+    physical G0 rows, so the split stays recoverable downstream.
+    """
+
     payload_identities = {record.source_payload_sha256 for record in records if record.source_payload_sha256}
     _require(len(payload_identities) <= 1, "batch mixes multiple source payload identities")
     source_payload_sha256 = next(iter(payload_identities), "")
@@ -561,6 +572,19 @@ def make_sparse_batch(records: Sequence[TrainingRecord]) -> SparseBatch:
         legacy_white.extend(features.legacy_white)
         legacy_black.extend(features.legacy_black)
         v2_global.extend(features.v2_global)
+        if contextual is not None:
+            extra = contextual(record.board)
+            _require(
+                all(
+                    V2_GLOBAL_DIMENSIONS <= row < V3_GLOBAL_DIMENSIONS for row in extra
+                ),
+                f"record {record.index} contextual row escaped its reserved range",
+            )
+            _require(
+                len(set(extra)) == len(extra),
+                f"record {record.index} repeats a contextual row",
+            )
+            v2_global.extend(extra)
         v2_royal.extend(features.v2_royal)
         legacy_piece_offsets.append(len(legacy_white))
         global_offsets.append(len(v2_global))
