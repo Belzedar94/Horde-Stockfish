@@ -1189,10 +1189,14 @@ def validate_scale_dataset_pair(
         train_dataset.chunk_set_sha256 != candidate_dataset.chunk_set_sha256,
         "scale training and candidate chunk sets match",
     )
+    # HORDE_PRODUCER_SET_V1: `producer_sha256` is deliberately absent, for the
+    # same reason as in the selected-role tool. It is a per-role set digest and
+    # two roles can legitimately come from different builds of the generator.
+    # Commit, clean-source flag, teacher network and label contract are the real
+    # cross-role invariants; a difference in any of those is drift.
     for field in (
         "source_commit",
         "source_dirty",
-        "producer_sha256",
         "network",
         "label_contract",
     ):
