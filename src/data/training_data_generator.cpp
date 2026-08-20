@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "engine.h"
+#include "expansion_selection.h"
 #include "horde_bin_v1.h"
 #include "misc.h"
 #include "movegen.h"
@@ -73,6 +74,18 @@ struct GeneratorParams {
     int writeMinPly = 5;
     int writeMaxPly = 400;
     int maxGamePly  = 512;
+
+    // HORDE_BIN_V1_R2 tactical expansion. All three default to zero, so a command
+    // that does not ask for expansion produces exactly the bytes the pre-revision
+    // generator produced, manifest included.
+    int expandPromo       = 0;
+    int expandCheck       = 0;
+    int expandMaxChildren = 0;
+
+    bool expansion_enabled() const { return expandPromo > 0 || expandCheck > 0; }
+    int  expansion_ceiling() const {
+        return std::min(expandPromo + expandCheck, expandMaxChildren);
+    }
 
     std::string network;
     std::string networkSha256;
@@ -270,6 +283,21 @@ bool parse_params(std::istream& input, GeneratorParams& params, std::string& err
             if (!read_value(input, params.maxGamePly, token, error))
                 return false;
         }
+        else if (token == "expand_promo")
+        {
+            if (!read_value(input, params.expandPromo, token, error))
+                return false;
+        }
+        else if (token == "expand_check")
+        {
+            if (!read_value(input, params.expandCheck, token, error))
+                return false;
+        }
+        else if (token == "expand_max_children")
+        {
+            if (!read_value(input, params.expandMaxChildren, token, error))
+                return false;
+        }
         else if (token == "set_recommended_uci_options")
             params.setRecommendedUciOptions = true;
         else
@@ -308,6 +336,19 @@ bool parse_params(std::istream& input, GeneratorParams& params, std::string& err
         || (params.book != "NONE" && !is_upper_sha256(params.bookSha256)))
     {
         error = "book and book_sha256 must either both be NONE or identify one authenticated book";
+        return false;
+    }
+    if (params.expandPromo < 0 || params.expandPromo > HordeBinV1MaxExpansionCap
+        || params.expandCheck < 0 || params.expandCheck > HordeBinV1MaxExpansionCap
+        || params.expandMaxChildren < 0 || params.expandMaxChildren > HordeBinV1MaxExpansionCap)
+    {
+        error = "expand_promo, expand_check and expand_max_children must be in [0, "
+              + std::to_string(HordeBinV1MaxExpansionCap) + "]";
+        return false;
+    }
+    if (params.expansion_enabled() != (params.expandMaxChildren > 0))
+    {
+        error = "expand_max_children must be positive exactly when a family cap is positive";
         return false;
     }
     return true;
@@ -531,6 +572,24 @@ class Generator {
     u64 draws_written() const { return draws.load(std::memory_order_relaxed); }
     u64 truncated_games() const { return truncated.load(std::memory_order_relaxed); }
 
+    u64 promotion_children() const { return promotionChildren.load(std::memory_order_relaxed); }
+    u64 check_children() const { return checkChildren.load(std::memory_order_relaxed); }
+    u64 expanded_parents() const { return expandedParents.load(std::memory_order_relaxed); }
+    u64 capped_parents() const { return cappedParents.load(std::memory_order_relaxed); }
+    u64 terminal_children_skipped() const {
+        return terminalChildren.load(std::memory_order_relaxed);
+    }
+    u64 duplicate_children_skipped() const {
+        return duplicateChildren.load(std::memory_order_relaxed);
+    }
+    std::string children_histogram() const {
+        std::ostringstream text;
+        for (int i = 0; i <= HordeBinV1MaxExpansionCap; ++i)
+            text << (i ? "," : "") << i << ":"
+                 << childrenHistogram[usize(i)].load(std::memory_order_relaxed);
+        return text.str();
+    }
+
    private:
     const GeneratorParams&   params;
     ThreadPool&              threads;
@@ -543,6 +602,13 @@ class Generator {
     std::atomic<u64>                            written{0};
     std::atomic<u64>                            draws{0};
     std::atomic<u64>                            truncated{0};
+    std::atomic<u64>                            promotionChildren{0};
+    std::atomic<u64>                            checkChildren{0};
+    std::atomic<u64>                            expandedParents{0};
+    std::atomic<u64>                            cappedParents{0};
+    std::atomic<u64>                            terminalChildren{0};
+    std::atomic<u64>                            duplicateChildren{0};
+    std::atomic<u64>                            childrenHistogram[HordeBinV1MaxExpansionCap + 1]{};
     std::atomic<bool>                           finished{false};
     std::mutex                                  outputMutex;
     std::mutex                                  openingMutex;
@@ -609,6 +675,105 @@ class Generator {
             }
         const auto& line = search.lines[rng.rand(candidates)];
         return line.pv.empty() ? bestMove : line.pv[0];
+    }
+
+    // Tactical expansion, HORDE_BIN_V1_R2.
+    //
+    // Two families are expanded, promotion and check, because those are the two
+    // buckets where the teacher and every student we have measured are worst.
+    // A promotion that also gives check belongs to PROMOTION and spends only the
+    // promotion budget, so the check budget stays reserved for non-promoting
+    // checks and no move is counted twice: at most expand_promo + expand_check
+    // children per parent, before the hard ceiling.
+    //
+    // Selection is deterministic — legal-move generation order, one child per
+    // distinct promotion push so a single pawn cannot spend the whole promotion
+    // budget on its own underpromotions.
+    //
+    // The child is searched by the same worker, the same network and the same
+    // budget as its parent: labelling across engine families is what lost all
+    // three gates in the Spell round-2 experiment. Its result is not copied from
+    // the parent — the child is appended to the same game's sample list and
+    // commit_game derives every result from the record's own side to move, so the
+    // sign flip falls out of the FEN and no result is fabricated.
+    bool expand_parent(Search::Worker&                  worker,
+                       Position&                        position,
+                       std::vector<TrainingDataSample>& samples) {
+        const int ceiling = params.expansion_ceiling();
+        if (ceiling <= 0)
+            return true;
+
+        const ExpansionSelection selection = select_expansion_children(
+          position, params.expandPromo, params.expandCheck, ceiling);
+        if (selection.capped)
+            cappedParents.fetch_add(1, std::memory_order_relaxed);
+
+        u64 emitted = 0;
+        for (const auto& [childMove, family] : selection.children)
+        {
+            if (finished.load(std::memory_order_relaxed))
+                break;
+
+            StateInfo childState{};
+            position.do_move(childMove, childState, &tt);
+
+            // A terminal child has no principal variation to label, and a child
+            // that duplicates a position already written would be a correlated
+            // duplicate rather than new signal. Both are counted, never silently
+            // dropped: the July Spell lab swallowed child-generation failures and
+            // left no trace of how many children it lost.
+            if (current_resolution(position).terminal)
+            {
+                terminalChildren.fetch_add(1, std::memory_order_relaxed);
+                position.undo_move(childMove);
+                continue;
+            }
+            if (seen.already_seen(position.key()))
+            {
+                duplicateChildren.fetch_add(1, std::memory_order_relaxed);
+                position.undo_move(childMove);
+                continue;
+            }
+
+            Search::TrainingSearchRequest request;
+            request.depth   = params.depth;
+            request.nodes   = params.nodes;
+            request.multiPV = 1;
+            const auto search = worker.training_search(position, request);
+            if (finished.load(std::memory_order_relaxed))
+            {
+                position.undo_move(childMove);
+                break;
+            }
+            if (search.value == VALUE_NONE || search.pv.empty())
+            {
+                position.undo_move(childMove);
+                fail("Synchronous Horde expansion search returned no principal variation");
+                return false;
+            }
+            if (!search.exact)
+            {
+                position.undo_move(childMove);
+                fail("Synchronous Horde expansion search returned a bound score");
+                return false;
+            }
+
+            const Move childBest = search.pv[0];
+            samples.push_back({position.fen(), int(search.value), childBest, childBest, 0,
+                               HordeOutcomeReason::STALEMATE, family});
+            if (family == HordeExpansionFamily::PROMOTION)
+                promotionChildren.fetch_add(1, std::memory_order_relaxed);
+            else
+                checkChildren.fetch_add(1, std::memory_order_relaxed);
+            ++emitted;
+            position.undo_move(childMove);
+        }
+
+        childrenHistogram[usize(std::min(emitted, u64(HordeBinV1MaxExpansionCap)))].fetch_add(
+          1, std::memory_order_relaxed);
+        if (emitted)
+            expandedParents.fetch_add(1, std::memory_order_relaxed);
+        return true;
     }
 
     bool commit_game(std::vector<TrainingDataSample>& samples,
@@ -679,7 +844,8 @@ class Generator {
             }
 
             std::vector<TrainingDataSample> samples;
-            samples.reserve(usize(params.writeMaxPly - params.writeMinPly));
+            samples.reserve(usize(params.writeMaxPly - params.writeMinPly)
+                            * usize(1 + std::max(0, params.expansion_ceiling())));
             const std::vector<u8> explore = random_move_flags(rng);
 
             for (int ply = 0; !finished.load(std::memory_order_relaxed); ++ply)
@@ -729,8 +895,16 @@ class Generator {
 
                 if (ply >= params.writeMinPly && ply < params.writeMaxPly
                     && !seen.already_seen(position.key()))
+                {
                     samples.push_back({position.fen(), int(search.value), bestMove, playedMove, 0,
-                                       HordeOutcomeReason::STALEMATE});
+                                       HordeOutcomeReason::STALEMATE,
+                                       HordeExpansionFamily::NONE});
+                    // Children are appended immediately after their parent, so a
+                    // reader recovers the (parent, children) unit by scanning
+                    // forward from a record whose EXPANSION_CHILD bit is clear.
+                    if (!expand_parent(worker, position, samples))
+                        return;
+                }
 
                 position.do_move(playedMove, states[usize(ply)], &tt);
             }
@@ -823,6 +997,9 @@ bool generate_training_data(Engine& engine, std::istream& input) {
     manifest.writeMaxPly       = params.writeMaxPly;
     manifest.maxGamePly        = params.maxGamePly;
     manifest.openingCount      = openings.size();
+    manifest.expandPromo       = params.expandPromo;
+    manifest.expandCheck       = params.expandCheck;
+    manifest.expandMaxChildren = params.expandMaxChildren;
     if (DataResult valid = validate_horde_bin_v1_manifest(manifest); !valid)
     {
         print_error(valid.message);
@@ -830,7 +1007,16 @@ bool generate_training_data(Engine& engine, std::istream& input) {
     }
 
     std::cout << "INFO: Executing horde_generate_training_data command\n"
-              << "INFO: schema_sha256 = " << HordeBinV1SchemaSha256 << '\n'
+              << "INFO: schema = "
+              << (manifest.expansion_enabled() ? HordeBinV1RevisionName : HordeBinV1SchemaName)
+              << '\n'
+              << "INFO: schema_sha256 = "
+              << (manifest.expansion_enabled() ? HordeBinV1RevisionSha256 : HordeBinV1SchemaSha256)
+              << '\n'
+              << "INFO: expand_promo = " << params.expandPromo << '\n'
+              << "INFO: expand_check = " << params.expandCheck << '\n'
+              << "INFO: expand_max_children = " << params.expandMaxChildren << '\n'
+              << "INFO: expansion_ceiling = " << std::max(0, params.expansion_ceiling()) << '\n'
               << "INFO: source_commit = " << manifest.sourceCommit << '\n'
               << "INFO: source_dirty = " << (manifest.sourceDirty ? "true" : "false") << '\n'
               << "PRNG::initial_seed = " << resolvedSeed << '\n'
@@ -851,6 +1037,16 @@ bool generate_training_data(Engine& engine, std::istream& input) {
               << "INFO: records=" << generator.records_written()
               << " draws=" << generator.draws_written()
               << " truncated_games=" << generator.truncated_games() << std::endl;
+    if (params.expansion_enabled())
+        std::cout << "INFO: expansion promotion_children=" << generator.promotion_children()
+                  << " check_children=" << generator.check_children()
+                  << " expanded_parents=" << generator.expanded_parents()
+                  << " capped_parents=" << generator.capped_parents()
+                  << " terminal_children_skipped=" << generator.terminal_children_skipped()
+                  << " duplicate_children_skipped=" << generator.duplicate_children_skipped()
+                  << '\n'
+                  << "INFO: expansion children_per_parent " << generator.children_histogram()
+                  << std::endl;
     return true;
 }
 

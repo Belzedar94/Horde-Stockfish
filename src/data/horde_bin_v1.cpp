@@ -37,7 +37,7 @@ namespace {
 constexpr std::array<u8, 8> FileMagic     = {'H', 'O', 'R', 'D', 'E', 'B', 'I', 'N'};
 constexpr u16               FormatVersion = 1;
 constexpr std::string_view  CapabilityJson =
-  R"({"schema":"HORDE_BIN_V1","schema_sha256":"B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4","label_contract":{"schema":"HORDE_LABEL_CONTRACT_V1","schema_sha256":"C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"},"write":true,"record_size":48,"header_size":2048})";
+  R"({"schema":"HORDE_BIN_V1","schema_sha256":"B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4","revision":"HORDE_BIN_V1_R2","revision_sha256":"013BF155072149A766B54A391ADBCB3EB1C539F49362EB06CA4E1530AE22B6A6","expansion_families":["none","bestmove","promotion","check"],"label_contract":{"schema":"HORDE_LABEL_CONTRACT_V1","schema_sha256":"C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"},"write":true,"record_size":48,"header_size":2048})";
 
 bool little_endian_host() {
     constexpr u16 value = 1;
@@ -102,9 +102,16 @@ u8 piece_code(Piece piece) {
 
 std::string
 manifest_json(const HordeBinV1Manifest& manifest, u64 records, std::string_view payloadSha256) {
+    // HORDE_BIN_V1_R2 identity policy: a run without expansion writes the V1
+    // identity and the V1 generation key list, so its bytes are what V1 would
+    // have written and unmodified V1 tooling still reads it. A run with
+    // expansion writes the R2 identity and appends the three expansion keys, so
+    // V1 tooling fails closed on the only files whose records it cannot read.
+    const bool             expanded = manifest.expansion_enabled();
+    const std::string_view schemaName = expanded ? HordeBinV1RevisionName : HordeBinV1SchemaName;
+    const std::string_view schemaSha = expanded ? HordeBinV1RevisionSha256 : HordeBinV1SchemaSha256;
     std::ostringstream json;
-    json << "{\"schema\":\"" << HordeBinV1SchemaName << "\",\"schema_sha256\":\""
-         << HordeBinV1SchemaSha256
+    json << "{\"schema\":\"" << schemaName << "\",\"schema_sha256\":\"" << schemaSha
          << "\",\"format_version\":1,\"header_bytes\":" << HordeBinV1HeaderSize
          << ",\"record_bytes\":" << HordeBinV1RecordSize << ",\"record_count\":" << records
          << ",\"byte_order\":\"little\",\"source_commit\":\"" << manifest.sourceCommit
@@ -127,7 +134,12 @@ manifest_json(const HordeBinV1Manifest& manifest, u64 records, std::string_view 
          << ",\"write_min_ply\":" << manifest.writeMinPly
          << ",\"write_max_ply\":" << manifest.writeMaxPly
          << ",\"max_game_ply\":" << manifest.maxGamePly
-         << ",\"opening_count\":" << manifest.openingCount << "}}";
+         << ",\"opening_count\":" << manifest.openingCount;
+    if (expanded)
+        json << ",\"expand_promo\":" << manifest.expandPromo
+             << ",\"expand_check\":" << manifest.expandCheck
+             << ",\"expand_max_children\":" << manifest.expandMaxChildren;
+    json << "}}";
     return json.str();
 }
 
@@ -164,6 +176,19 @@ DataResult validate_horde_bin_v1_manifest(const HordeBinV1Manifest& manifest) {
         || manifest.maxGamePly <= manifest.writeMaxPly || !manifest.openingCount)
         return DataResult::failure(DataError::INVALID_MANIFEST,
                                    "Generation settings are outside the HORDE_BIN_V1 domain");
+    if (manifest.expandPromo < 0 || manifest.expandPromo > HordeBinV1MaxExpansionCap
+        || manifest.expandCheck < 0 || manifest.expandCheck > HordeBinV1MaxExpansionCap
+        || manifest.expandMaxChildren < 0
+        || manifest.expandMaxChildren > HordeBinV1MaxExpansionCap)
+        return DataResult::failure(DataError::INVALID_MANIFEST,
+                                   "Expansion caps are outside the HORDE_BIN_V1_R2 domain");
+    // The three settings must agree: either expansion is off and the ceiling is
+    // zero, or expansion is on and the ceiling admits at least one child. This is
+    // what makes the manifest identity a reliable statement about the payload.
+    if (manifest.expansion_enabled() != (manifest.expandMaxChildren > 0))
+        return DataResult::failure(
+          DataError::INVALID_MANIFEST,
+          "expand_max_children must be positive exactly when a family cap is positive");
     return DataResult::success();
 }
 
@@ -184,6 +209,12 @@ DataResult encode_horde_bin_v1(const TrainingDataSample& sample, HordeBinV1Recor
         || reason > int(HordeOutcomeReason::FIVEFOLD_REPETITION))
         return DataResult::failure(DataError::OUTCOME_OUT_OF_RANGE,
                                    "Training outcome reason is not a Horde terminal reason");
+    // HORDE_BIN_V1_R2: the family occupies bits 3-5 of the outcome byte, so it
+    // must fit in [0,3]; bits 6-7 stay reserved zero.
+    const int family = int(sample.family);
+    if (family < int(HordeExpansionFamily::NONE) || family > int(HordeExpansionFamily::CHECK))
+        return DataResult::failure(DataError::OUTCOME_OUT_OF_RANGE,
+                                   "Training expansion family is not a registered family");
     const bool decisive = sample.outcomeReason == HordeOutcomeReason::CHECKMATE
                        || sample.outcomeReason == HordeOutcomeReason::EXTINCTION;
     if (decisive != (sample.result != 0))
@@ -241,6 +272,10 @@ DataResult encode_horde_bin_v1(const TrainingDataSample& sample, HordeBinV1Recor
     set_flag(4, sample.bestMove.type_of() == CASTLING);
     set_flag(5, sample.playedMove != sample.bestMove);
     set_flag(6, position.side_to_move() == BLACK && position.checkers());
+    // HORDE_BIN_V1_R2 bit 7: expansion child. Cross-checked against the family
+    // nibble below, so a record cannot claim to be a child in one field and a
+    // parent in the other.
+    set_flag(7, sample.family != HordeExpansionFamily::NONE);
     record[35] = flags;
 
     write_u16_le(record.data() + 36, u16(position.rule50_count()));
@@ -249,7 +284,81 @@ DataResult encode_horde_bin_v1(const TrainingDataSample& sample, HordeBinV1Recor
     write_u16_le(record.data() + 42, sample.bestMove.raw());
     write_u16_le(record.data() + 44, sample.playedMove.raw());
     record[46] = u8(i8(sample.result));
-    record[47] = u8(sample.outcomeReason);
+    record[47] = u8(u8(sample.outcomeReason) | u8(u8(sample.family) << 3));
+    return DataResult::success();
+}
+
+DataResult decode_horde_bin_v1(const HordeBinV1Record& record, HordeBinV1DecodedRecord& decoded) {
+    decoded = HordeBinV1DecodedRecord{};
+    if (!little_endian_host())
+        return DataResult::failure(DataError::UNSUPPORTED_BYTE_ORDER,
+                                   "HORDE_BIN_V1 decoding requires a little-endian host");
+
+    for (int square = 0; square < SQUARE_NB; ++square)
+    {
+        const u8 code = u8((record[usize(square / 2)] >> (4 * (square & 1))) & 0x0F);
+        if (code > 11)
+            return DataResult::failure(DataError::UNSUPPORTED_POSITION,
+                                       "Record contains an unregistered physical piece code");
+        decoded.board[usize(square)] = code;
+    }
+
+    if (record[32] > 1)
+        return DataResult::failure(DataError::UNSUPPORTED_POSITION,
+                                   "Record has an invalid side-to-move byte");
+    if ((record[33] & ~0x03U) != 0)
+        return DataResult::failure(DataError::UNSUPPORTED_POSITION,
+                                   "Record has reserved castling bits set");
+    if (record[34] > 64)
+        return DataResult::failure(DataError::UNSUPPORTED_POSITION,
+                                   "Record has an invalid en-passant square");
+
+    decoded.sideToMove = int(record[32]);
+    decoded.castling   = int(record[33]);
+    decoded.epSquare   = int(record[34]);
+    decoded.flags      = record[35];
+    decoded.rule50     = int(u16(record[36]) | u16(u16(record[37]) << 8));
+    decoded.gamePly    = int(u16(record[38]) | u16(u16(record[39]) << 8));
+    decoded.score      = int(i16(u16(record[40]) | u16(u16(record[41]) << 8)));
+    decoded.bestMove   = u16(u16(record[42]) | u16(u16(record[43]) << 8));
+    decoded.playedMove = u16(u16(record[44]) | u16(u16(record[45]) << 8));
+    decoded.result     = int(i8(record[46]));
+
+    // HORDE_BIN_V1_R2 reader half. Bits 0-2 carry the terminal reason, bits 3-5
+    // the expansion family and bits 6-7 stay reserved zero.
+    const u8 outcomeByte = record[47];
+    const int reason     = int(outcomeByte & 0x07U);
+    const int family     = int((outcomeByte >> 3) & 0x07U);
+    if ((outcomeByte & 0xC0U) != 0)
+        return DataResult::failure(DataError::OUTCOME_OUT_OF_RANGE,
+                                   "Record sets reserved outcome-byte bits 6-7");
+    if (reason < int(HordeOutcomeReason::CHECKMATE)
+        || reason > int(HordeOutcomeReason::FIVEFOLD_REPETITION))
+        return DataResult::failure(DataError::OUTCOME_OUT_OF_RANGE,
+                                   "Record terminal reason is not a Horde terminal reason");
+    if (family > int(HordeExpansionFamily::CHECK))
+        return DataResult::failure(DataError::OUTCOME_OUT_OF_RANGE,
+                                   "Record expansion family is not a registered family");
+
+    decoded.outcomeReason = HordeOutcomeReason(u8(reason));
+    decoded.family        = HordeExpansionFamily(u8(family));
+
+    // The cross-check that makes expansion auditable: a record cannot claim to be
+    // a child in one field and a parent in the other.
+    const bool childFlag = (decoded.flags & 0x80U) != 0;
+    if (childFlag != (decoded.family != HordeExpansionFamily::NONE))
+        return DataResult::failure(
+          DataError::OUTCOME_OUT_OF_RANGE,
+          "Record EXPANSION_CHILD flag disagrees with its expansion family");
+
+    if (decoded.result < -1 || decoded.result > 1)
+        return DataResult::failure(DataError::RESULT_OUT_OF_RANGE,
+                                   "Record result must be -1, 0, or 1");
+    const bool decisive = decoded.outcomeReason == HordeOutcomeReason::CHECKMATE
+                       || decoded.outcomeReason == HordeOutcomeReason::EXTINCTION;
+    if (decisive != (decoded.result != 0))
+        return DataResult::failure(DataError::OUTCOME_RESULT_MISMATCH,
+                                   "Record result contradicts its terminal reason");
     return DataResult::success();
 }
 

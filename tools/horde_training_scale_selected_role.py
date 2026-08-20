@@ -896,6 +896,7 @@ class ScaleSelectedRoleDataset:
             played_move=decoded.played_move,
             result=decoded.result,
             outcome_reason=decoded.outcome_reason,
+            expansion_family=decoded.expansion_family,
             board=decoded.board,
             castling_rights=decoded.castling_rights,
             ep_square=decoded.ep_square,
