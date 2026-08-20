@@ -74,6 +74,7 @@ try:
     )
     from .horde_training_scale_selected_role import (
         CONTRACT_SCHEMA as SCALE_CONTRACT_SCHEMA,
+        SCALE_CONTRACTS,
         CONTRACT_SHA256 as SCALE_CONTRACT_SHA256,
         ScaleSelectedRoleDataset,
         ScaleSelectedRoleError,
@@ -124,6 +125,7 @@ except ImportError:
     )
     from horde_training_scale_selected_role import (
         CONTRACT_SCHEMA as SCALE_CONTRACT_SCHEMA,
+        SCALE_CONTRACTS,
         CONTRACT_SHA256 as SCALE_CONTRACT_SHA256,
         ScaleSelectedRoleDataset,
         ScaleSelectedRoleError,
@@ -1491,14 +1493,17 @@ def _load_scale_binding(
     architecture_contract = _mapping(
         training.get("architecture"), "scale architecture contract"
     )
-    # The Rank8 scale contract is bound to exactly one architecture.  Any other
-    # registered architecture, V3 and the single-domain controls included, must
-    # be rejected here rather than inheriting the Rank8 scale binding.
+    # Every scale contract is bound to exactly one architecture by the registry
+    # in the selected-role tool. An architecture may never inherit another
+    # contract's binding, so the contract's own schema decides what it may train.
+    schema_name = str(contract.get("schema_name"))
+    _require(schema_name in SCALE_CONTRACTS, f"unknown scale contract schema: {schema_name}")
+    bound = str(SCALE_CONTRACTS[schema_name]["architecture"])
     _require(
-        architecture == RANK8_SCALE_ARCHITECTURE
+        architecture == bound
         and architecture_contract.get("name") == architecture
         and architecture_contract.get("schema") == _architecture_schema(architecture),
-        "scale contract does not select the Rank8 architecture",
+        f"scale contract {schema_name} binds {bound}, not {architecture}",
     )
     return contract, digest
 

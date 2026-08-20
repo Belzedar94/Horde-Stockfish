@@ -52,6 +52,26 @@ INDEX_ALGORITHM = "PARTITIONED_SHA256_BUCKETS_V1"
 CONTRACT_SCHEMA = "HORDE_V2_RANK8_SCALE_V1"
 CONTRACT_RELATIVE_PATH = Path("schemas/horde-v2-rank8-scale-v1.json")
 CONTRACT_SHA256 = "B8A8512D32930C88CAD0248C05A2AAD3B2CE8E2096A46DCAB84D87F1C532E1D1"
+V3_CONTRACT_SCHEMA = "HORDE_V3_SCALE_V1"
+V3_CONTRACT_RELATIVE_PATH = Path("schemas/horde-v3-scale-v1.json")
+V3_CONTRACT_SHA256 = "405A7FD075A050FA5090F5567FB1BE36547151B85EA9C571CA31A37F0BA925C1"
+
+# Every registered scale contract, keyed by its schema name. A contract is
+# accepted only when its own SHA-256 matches the entry pinned here, and each
+# entry names the one architecture that contract may bind. A contract can never
+# be loaded under another contract's identity.
+SCALE_CONTRACTS: dict[str, dict[str, object]] = {
+    CONTRACT_SCHEMA: {
+        "relative_path": CONTRACT_RELATIVE_PATH,
+        "sha256": CONTRACT_SHA256,
+        "architecture": "v2-c1-rank8-64x192",
+    },
+    V3_CONTRACT_SCHEMA: {
+        "relative_path": V3_CONTRACT_RELATIVE_PATH,
+        "sha256": V3_CONTRACT_SHA256,
+        "architecture": "v3-g1024-pawn-wpc8",
+    },
+}
 SELECTOR_RELATIVE_PATH = Path("tools/horde_training_scale_selected_role.py")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -188,10 +208,15 @@ def load_contract(
     allow_fixture: bool = False,
 ) -> tuple[dict[str, Any], str]:
     resolved = (path or REPOSITORY_ROOT / CONTRACT_RELATIVE_PATH).expanduser().resolve()
-    contract, payload = _read_json(resolved, "Rank8 scale contract")
+    contract, payload = _read_json(resolved, "scale contract")
     digest = _sha256_bytes(payload)
-    _require(contract.get("schema_name") == CONTRACT_SCHEMA, "scale contract schema drifted")
-    _require(allow_fixture or digest == CONTRACT_SHA256, f"scale contract SHA-256 mismatch: {digest}")
+    schema_name = contract.get("schema_name")
+    _require(schema_name in SCALE_CONTRACTS, f"unknown scale contract schema: {schema_name}")
+    registered = SCALE_CONTRACTS[str(schema_name)]
+    _require(
+        allow_fixture or digest == registered["sha256"],
+        f"scale contract SHA-256 mismatch: {digest}",
+    )
 
     dependencies = _mapping(contract.get("dependencies"), "scale dependencies")
     generation = _mapping(contract.get("generation"), "scale generation")
