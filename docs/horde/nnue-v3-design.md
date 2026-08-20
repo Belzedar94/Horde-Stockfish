@@ -47,15 +47,23 @@ Three facts follow immediately.
 The playing evidence agrees. In the internal very short time control matches
 `matches/a1-legacy-l0p6-vs-l0p8` and `matches/a2-rank8-l0p6-vs-l0p8`:
 
-| Match | Games | Result for lambda 0.6 | Elo | LOS |
+| Match | Games | Result for the lower lambda | Elo | LOS |
 | --- | ---: | --- | ---: | ---: |
 | legacy 0.6 against legacy 0.8 | 80 | 26-52-2 | -117.2 (CI 67.8) | 0.010 percent |
 | rank8 0.6 against rank8 0.8 | 120 | 46-74-0 | -82.6 (CI 46.4) | 0.013 percent |
+| legacy 0.8 against legacy 1.0 | 167 | 49-116-2 | -148 | sealed |
 
-Moving lambda from 0.6 to 0.8 is worth roughly 80 to 120 Elo. Changing the
-architecture from legacy to Rank-8 at fixed lambda 0.8 is worth zero: the owner
-reports 496-484-20 over 1000 very short time control games, with short and long
-time controls also flat.
+The ladder does not stop at 0.8. The sealed `r2bislegacy` pairing puts lambda
+1.0 a further 148 Elo above lambda 0.8, so the ordering is monotone all the way
+to the top: every step that removes weight from the game result makes the
+network stronger. Combined with 1.2, where the result term is shown to carry no
+information the teacher score does not already have, the conclusion is not that
+lambda should be tuned but that **the result term should be dropped entirely for
+a depth-4 teacher.** Its whole measured contribution is negative.
+
+Changing the architecture from legacy to Rank-8 at fixed lambda 0.8 is worth
+zero: the owner reports 496-484-20 over 1000 very short time control games, with
+short and long time controls also flat.
 
 The single most important line in this document is the ratio between those two
 numbers. The label term is worth about a hundred Elo. The architecture choice
@@ -783,7 +791,7 @@ The rungs:
 | Rung | Question | Design | Gate |
 | --- | --- | --- | --- |
 | R0 | Does the shipped 50M champion beat Run 6B at all? | `legacy-l0p8` and the pending `l1p0` against Run 6B | three time controls, this is the fork in section 3 |
-| R1 | Is lambda 1.0 better than 0.8? | existing `l1p0` runs, both architectures | very short time control pairing, then three time controls |
+| R1 | Is lambda 1.0 better than 0.8? ANSWERED: yes, by 148 Elo | sealed `r2bislegacy` pairing | resolved by play, see below |
 | R2 | Single G0 table against the V2 dual domain at equal lanes | `G0_SINGLE_256` against `rank8-64x192`, three seeds | fixed node, the control C1 never ran |
 | R3 | Does activated width buy strength? | one G0 table at 256, 512 and 1024 lanes, dense held at 16/32/1, one bucket | fixed node first, then measure NPS |
 | R4 | Do output buckets on `white_piece_count` buy strength? | best R3 width, 1 bucket against 8 buckets | fixed node, then equal time |
@@ -834,6 +842,34 @@ the anchor while losing at three time controls is rejected.
 Lambda policy: every rung from R2 onward runs at the best lambda from R1, and
 the expanded records from A2, when they exist, always enter at lambda 1.0
 regardless of the base lambda.
+
+**No loss metric may select lambda. This is now a measured rule, not a
+preference.** Three different validation metrics were available for the lambda
+screen and all three picked a different winner, and none of them picked the one
+that wins games:
+
+| Selector | Its choice | Correct? |
+| --- | --- | --- |
+| composite loss recombined at a fixed 0.6/0.4 | lambda 0.8 | no |
+| result half-Brier | lambda 0.6, at 0.174209 against 0.174617 | no |
+| played games | lambda 1.0, by 148 Elo over 0.8 | this is the answer |
+
+Three metrics, three distinct failure modes. The recombined composite still
+weights a result term that 1.2 shows to be noise. The result half-Brier
+optimizes the noise directly and therefore prefers the model that fits it best,
+which is precisely the wrong objective. Raw composite loss is not even
+comparable across lambda, since each lambda defines a different objective.
+
+The consequence for the protocol is concrete: **lambda is selected by play from
+the first rung, not by loss with a play gate bolted on at the end.** Validation
+loss keeps its role as a health and plumbing check, as a regression detector and
+as evidence that a run trained at all. It has no vote on lambda. Any rung whose
+only evidence is a loss ordering is not a result.
+
+This does not weaken the loss based gates on the other rungs, where the variable
+under test is the architecture rather than the objective, but it does place a
+standing caution on them: a metric computed under one objective cannot rank
+models trained under a different one.
 
 ## 3. Decision forks
 

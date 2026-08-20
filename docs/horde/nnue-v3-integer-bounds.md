@@ -122,9 +122,33 @@ incumbent and the engine comment.
 A uniform monotone rescaling of the evaluation is not neutral inside a search.
 It shifts every margin that is expressed in evaluation units, including futility
 and razoring margins, aspiration windows and the mate and tablebase thresholds.
-The magnitude of the strength effect is not estimated here and should not be
-guessed; it is the same failure family as the inverted label scaling that cost
-32 Elo in the Spell generation 2 gate.
+
+That is no longer an argument from first principles. Re-exporting `rank8-l0p8`
+at the corrected scale, with **identical weights and only the output
+quantization changed**, moved the tree at a fixed depth 20 from **603,716 nodes
+to 1,316,193 nodes**, a factor of 2.18. The same network, searching the same
+position to the same depth, now explores a tree more than twice the size. The
+scale constant is interacting strongly with pruning and reduction, exactly where
+the margins are denominated in evaluation units.
+
+Two consequences follow.
+
+- A fixed-depth node count is not a scale-invariant measurement. Any comparison
+  that holds depth constant across a scale change is comparing two different
+  amounts of work and must be discarded.
+- The search-side effect is large enough that it cannot be reasoned about. It
+  has to be played. `scaleab` pairs the same network at 600 against 508 and will
+  put the number in Elo; its receipt slot is below and stays empty until it
+  lands.
+
+| Receipt | Question | Status |
+| --- | --- | --- |
+| `scaleab` | same network, 600 against 508, what is the scale worth in Elo | in flight, not yet filed |
+
+Until that lands, the honest statement is direction and mechanism only: the
+defect changes the search materially, it is the same failure family as the
+inverted label scaling that cost 32 Elo in the Spell generation 2 gate, and its
+own magnitude is unmeasured.
 
 ### The decision this blocks
 
