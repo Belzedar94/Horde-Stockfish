@@ -361,10 +361,10 @@ which is what decides Horde games.
 **Confirmed, with one important correction.**
 
 Confirmed on royal structure. The Black king moves on 16.5 percent of mainline
-moves per the V2 book probe. In this validation role 85.7 percent of positions
-have the Black king on rank 7 or rank 8 (150,346 and 63,940 of 250,000), so two
-of the eight Rank-8 buckets carry 86 percent of the traffic while the table
-holds 5,120 rows. Royal context adds +0.000002 half-Brier over G0 on the result
+moves per the V2 book probe. In this validation role the Black king stands on
+the eighth rank in 150,346 of 250,000 positions and on the seventh rank in a
+further 63,940, so two of the eight Rank-8 buckets carry 85.7 percent of the
+traffic while the table holds 5,120 rows. Royal context adds +0.000002 half-Brier over G0 on the result
 and -0.0006 R squared on the teacher score. It is not merely small. It is zero.
 
 Confirmed on capacity. Quantified in 1.4: one quarter of legacy's activated
