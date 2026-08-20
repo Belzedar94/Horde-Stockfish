@@ -839,6 +839,11 @@ The rungs:
 | R5 | Do the pawn blocks buy strength? | best R4 point, with and without the 192 contextual rows | fixed node, then equal time |
 | R6 | Assemble and gate against Run 6B | base V3 against legacy at the same corpus | three time controls under the release contract |
 
+Priority note after `r4gate`. R2 through R5 stay valid and can run on the
+existing corpus, but they are no longer the critical path. Fork 1 resolved in
+favour of the labels, so lever A leads and this ladder follows the corpus it
+produces.
+
 Each rung changes one named thing. A network differing in more than its named
 rung is not a valid ablation, and two individually losing blocks are combined
 only after both individual receipts exist.
@@ -914,7 +919,51 @@ models trained under a different one.
 
 ## 3. Decision forks
 
-**Fork 1, the primary one. Does the 50M champion beat Run 6B?**
+**Fork 1, the primary one. RESOLVED: branch A, the labels.**
+
+The `r4gate` result is in, adjudicated by the owner, logs in
+`D:\horde-train\matches\tournament-20aug\3tc_r4gate_*`. The arm is
+`legacy-l1p0`, the champion of the entire lambda tournament, against Run 6B,
+which is its own teacher.
+
+| Control | Result for the student | Score | Elo | Status |
+| --- | --- | ---: | ---: | --- |
+| 2+0.02 | 42-160-5 | 21.5% | about -225 | sealed |
+| 10+0.1 | 16-27-1 | 37.5% | negative | consistent |
+| long | 3-4-0 | 42.9% | negative | consistent |
+
+**The best distillation of 50,000,000 positions is more than 200 Elo below the
+network that produced it, and the direction holds at all three time controls.**
+Lever A goes first. Capacity is not the binding constraint, and no architecture
+work can be justified as the next step.
+
+Three independent lines already in this document say the same thing, which is
+why the verdict should be believed rather than treated as one surprising match.
+
+- **Distilling exactly this teacher can only converge to something like it, and
+  in practice worse.** Section 1.3 measures the students at 350 to 670
+  centipawns of mean error against the very scores they were trained to copy,
+  with the two architectures agreeing with each other far more than either
+  agrees with the teacher. A student that cannot reproduce its teacher will not
+  beat it, and imitation alone has no mechanism that would let it.
+- **The startpos anchor in 1.6 shows the teacher is confidently wrong in sign
+  over the family where it is copied most faithfully.** The student inherits
+  that error whole and then adds its own approximation error on top.
+- **Lambda drives to 1.0 and keeps gaining**, +117 then +148, which says the
+  objective was still moving toward pure imitation when the ladder ran out. The
+  imitation target itself is the ceiling, and 1.2 already located that ceiling
+  below what the corpus can support.
+
+The practical consequence for the ladder in 2.3 is that R2 through R5 are not
+cancelled but are demoted: they answer architecture questions that remain valid
+and that can run on the existing corpus, and their conclusions carry over to a
+better corpus. They are simply no longer the critical path. The critical path is
+A1, a deeper teacher, and A2 and A4, the expansion and the startpos family
+shard.
+
+The rest of this section records how the fork was framed before it resolved.
+
+**Fork 1 as originally posed. Does the 50M champion beat Run 6B?**
 
 This is R0 and it must run before anything else, because it decides which lever
 goes first.
