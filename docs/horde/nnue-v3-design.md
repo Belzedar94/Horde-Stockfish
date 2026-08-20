@@ -352,7 +352,65 @@ that the current networks fail to recover pawn structure implicitly. They are
 strong evidence, not a receipt. The receipt is a trained ablation, which is
 rung R5 below.
 
-### 1.6 The working hypothesis, judged
+### 1.6 The startpos calibration anchor
+
+Horde is heavily Black favoured from the initial position. The owner's estimate
+from real strength self play is above 90 percent Black wins from startpos. Every
+network in this program evaluates startpos in White's favour.
+
+Measured at `go nodes 400000` on one core, with the same binaries used in the
+match runs:
+
+| Network | startpos evaluation | Depth reached |
+| --- | ---: | ---: |
+| Run 6B, teacher and production | +67 for White | 18 |
+| `legacy-l0p8`, student | +106 for White | 16 |
+| `rank8-l0p8`, student | +79 for White | 20 |
+
+Both students are more optimistic about White than the teacher they copied. That
+does not contradict the corpus wide pro-Black tilt reported in 1.3, which is a
+mean over a corpus dominated by low piece count positions; it is a statement
+about one family of positions. That family is exactly the `white_piece_count` 31
+to 36 band, where 1.2 shows the depth-4 teacher explains 3.7 percent of the
+result and 1.3 shows the students copy it most faithfully, at 185 and 196
+centipawns of mean error. The students reproduce the teacher best precisely
+where the teacher knows least, so the blindness is inherited whole.
+
+The validation role shows how large the error is. Scores and results below are
+White relative, so a positive score means the teacher thinks White is better:
+
+| Slice | Records | White win | Draw | Black win | Mean score | Median score | Scored pro-White |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| wpc 31-36 | 19,901 | 35.83% | 7.27% | 56.90% | +645 | +604 | 97.08% |
+| wpc 32-36 | 12,338 | 36.99% | 7.28% | 55.73% | +643 | +604 | 97.84% |
+| wpc 33-36 | 5,855 | 38.45% | 8.45% | 53.10% | +637 | +599 | 98.80% |
+| wpc 34-36 | 2,120 | 37.88% | 8.11% | 54.01% | +617 | +577 | 99.53% |
+| wpc 35-36 | 498 | 37.35% | 9.64% | 53.01% | +572 | +534 | 99.60% |
+| wpc 31-36, ply <= 12 | 9,610 | 34.30% | 7.62% | 58.09% | +605 | +594 | 97.58% |
+| whole corpus | 250,000 | 30.20% | 8.31% | 61.50% | -6 | -136 | 47.08% |
+
+In the startpos family the depth-4 teacher calls White better in 97.1 percent of
+positions, by a median of 604 centipawns, and Black goes on to win 56.9 percent
+of those games against White's 35.8 percent. At 34 to 36 White pieces it calls
+White better in 99.5 percent of positions and is wrong about the winner more
+often than it is right. This is not blindness in the sense of high variance. It
+is a confident, systematic sign error: a depth-4 search looks at 36 pawns
+against 16 pieces and counts material.
+
+The family is also thinly sampled. `white_piece_count` at or above 31 is 7.96
+percent of the corpus and at or above 34 is 0.848 percent, so the loss barely
+sees the positions where it is most wrong.
+
+Ground truth is still pending. The corpus figure of 61.50 percent Black wins
+overall, and 56.90 percent inside the startpos band, is measured with the
+opening book and after four random exploration moves, so it is a lower bound on
+the startpos bias rather than a measurement of it. A book free Run 6B against
+Run 6B self play anchor, 200 very short and 100 short time control games, is
+being generated into `D:\horde-train\matches\startpos-anchor\`. Until it lands,
+the true startpos win rate is an estimate and no V3 gate should be calibrated
+against a number that is not on disk.
+
+### 1.7 The working hypothesis, judged
 
 The hypothesis under review was: V2 bought royal structure, which matters
 little, paying for it with capacity, and left out all of the pawn structure,
@@ -404,6 +462,14 @@ The teacher is the binding constraint. Section 1.2 shows the depth-4 teacher
 explains 3.7 percent of the result at 31 to 36 White pieces and 18.0 percent at
 25 to 30, and section 1.3 shows the students are 350 to 670 centipawns away
 from it anyway. Improving the student against that target has a low ceiling.
+
+Section 1.6 sharpens this from a ceiling into a floor. A teacher cannot teach
+what it does not see, and in the startpos family it does not merely fail to see,
+it sees the opposite: 97.1 percent of those positions are labelled pro-White by
+a median of 604 centipawns while Black wins 56.9 percent of them. No student
+architecture, at any width, can be asked to correct a label that is confidently
+wrong in sign. That is the single strongest argument for taking the labels
+branch of fork 1, and it is independent of the R0 outcome.
 
 **A1. A deeper teacher.** Replace the depth 4, nodes 0 generation setting with
 a node budget or a materially deeper search, using the winner of the R4 gate as
@@ -470,7 +536,23 @@ destroys prior knowledge, and mixing damps but does not cure". It supports
 accumulation. It is not the 51 plus 60 equals 111 receipt, and this document
 does not claim it is.
 
-**A4. The reinforcement loop, later.** Generation 2 self play from the V3
+**A4. Cover the startpos family deliberately.** The band where the labels are
+wrong in sign is 7.96 percent of the corpus at `white_piece_count` 31 or more
+and 0.848 percent at 34 or more. Three changes follow.
+
+- Generate a dedicated startpos family shard: positions drawn from the first 12
+  plies with 31 or more White pieces, labelled either by a materially deeper
+  teacher search or, where the position is close enough to the root, by the real
+  self play result from the anchor runs. Mark the shard's provenance in the
+  manifest so its weight in the mixture is auditable and it can be ablated.
+- Where a real result is available and the deep score is not, that record enters
+  at lambda 0.0, which is the exact inverse of the policy for the expanded
+  tactical records and is justified for the same reason: use whichever of the
+  two labels is the one that actually carries information for that record.
+- Do not simply oversample the existing depth-4 records in this band. Repeating
+  a label that is wrong in sign only sharpens the error.
+
+**A5. The reinforcement loop, later.** Generation 2 self play from the V3
 champion is a follow up, gated on A1 through A3 landing and on the Spell
 scaling lesson being encoded as a forward parity test before the first
 generation 2 run rather than after.
@@ -633,6 +715,38 @@ Each rung changes one named thing. A network differing in more than its named
 rung is not a valid ablation, and two individually losing blocks are combined
 only after both individual receipts exist.
 
+**The startpos calibration gate.** Every rung from R2 onward reports, and R6
+must pass, a gate on the family described in 1.6. It has three parts.
+
+1. A dedicated validation slice for `white_piece_count` at or above 31, carved
+   from the existing role by the same label blind dual key selector, reported
+   separately in every training receipt: score half-Brier, result half-Brier,
+   mean signed error against the teacher, and the fraction of the slice scored
+   pro-White. The whole role average currently hides this band inside 7.96
+   percent of the samples.
+2. A fixed startpos probe list, beginning with startpos itself and extending to
+   a frozen set of early positions with 31 or more White pieces, evaluated at a
+   fixed node count and recorded in the receipt as raw evaluations. The current
+   readings, +67 for Run 6B, +106 for `legacy-l0p8` and +79 for `rank8-l0p8`,
+   are the baseline this probe has to move.
+3. The pass condition: the sign and magnitude of the network's evaluation on
+   that probe list must be coherent with the measured win rate for the same
+   family, converted through the frozen WDL link. Coherent means the implied
+   win probability lies inside the confidence interval of the measured rate, not
+   that the evaluation matches a particular centipawn target.
+
+The gate cannot be armed until the anchor receipt exists. Until then the slice
+and the probe list are reported as telemetry in every receipt, and only part 3
+waits. Reporting starts immediately, because a metric that only appears once the
+gate is armed will not be trusted when it fires.
+
+An explicit warning about this gate: it is the easiest one in this document to
+satisfy dishonestly. A constant offset applied to the output, or a bias term
+trained on a resampled corpus, will move the startpos evaluation without making
+the network any stronger. The gate is therefore a necessary condition attached
+to the R6 strength result, never a substitute for it, and a network that passes
+the anchor while losing at three time controls is rejected.
+
 Lambda policy: every rung from R2 onward runs at the best lambda from R1, and
 the expanded records from A2, when they exist, always enter at lambda 1.0
 regardless of the base lambda.
@@ -654,8 +768,29 @@ If the champion beats Run 6B comfortably, the labels still have room, the
 binding constraint is capacity, and lever B goes first at the existing corpus,
 which is much cheaper because no regeneration is needed.
 
-The evidence in section 1.2 leans toward the first branch, but leaning is not
-measuring. R0 decides.
+The evidence in section 1.2 leans toward the first branch, and section 1.6
+leans harder: labels that are wrong in sign in the startpos family cannot be
+repaired by any student. R0 still decides the ordering, because a champion that
+beats Run 6B comfortably would mean the labels have room left everywhere except
+that band, which is a different and cheaper problem. But leaning is not
+measuring, and 1.6 is now the stronger of the two arguments.
+
+**Fork 1b. What is the real startpos win rate?**
+
+The owner estimates above 90 percent Black wins at real strength. The corpus
+says 61.50 percent overall and 56.90 percent in the startpos band, both with a
+book and after four random exploration moves, so both are lower bounds rather
+than measurements. The book free Run 6B self play anchor, 200 very short and 100
+short time control games, resolves it into
+`D:\horde-train\matches\startpos-anchor\`.
+
+The number matters beyond calibration. If the true rate is near 90 percent, then
+Run 6B's own self play corpus is close to a one sided distribution near the
+root, and the generation policy itself has to change: a book that only produces
+positions Black wins teaches very little about how White should play, and the
+random exploration moves are doing more work than intended. If it is nearer 65
+percent, the current book and exploration settings are adequate and only the
+labels in the band need repair.
 
 **Fork 2. Does lambda 1.0 beat 0.8?**
 
@@ -782,15 +917,17 @@ Raised rather than papered over.
    deliberate, but the repository's registered schema currently describes a run
    that never happened.
 
-3. **The producer that generated the training corpus is not in either allowed
-   list.** The training chunk set's common manifest names producer
-   `EEBD8977...`. The local contract allows `4F20645A...` and `F29CD034...` for
-   training, and `F6D545E5...` for the validation candidate. The validation
-   candidate matches. The training producer does not appear in either the
-   repository contract or the local contract. This may be benign, since the
-   chunk set carries its own `producer_sha256_allowed` list, but the campaign
-   verifier should be run against the local contract to confirm which identity
-   is authoritative.
+3. **Resolved: the training producer identity is a set, not a single hash.**
+   The training chunk set's common manifest shows producer `EEBD8977...`, which
+   appears in neither the repository contract nor the local contract, while the
+   local contract allows `4F20645A...` and `F29CD034...` for training and
+   `F6D545E5...` for the validation candidate. This was checked and is benign.
+   A multi producer role does not have one producer identity; it has the
+   `producer_sha256_allowed` set plus per chunk attribution, and `EEBD8977...`
+   is a synthetic digest of that set which is retired during canonicalization.
+   The entry is kept here because the raw manifest field reads like a single
+   authoritative identity and will mislead the next reader who checks it against
+   a contract.
 
 4. **Two different byte counts circulate for the Rank-8 network.** 936,264 is
    the parameter payload and 941,596 is the container file, the difference
@@ -798,7 +935,7 @@ Raised rather than papered over.
    bytes of provenance. Both are correct; they are not interchangeable.
 
 5. **The C1 selection compared Rank-8 against a redundant control.** Detailed
-   in section 1.6. This is not a bookkeeping error, it is an inference error,
+   in section 1.7. This is not a bookkeeping error, it is an inference error,
    and it is the reason the Rank-8 topology was carried to a 50,000,000 record
    scale run.
 
@@ -819,7 +956,13 @@ matches the identity recorded in every training receipt.
   and by phase;
 - teacher and student agreement, running the exact float forward of the frozen
   checkpoints, validated against the published `metrics.jsonl` to within
-  subsample error.
+  subsample error;
+- the startpos family slice in White relative terms, by `white_piece_count`
+  band and by game ply.
+
+The three startpos evaluations in 1.6 are not from these scripts. They were
+measured at `go nodes 400000` on one core with the match binaries and are
+reported as supplied.
 
 The forward reimplementation reproduces `rank8-l0p8` score half-Brier as
 0.007951 against the published 0.007954 and `legacy-l0p8` as 0.006744 against
