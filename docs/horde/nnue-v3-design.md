@@ -361,11 +361,11 @@ network in this program evaluates startpos in White's favour.
 Measured at `go nodes 400000` on one core, with the same binaries used in the
 match runs:
 
-| Network | startpos evaluation | Depth reached |
-| --- | ---: | ---: |
-| Run 6B, teacher and production | +67 for White | 18 |
-| `legacy-l0p8`, student | +106 for White | 16 |
-| `rank8-l0p8`, student | +79 for White | 20 |
+| Network | startpos evaluation | Depth | Nodes | Best move |
+| --- | ---: | ---: | ---: | --- |
+| Run 6B, teacher and production | +68 for White | 18 | 444,054 | `a4a5` |
+| `legacy-l0p8`, student | +112 for White | 16 | 542,994 | `a4a5` |
+| `rank8-l0p8`, student | +75 for White | 20 | 603,716 | `e4e5` |
 
 Both students are more optimistic about White than the teacher they copied. That
 does not contradict the corpus wide pro-Black tilt reported in 1.3, which is a
@@ -401,14 +401,90 @@ The family is also thinly sampled. `white_piece_count` at or above 31 is 7.96
 percent of the corpus and at or above 34 is 0.848 percent, so the loss barely
 sees the positions where it is most wrong.
 
-Ground truth is still pending. The corpus figure of 61.50 percent Black wins
-overall, and 56.90 percent inside the startpos band, is measured with the
-opening book and after four random exploration moves, so it is a lower bound on
-the startpos bias rather than a measurement of it. A book free Run 6B against
-Run 6B self play anchor, 200 very short and 100 short time control games, is
-being generated into `D:\horde-train\matches\startpos-anchor\`. Until it lands,
-the true startpos win rate is an estimate and no V3 gate should be calibrated
-against a number that is not on disk.
+**Ground truth, measured.** The anchor is on disk at
+`D:\horde-train\matches\startpos-anchor\`, schema
+`HORDE_STARTPOS_COLOUR_ANCHOR_V1`. Run 6B against Run 6B, identical binary and
+identical network on both sides so the only asymmetry is colour, no opening
+book, no explicit FEN tags, no unfinished games.
+
+| Time control | Games | White wins | Draws | Black wins | Black win rate, Wilson 95% |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 2+0.02 | 200 | 17 | 2 | 181 | 90.5%, CI 85.6 to 93.8 |
+| 10+0.1 | 100 | 1 | 0 | 99 | 99.0%, CI 94.6 to 99.8 |
+
+Terminations are one sided in kind as well as in count: 181 of 200 and 99 of 100
+are Black wins by Horde extinction, and every single White win is a mate. The
+owner's estimate of above 90 percent was correct.
+
+The most important detail is the direction of the trend. Going from 2+0.02 to
+10+0.1 moves the Black win rate from 90.5 to 99.0 percent. **The bias is not a
+weak play artifact; it grows with strength.** A stronger V3 that keeps this
+evaluation will be more wrong at startpos, not less.
+
+**The error survives the calibration.** Passing the three evaluations through
+the frozen Davidson link for white to move, which is the exact transform the
+loss uses, and cross checked here against the `calibration_cross_check` block in
+the anchor receipt:
+
+| Network | startpos evaluation | Implied White loss | draw | win |
+| --- | ---: | ---: | ---: | ---: |
+| Run 6B | +68 | 64.4% | 12.2% | 23.4% |
+| `legacy-l0p8` | +112 | 63.2% | 12.3% | 24.5% |
+| `rank8-l0p8` | +75 | 64.2% | 12.2% | 23.6% |
+
+Two things follow. First, the link is doing real work: its `B` term for white to
+move is -0.553, so a nominally pro-White evaluation of +68 already becomes a
+belief that White loses 64.4 percent of the time. The objective is not as naive
+as the raw centipawn number suggests. It is still catastrophically short of 99
+percent.
+
+Second, and worse for the training signal, the link is so flat in this region
+that a 44 centipawn spread of evaluation, from +68 to +112, moves the implied
+belief by 1.2 percentage points. **In the objective's own currency the three
+networks are indistinguishable at startpos.** A loss computed through this link
+has almost no gradient to give any of them there.
+
+Inverting the link is the natural way to ask how large the error is, and the
+honest answer is an interval rather than a number, because 99 percent sits in
+the flat tail of the link where small probability changes map to huge score
+changes. Matching the loss probability gives -1,483 centipawns for the very
+short time control and -4,235 for the short one; matching the win to loss odds
+instead gives -898 and -2,487. The robust statement uses the measured confidence
+interval rather than a point: to land anywhere inside the short time control
+interval of 94.6 to 99.8 percent, the startpos evaluation would have to sit
+between roughly -2,000 and -4,200 centipawns, against the +68 to +112 the
+networks actually produce. The exact figure is not robust. The direction and the
+order of magnitude are: **the error is thousands of centipawns, not tens.**
+
+**Why the blind spot exists, and why coverage alone will not close it.** The
+campaign hypothesis is that the corpus is drawn from the 1,203 opening book
+`HORDE_openings_v3_train.epd` and barely covers the startpos family, so the
+network extrapolates badly there and the calibration, fitted on the same
+distribution, inherits the same blind spot. The coverage part is confirmed
+directly: `white_piece_count` at 34 or above is 0.848 percent of the validation
+role, at 35 or above it is 0.199 percent, and the full 36 piece position appears
+62 times in 250,000 records, which is 0.025 percent. A global mixture of 61.5
+against 29.8 is nowhere near the 99 against 1 that the startpos family actually
+produces, and both the network and the frozen link were fitted on that global
+mixture.
+
+The hypothesis is accepted, with one correction that changes what to do about
+it. Coverage is necessary but not sufficient. Inside the part of the band the
+corpus does cover, the labels are already wrong in sign: at 31 to 36 White
+pieces the depth-4 teacher calls White better in 97.08 percent of positions
+while Black wins 56.90 percent of them. Sampling more positions from that band
+at the same depth would add records that are individually mislabelled. The fix
+is coverage plus a label that is not inverted, which is why A4 specifies a
+deeper teacher or a real self play result and explicitly rejects oversampling
+the existing depth-4 records.
+
+**Two method notes.** The anchor PGNs, `startpos_vstc.pgn` and
+`startpos_stc.pgn`, are retained beside the receipt so the counts can be
+recomputed independently of the referee's own tally. And a measurement trap
+worth recording, because it produced two false readings before it was caught: a
+UCI probe whose `quit` arrives while the search is still running aborts the
+search and reports `depth 1 nodes 0 score 0`. Every probe in the calibration
+gate must wait for `bestmove` before reading the score.
 
 ### 1.7 The working hypothesis, judged
 
@@ -536,9 +612,12 @@ destroys prior knowledge, and mixing damps but does not cure". It supports
 accumulation. It is not the 51 plus 60 equals 111 receipt, and this document
 does not claim it is.
 
-**A4. Cover the startpos family deliberately.** The band where the labels are
-wrong in sign is 7.96 percent of the corpus at `white_piece_count` 31 or more
-and 0.848 percent at 34 or more. Three changes follow.
+**A4. Cover the startpos family deliberately. This is a requirement, not a
+preference.** The band where the labels are wrong in sign is 7.96 percent of the
+corpus at `white_piece_count` 31 or more, 0.848 percent at 34 or more, and 62
+records out of 250,000 at the full 36. The anchor in 1.6 measures the real
+result for that family at 99.0 percent Black wins, so the current corpus does
+not merely undersample it, it cannot teach it at all. Three changes follow.
 
 - Generate a dedicated startpos family shard: positions drawn from the first 12
   plies with 31 or more White pieces, labelled either by a materially deeper
@@ -727,18 +806,23 @@ must pass, a gate on the family described in 1.6. It has three parts.
 2. A fixed startpos probe list, beginning with startpos itself and extending to
    a frozen set of early positions with 31 or more White pieces, evaluated at a
    fixed node count and recorded in the receipt as raw evaluations. The current
-   readings, +67 for Run 6B, +106 for `legacy-l0p8` and +79 for `rank8-l0p8`,
-   are the baseline this probe has to move.
-3. The pass condition: the sign and magnitude of the network's evaluation on
-   that probe list must be coherent with the measured win rate for the same
-   family, converted through the frozen WDL link. Coherent means the implied
-   win probability lies inside the confidence interval of the measured rate, not
-   that the evaluation matches a particular centipawn target.
+   readings, +68 for Run 6B, +112 for `legacy-l0p8` and +75 for `rank8-l0p8`,
+   are the baseline this probe has to move. Every probe must wait for
+   `bestmove` before reading the score, for the reason given at the end of 1.6.
+3. The pass condition, now that the anchor in 1.6 supplies a measured rate with
+   a confidence interval: the implied White loss probability at startpos, taken
+   through the frozen link, must reach at least the lower bound of the anchor
+   interval for the corresponding time control. That is 85.6 percent against the
+   very short control and 94.6 percent against the short control, which
+   translates to a startpos evaluation at or below roughly -1,000 and -2,000
+   centipawns respectively. The bound is stated as a probability and converted,
+   never as a centipawn target, so that a later recalibration of the link moves
+   the threshold automatically.
 
-The gate cannot be armed until the anchor receipt exists. Until then the slice
-and the probe list are reported as telemetry in every receipt, and only part 3
-waits. Reporting starts immediately, because a metric that only appears once the
-gate is armed will not be trusted when it fires.
+The V3 gate uses the short time control bound, because 1.6 shows the bias grows
+with strength and V3 is meant to be stronger than the networks that were
+measured. Sign alone is not sufficient: a network evaluating startpos at -50
+would have the right sign and still be wrong by two orders of magnitude.
 
 An explicit warning about this gate: it is the easiest one in this document to
 satisfy dishonestly. A constant offset applied to the output, or a bias term
@@ -775,22 +859,44 @@ beats Run 6B comfortably would mean the labels have room left everywhere except
 that band, which is a different and cheaper problem. But leaning is not
 measuring, and 1.6 is now the stronger of the two arguments.
 
-**Fork 1b. What is the real startpos win rate?**
+**Fork 1b. What is the real startpos win rate? RESOLVED, in the extreme
+branch.**
 
-The owner estimates above 90 percent Black wins at real strength. The corpus
-says 61.50 percent overall and 56.90 percent in the startpos band, both with a
-book and after four random exploration moves, so both are lower bounds rather
-than measurements. The book free Run 6B self play anchor, 200 very short and 100
-short time control games, resolves it into
-`D:\horde-train\matches\startpos-anchor\`.
+The anchor receipt in 1.6 measures 90.5 percent Black wins at 2+0.02 and 99.0
+percent at 10+0.1, book free, Run 6B against itself, and the rate rises with
+strength. The corpus figures of 61.50 percent overall and 56.90 percent inside
+the startpos band were indeed lower bounds, and they were not close ones.
 
-The number matters beyond calibration. If the true rate is near 90 percent, then
-Run 6B's own self play corpus is close to a one sided distribution near the
-root, and the generation policy itself has to change: a book that only produces
-positions Black wins teaches very little about how White should play, and the
-random exploration moves are doing more work than intended. If it is nearer 65
-percent, the current book and exploration settings are adequate and only the
-labels in the band need repair.
+The consequences are larger than calibration.
+
+- **The generation policy itself has to change, not only the labels.** The book
+  and the four random exploration moves were doing far more work than intended:
+  they are what manufactures positions in which White is competitive at all. A
+  corpus whose global mixture is 61.5 against 29.8 is not a sample of Horde as
+  played from the start position, which is 99 against 1. It is a sample of a
+  different, artificially balanced game. That is not automatically wrong, since
+  a training corpus does not have to match the root distribution and balanced
+  positions carry more gradient, but it has to be a stated and audited choice
+  rather than an accident, and it currently is not one.
+- **The startpos family shard in A4 is a requirement, not a recommendation.**
+  With 0.848 percent of records at 34 or more White pieces and 62 records at the
+  full 36, the current corpus cannot teach this family at all.
+- **The near root region needs its own labelling policy.** Within a few plies of
+  the start position the real self play result is both cheap to obtain and far
+  more informative than any depth-4 score, which is inverted there. Those
+  records should carry the result, at lambda 0.0, per A4.
+- **The frozen WDL link needs a refit decision.** It was fitted on the same
+  skewed mixture and, as 1.6 shows, compresses a 44 centipawn spread into 1.2
+  points of belief at startpos. Refitting it is not free: its SHA-256 is bound
+  into every comparable training recipe, so a refit invalidates cross campaign
+  comparability. The recommendation is to keep the frozen link for every V2
+  against V3 comparison, and to register a second calibration fitted on the V3
+  corpus as a separate, clearly identified artifact used only inside V3.
+
+What remains open is only the generation mixture: what fraction of a V3 corpus
+should come from the startpos family, from the book, and from the deeper
+exploration. That is a tuning question with a measurable answer, and it should
+be settled by the R5 and R6 slice metrics rather than by assumption.
 
 **Fork 2. Does lambda 1.0 beat 0.8?**
 
@@ -960,9 +1066,17 @@ matches the identity recorded in every training receipt.
 - the startpos family slice in White relative terms, by `white_piece_count`
   band and by game ply.
 
-The three startpos evaluations in 1.6 are not from these scripts. They were
-measured at `go nodes 400000` on one core with the match binaries and are
-reported as supplied.
+The three startpos evaluations, the two anchor match results and their
+termination breakdown in 1.6 are not from these scripts. They come from
+`D:\horde-train\matches\startpos-anchor\result.json`, schema
+`HORDE_STARTPOS_COLOUR_ANCHOR_V1`, with the PGNs retained beside it. The
+evaluations were measured at `go nodes 400000` on one core with the match
+binaries, using a driver that waits for `bestmove`.
+
+The Davidson link arithmetic in 1.6, the implied belief table, the two inverse
+link brackets and the Wilson intervals were recomputed independently here from
+the frozen calibration parameters and the raw game counts. The implied belief
+figures reproduce the `calibration_cross_check` block of the anchor receipt.
 
 The forward reimplementation reproduces `rank8-l0p8` score half-Brier as
 0.007951 against the published 0.007954 and `legacy-l0p8` as 0.006744 against
