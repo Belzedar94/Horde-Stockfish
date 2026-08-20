@@ -142,12 +142,52 @@ def test_membership_rejection() -> None:
     )
 
 
+def test_cross_role_comparison() -> None:
+    """Two roles may differ in producer set, never in commit, network or labels."""
+
+    import inspect
+
+    import horde_training_scale_selected_role as sr
+
+    source = inspect.getsource(sr)
+    marker = 'f"training and candidate field {field} differs"'
+    check(marker in source, "the cross-role comparison disappeared")
+    block = source[source.rindex("for field in (", 0, source.index(marker)):source.index(marker)]
+    check(
+        '"producer_sha256"' not in block,
+        "the per-role producer set must not be compared across roles",
+    )
+    for field in ("source_commit", "source_dirty", "network", "label_contract"):
+        check(f'"{field}"' in block, f"{field} must still be compared across roles")
+
+    if not CORPUS.is_file() or not CANDIDATE.is_file():
+        print("  corpus absent, skipping the live cross-role check")
+        return
+    train = json.loads(CORPUS.read_text(encoding="utf-8"))["common_manifest"]
+    cand = json.loads(CANDIDATE.read_text(encoding="utf-8"))["common_manifest"]
+    check(
+        train["producer_sha256"] != cand["producer_sha256"],
+        "this fixture is only meaningful when the two roles differ in producer set",
+    )
+    for field in ("source_commit", "source_dirty", "network", "label_contract"):
+        check(
+            train[field] == cand[field],
+            f"the authenticated roles disagree on {field}, which is real drift",
+        )
+    print(
+        "  live roles: producer sets differ "
+        f"({train['producer_sha256'][:8]} vs {cand['producer_sha256'][:8]}), "
+        "commit, network and label contract all agree"
+    )
+
+
 def main() -> int:
     print("HORDE_PRODUCER_SET_V1 invariants")
     test_set_identity()
     test_total_fields()
     test_authenticated_corpus()
     test_membership_rejection()
+    test_cross_role_comparison()
     if FAILURES:
         print(f"\nFAILED with {len(FAILURES)} problems:")
         for failure in FAILURES[:20]:

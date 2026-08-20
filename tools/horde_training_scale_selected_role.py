@@ -292,10 +292,18 @@ def _validate_sources(
         train.manifest["book_sha256"] != candidate.manifest["book_sha256"],
         "training and candidate use the same opening book",
     )
+    # HORDE_PRODUCER_SET_V1: `producer_sha256` is deliberately absent here. It is
+    # a per-role set digest, and two roles can legitimately be produced by
+    # different builds of the generator: the training role carries two builds and
+    # the validation candidate a third. What must genuinely match across roles is
+    # the source commit, the clean-source flag, the teacher network and the label
+    # contract, because a difference in any of those is real drift. This is the
+    # same decision the extension already took one level down, where the producer
+    # was removed from the compared common manifest within a role and replaced by
+    # a membership check.
     for field in (
         "source_commit",
         "source_dirty",
-        "producer_sha256",
         "network",
         "label_contract",
     ):
