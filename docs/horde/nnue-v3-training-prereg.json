@@ -1,0 +1,51 @@
+{
+  "schema": "HORDE_V3_ARCHITECTURE_CONTROL_PREREGISTRATION_V1",
+  "purpose": "Pre-registered reading of the first V3 training run, committed before the run was launched and therefore before any result existed.",
+  "committed_before_launch": true,
+  "run": {
+    "run_id": "v3-arch-control-l1p0-seed1",
+    "architecture": "v3-g1024-pawn-wpc8",
+    "architecture_structural_sha256": "5B49DC20A9EF5424687A649A7E1BEA8665FE96F3AB839A2BA4CEAE8289EC69EC",
+    "lambda": 1.0,
+    "seed": 7435908571601354096,
+    "seed_note": "the predesignated seed of the lambda campaign; all eight lambda cells used this exact value, so the literal integer 1 would have been a different seed and would have broken the identical-recipe requirement",
+    "epochs": 1,
+    "batch_size": 4096,
+    "expected_optimizer_steps": 12208,
+    "device": "cuda"
+  },
+  "opponent": {
+    "run_id": "lambda-screen-legacy-l1p0",
+    "architecture": "fresh-legacy-hp",
+    "note": "already trained on the same corpus at the same lambda and seed; it is not retrained",
+    "validation_at_epoch_1": {
+      "composite_loss": 0.005205,
+      "result_half_brier": 0.175741,
+      "score_half_brier_eligible": 0.00536
+    }
+  },
+  "identical_inputs": {
+    "train_chunk_set_sha256": "A67B5CE0ECBB9EEBB4439F83E6B4253AFD6FA905EBD28B18179CE41D862B6C23",
+    "validation_selected_receipt_sha256": "A4F4D02EE7E69CF42B2F3704FABB73D193407A23DDE5BADCB404761C108CB2E4",
+    "validation_candidate_chunk_set_sha256": "77220AA1C875AA094BB94426BAED6E12F3464F54513AA5466DD72A94F2126DD0",
+    "wdl_calibration_sha256": "3FF1C4F5ACF3D096B8DF6DD2DD3CC06474F9F779435B4FB83D36FBDB87045486",
+    "book_split_receipt_sha256": "0301BAC3374D8DD4194E03686B27EEB1DBA2EAF0D8B09BD273EF04D33B715DD2",
+    "optimizer": "RAdam, base learning rate 0.0015, StepLR gamma 0.987, dense and output multipliers 0.1"
+  },
+  "preregistered_reading": {
+    "clear_win_for_v3": "The architecture thesis is validated UNDER THESE LABELS. It would show that the width, the output buckets and the contextual pawn blocks buy something a depth-4 distillation can express. It would NOT be a strength verdict against Run 6B, which r4gate already showed the whole 50M distillation loses by more than 200 Elo.",
+    "draw": "NOT conclusive against the architecture. These labels are blind precisely where the new features should matter: section 1.2 measures the depth-4 teacher explaining 18.0 percent of the result at 25 to 30 White pieces and 3.7 percent at 31 to 36, and section 1.5 measures the pawn blocks adding most at exactly 19 to 30 White pieces. A tie here is the expected outcome of asking a blind teacher to grade a feature it cannot see.",
+    "clear_loss_for_v3": "A real negative result about the architecture as built, and the first evidence that would count against the design rather than against the labels. It would send B back to the ladder rungs R2 through R5 rather than forward.",
+    "in_every_case": "The real strength verdict waits for the corpus A produced by lever A. Fork 1 resolved to the labels, so this run is an architecture control on a known-blind teacher, not a strength gate."
+  },
+  "what_this_run_cannot_show": [
+    "that V3 beats Run 6B, since the entire 50M distillation is more than 200 Elo below it",
+    "that the contextual pawn blocks are worthless, if the result is a draw, since the teacher is measurably blind in the phases where they carry signal",
+    "any engine speed property, since no NPS is measured here"
+  ],
+  "claims": {
+    "strength_evidence_vs_run6b": false,
+    "production_network": false,
+    "architecture_selection": false
+  }
+}
