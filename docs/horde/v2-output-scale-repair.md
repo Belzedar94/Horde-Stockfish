@@ -1,4 +1,4 @@
-# V2 output scale repair, prepared and not executed
+# V2 output scale repair, handed off for execution
 
 Status: handoff delivered. The patch and its operating instructions are written
 to `D:\horde-train\patches\v2-export-scale-fix.patch` and
