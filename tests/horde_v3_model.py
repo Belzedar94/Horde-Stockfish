@@ -40,6 +40,9 @@ class Batch:
 
 
 def build_batch(records: Path, count: int) -> Batch:
+    if records is None or not records.exists():
+        print(f"  corpus absent, using {count} deterministic synthetic boards")
+        return build_batch_from_boards(dec.synthetic_boards(count))
     raw = records.read_bytes()
     stride = wire.RECORD_SIZE
     rows_v3: list[int] = []
@@ -59,6 +62,30 @@ def build_batch(records: Path, count: int) -> Batch:
         off_g0.append(len(rows_g0))
         sides.append(record["side"])
         wpc.append(record["white_count"])
+    return Batch(
+        v3_global=torch.tensor(rows_v3, dtype=torch.long),
+        v2_global=torch.tensor(rows_g0, dtype=torch.long),
+        global_offsets=torch.tensor(off_g0, dtype=torch.long),
+        v3_offsets=torch.tensor(off_v3, dtype=torch.long),
+        side_to_move=torch.tensor(sides, dtype=torch.long),
+        phase_buckets=models.v3_phase_bucket(torch.tensor(wpc, dtype=torch.long)),
+    )
+
+
+def build_batch_from_boards(boards) -> Batch:
+    rows_v3: list[int] = []
+    rows_g0: list[int] = []
+    off_v3 = [0]
+    off_g0 = [0]
+    sides: list[int] = []
+    wpc: list[int] = []
+    for index, board in enumerate(boards):
+        rows_v3.extend(dec.v3_global_rows(board))
+        rows_g0.extend(dec.extract_sparse_features(board).v2_global)
+        off_v3.append(len(rows_v3))
+        off_g0.append(len(rows_g0))
+        sides.append(index & 1)
+        wpc.append(sum(1 for code in board if 1 <= code <= 5))
     return Batch(
         v3_global=torch.tensor(rows_v3, dtype=torch.long),
         v2_global=torch.tensor(rows_g0, dtype=torch.long),
@@ -196,9 +223,8 @@ def test_bucket_reach(batch: Batch) -> None:
 
 
 def main() -> int:
-    records = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(
-        r"D:/horde-train/validation-selected/selected-records.bin"
-    )
+    default = Path(r"D:/horde-train/validation-selected/selected-records.bin")
+    records = Path(sys.argv[1]) if len(sys.argv) > 1 else default
     torch.manual_seed(0)
     torch.use_deterministic_algorithms(True)
     print("V3 model checks")

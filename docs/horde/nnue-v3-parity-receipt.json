@@ -1,0 +1,140 @@
+{
+  "build_commands": [],
+  "container_fail_closed_sweep": {
+    "accepted_corruptions": [],
+    "cases": 31,
+    "note": "every mutated container must be rejected by the C++ reader, with the semantic cases re-authenticated first so only the registered bound can reject",
+    "status": "pass",
+    "unexpected_errors": []
+  },
+  "container_structural_sha256": "5FD8D6DE6B375312C1610597260528150A1D49A6C54C4A8FB1B1E8A6A78A854C",
+  "gate1_trainer_to_cpp": {
+    "compared_fields": [
+      "accumulator_head",
+      "active_rows",
+      "bucket",
+      "hidden0",
+      "hidden0_affine",
+      "hidden1",
+      "hidden1_affine",
+      "out_pre",
+      "pre_rule50",
+      "psqt_sum",
+      "transformed_head",
+      "value",
+      "white_piece_count"
+    ],
+    "network": {
+      "file_sha256": "5065DEA10397925EB2C46DB159B7142445F16D5EE4207257EC84E5118FE60692",
+      "parameter_sha256": "9BC999C690EAC18E8B35A0DEB9E6DB90C5AF72B8EE10EB20C9229128BBC9929A",
+      "rebuild": {
+        "file_sha256": "5065DEA10397925EB2C46DB159B7142445F16D5EE4207257EC84E5118FE60692",
+        "file_sha256_matches_trace": false,
+        "model_seed": 987654321,
+        "note": "gate 1 requires the trainer's parameters, and the parameter digest matches byte for byte. The file digest also covers the fixture's synthetic provenance, which is outside the arithmetic, so it is reported rather than enforced",
+        "parameter_sha256": "9BC999C690EAC18E8B35A0DEB9E6DB90C5AF72B8EE10EB20C9229128BBC9929A",
+        "trace_file_sha256": null
+      },
+      "source": "rebuilt from the trace fixture binding",
+      "trace_parameter_sha256": "9BC999C690EAC18E8B35A0DEB9E6DB90C5AF72B8EE10EB20C9229128BBC9929A"
+    },
+    "problems": [],
+    "records": 8,
+    "status": "pass"
+  },
+  "gate2_scalar_equals_avx2": {
+    "runs": [
+      {
+        "avx2_available": false,
+        "backend": "scalar",
+        "positions": 17,
+        "propagations": 34,
+        "reason": "binary compiled without USE_AVX2, both kernels are scalar",
+        "status": "skipped"
+      },
+      {
+        "avx2_available": true,
+        "backend": "avx2",
+        "positions": 17,
+        "propagations": 34,
+        "reason": "",
+        "status": "pass"
+      }
+    ],
+    "status": "pass"
+  },
+  "gate3_incremental_equals_full_refresh": {
+    "runs": [
+      {
+        "backend": "scalar",
+        "black_king_moves": 31,
+        "captures": 21,
+        "castling_transitions": 5,
+        "en_passant_moves": 2,
+        "generated_legal_moves": 314,
+        "max_active_rows": 93,
+        "max_contextual_rows": 42,
+        "neighbour_only_file_updates": 59,
+        "null_moves": 17,
+        "positions": 17,
+        "promotion_captures": 4,
+        "promotions": 24,
+        "special_transitions": 9,
+        "status": "pass",
+        "transitions_with_contextual_delta": 144,
+        "undos": 722,
+        "walk_plies": 399
+      },
+      {
+        "backend": "avx2",
+        "black_king_moves": 31,
+        "captures": 21,
+        "castling_transitions": 5,
+        "en_passant_moves": 2,
+        "generated_legal_moves": 314,
+        "max_active_rows": 93,
+        "max_contextual_rows": 42,
+        "neighbour_only_file_updates": 59,
+        "null_moves": 17,
+        "positions": 17,
+        "promotion_captures": 4,
+        "promotions": 24,
+        "special_transitions": 9,
+        "status": "pass",
+        "transitions_with_contextual_delta": 144,
+        "undos": 722,
+        "walk_plies": 399
+      }
+    ],
+    "status": "pass"
+  },
+  "network": {
+    "file_bytes": 2039881,
+    "file_sha256": "1F5645D21B79244F41D8C12B0F9A9FB36CF2865E726D314AC25D20CF0D7CBA6C",
+    "kind": "deterministic fixture built by tests/horde_v3_parity.py",
+    "parameter_sha256": "D60222B05CA64B12B923D7C166703496FA45365B7FA31A3ABF1CB502019D8DEF",
+    "path": "C:\\Users\\djime\\AppData\\Local\\Temp\\tmp1h3fvblt\\v3-parity-fixture.hsv3",
+    "structural_sha256": "5FD8D6DE6B375312C1610597260528150A1D49A6C54C4A8FB1B1E8A6A78A854C"
+  },
+  "network_schema": "V3_G1024_PAWN_WPC8",
+  "network_schema_id": "0x00020001",
+  "oracles": [
+    "C:/Users/djime/AppData/Local/Temp/v3v/horde-v3-parity",
+    "C:/Users/djime/AppData/Local/Temp/v3v/horde-v3-parity-avx2"
+  ],
+  "python_reference_crosscheck": {
+    "note": "an independent Python forward of the frozen contract, run over the same container; this is a supporting check and is not gate 1",
+    "positions": 16,
+    "problems": [],
+    "status": "pass"
+  },
+  "row_enumerator_fuzz": {
+    "boards": 1024,
+    "max_active_rows": 77,
+    "note": "randomized boards, the C++ stream compared against the trainer decoder",
+    "problems": [],
+    "reference": "tools/horde_training_decoder.py::v3_global_rows",
+    "status": "pass"
+  },
+  "schema": "HORDE_V3_PARITY_RECEIPT_V1"
+}

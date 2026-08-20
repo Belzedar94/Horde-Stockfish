@@ -690,11 +690,11 @@ class Gate3Runner {
 
         // Undo. The parent frame must come back bit-identical without ever
         // re-deriving a contextual role from the DirtyPiece list.
+        const V3Transition undone = transition;
         require(stack_.pop(), name + ": pop rejected");
         const V3AccumulatorFrame& restored = *stack_.latest();
-        require(restored.accumulator == source.accumulator, name + ": undo accumulator differs");
-        require(restored.psqt == source.psqt, name + ": undo psqt differs");
-        require(restored.pawns == source.pawns, name + ": undo contextual state differs");
+        compare_frames(restored, source, targetBoard, sourceBoard, dirty, undone, source,
+                       targetRows, name + " undo", false);
         require(restored.whitePieceCount == source.whitePieceCount,
                 name + ": undo white_piece_count differs");
         ++counters_.undos;
@@ -732,7 +732,8 @@ class Gate3Runner {
                         const V3Transition&                 transition,
                         const V3AccumulatorFrame&           source,
                         const V3Features&                   targetRows,
-                        const std::string&                  name) {
+                        const std::string&                  name,
+                        bool                                forward = true) {
         if (child.accumulator == refreshed.accumulator && child.psqt == refreshed.psqt
             && child.pawns == refreshed.pawns && child.whitePieceCount == refreshed.whitePieceCount
             && child.blackPieceCount == refreshed.blackPieceCount)
@@ -744,24 +745,28 @@ class Gate3Runner {
         std::cerr << "  move       : " << describe_dirty(transition) << " (raw pc="
                   << char_from_piece(dirty.pc) << ")\n";
 
-        const V3Features sourceRows = extract_v3_features(sourceBoard);
-        const RowCounts  expected   = row_counts(targetRows);
-        RowCounts        actual{};
-        for (std::size_t index = 0; index < sourceRows.size; ++index)
-            ++actual[sourceRows.rows[index]];
-        for (std::size_t index = 0; index < transition.g0RemovedSize; ++index)
-            --actual[transition.g0Removed[index]];
-        for (std::size_t index = 0; index < transition.removedSize; ++index)
-            --actual[transition.removed[index]];
-        for (std::size_t index = 0; index < transition.g0AddedSize; ++index)
-            ++actual[transition.g0Added[index]];
-        for (std::size_t index = 0; index < transition.addedSize; ++index)
-            ++actual[transition.added[index]];
+        if (forward)
+        {
+            const V3Features sourceRows = extract_v3_features(sourceBoard);
+            const RowCounts  expected   = row_counts(targetRows);
+            RowCounts        actual{};
+            for (std::size_t index = 0; index < sourceRows.size; ++index)
+                ++actual[sourceRows.rows[index]];
+            for (std::size_t index = 0; index < transition.g0RemovedSize; ++index)
+                --actual[transition.g0Removed[index]];
+            for (std::size_t index = 0; index < transition.removedSize; ++index)
+                --actual[transition.removed[index]];
+            for (std::size_t index = 0; index < transition.g0AddedSize; ++index)
+                ++actual[transition.g0Added[index]];
+            for (std::size_t index = 0; index < transition.addedSize; ++index)
+                ++actual[transition.added[index]];
 
-        for (std::size_t row = 0; row < V3StreamRows; ++row)
-            if (expected[row] != actual[row])
-                std::cerr << "  row " << row << " (" << v3_row_block_name(IndexType(row))
-                          << ") full=" << expected[row] << " incremental=" << actual[row] << "\n";
+            for (std::size_t row = 0; row < V3StreamRows; ++row)
+                if (expected[row] != actual[row])
+                    std::cerr << "  row " << row << " (" << v3_row_block_name(IndexType(row))
+                              << ") full=" << expected[row] << " incremental=" << actual[row]
+                              << "\n";
+        }
 
         std::cerr << "  source contextual state: " << describe_pawns(source.pawns) << "\n";
         std::cerr << "  target contextual state: " << describe_pawns(refreshed.pawns) << "\n";
@@ -822,7 +827,7 @@ class Gate3Runner {
         expected.push_back(*stack_.latest());
         std::uint64_t state = 0x9E3779B97F4A7C15ULL ^ std::uint64_t(name.size());
 
-        for (int ply = 0; ply < 8; ++ply)
+        for (int ply = 0; ply < 24; ++ply)
         {
             const std::vector<GeneratedMove> moves = generate_legal_moves(current);
             if (moves.empty())
@@ -839,9 +844,9 @@ class Gate3Runner {
             require(rows.valid(), name + ": walk produced an invalid board");
             network_.full_refresh(refreshed, rows);
             const V3AccumulatorFrame& top = *stack_.latest();
-            require(top.accumulator == refreshed.accumulator, name + ": walk accumulator differs");
-            require(top.psqt == refreshed.psqt, name + ": walk psqt differs");
-            require(top.pawns == refreshed.pawns, name + ": walk contextual state differs");
+            compare_frames(top, refreshed, current.board, move.target, move.dirty,
+                           *stack_.last_transition(), expected.back(), rows,
+                           name + " walk ply " + std::to_string(ply) + " " + move.label);
             expected.push_back(top);
 
             current.board      = move.target;
@@ -876,7 +881,18 @@ struct Fixture {
     const char* fen;
 };
 
-constexpr std::array<Fixture, 10> Fixtures = {{
+constexpr std::array<Fixture, 17> Fixtures = {{
+  // Captures of White pawns are the transitions that move a contextual role
+  // without moving the pawn that owns it, so both directions get their own
+  // capture-dense fixture.
+  {"black-captures", "4k3/8/1n1b4/PPPPPPPP/PPPPPPPP/2r1q3/8/8 b - - 0 1"},
+  {"white-captures", "4k3/8/8/2nbrq2/1PPPPP2/8/8/8 w - - 0 1"},
+  // High mobility, so gate 3 covers well over the 192 generated legal moves the
+  // contract asks for, and so the G0 rows of every fixed role move.
+  {"white-pieces", "4k3/8/8/8/8/8/8/QQRRBBNN w - - 0 1"},
+  {"black-army", "rnbq1bnr/ppp1kppp/3p4/8/8/2P5/PP1PPPPP/8 b - - 0 1"},
+  {"white-spread", "4k3/8/2P2P2/1P2P3/P1P2P2/2P1P3/PP2PP2/8 w - - 0 1"},
+  {"black-mobile", "1r1qk2r/2p2ppp/p1np1n2/1p2p3/4P3/2PP1P2/PP2P1PP/8 b - - 0 1"},
   {"horde-start-white", "rnbqkbnr/pppppppp/8/1PP2PP1/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP w - - 0 1"},
   {"horde-start-black", "rnbqkbnr/pppppppp/8/1PP2PP1/PPPPPPPP/PPPPPPPP/PPPPPPPP/PPPPPPPP b - - 3 2"},
   {"midgame-white", "r2qkb1r/pp1n1ppp/4pn2/1PP5/P1PP1P2/2P1P3/PP1PP1PP/1P4P1 w - - 5 12"},
@@ -887,7 +903,13 @@ constexpr std::array<Fixture, 10> Fixtures = {{
   {"promotion-ready", "r3k2r/PPP3P1/8/8/8/2n5/PP1PP3/8 w - - 0 1"},
   {"sparse-endgame", "8/5k2/8/2P5/8/1P6/P7/8 w - - 12 40"},
   {"king-centre", "8/8/3PPP2/3PkP2/3PPP2/8/8/8 b - - 0 1"},
+  {"king-free", "8/8/8/3k4/8/8/PPP5/8 b - - 0 1"},
 }};
+
+// The Black king must be exercised in all eight directions, so one fixture is
+// asserted to produce exactly eight king moves.
+constexpr const char* FreeKingFixture = "king-free";
+constexpr std::size_t FreeKingMoves   = 8;
 
 // Black castling, including the overlapping Chess960 layouts the V2 container
 // test covers. White pawns stand on rank 7 so a rook landing on rank 8 changes
@@ -1133,6 +1155,7 @@ std::vector<PositionState> fixture_positions() {
 int main(int argc, char** argv) {
     std::string networkPath;
     std::string positionsPath;
+    bool        validateOnly = false;
     for (int index = 1; index < argc; ++index)
     {
         const std::string argument = argv[index];
@@ -1140,15 +1163,17 @@ int main(int argc, char** argv) {
             networkPath = argv[++index];
         else if (argument == "--positions" && index + 1 < argc)
             positionsPath = argv[++index];
+        else if (argument == "--validate")
+            validateOnly = true;
         else
         {
-            std::cerr << "usage: horde-v3-parity --network FILE [--positions FILE]\n";
+            std::cerr << "usage: horde-v3-parity --network FILE [--positions FILE] [--validate]\n";
             return 2;
         }
     }
     if (networkPath.empty())
     {
-        std::cerr << "usage: horde-v3-parity --network FILE [--positions FILE]\n";
+        std::cerr << "usage: horde-v3-parity --network FILE [--positions FILE] [--validate]\n";
         return 2;
     }
 
@@ -1160,7 +1185,27 @@ int main(int argc, char** argv) {
     }
     const V3Parameters& parameters = loaded.parameters;
 
+    if (validateOnly)
+    {
+        std::cout << "VALID " << parameters.schemaName << ' ' << parameters.fileSha256 << ' '
+                  << parameters.parameterSha256 << '\n';
+        return 0;
+    }
+
     const std::vector<PositionState> positions = fixture_positions();
+
+    // Every Black king direction must be covered by at least one fixture.
+    for (std::size_t index = 0; index < positions.size(); ++index)
+    {
+        if (std::string(Fixtures[index].name) != FreeKingFixture)
+            continue;
+        std::size_t kingMoves = 0;
+        for (const GeneratedMove& move : generate_legal_moves(positions[index]))
+            kingMoves += move.kind == "black-king" ? 1 : 0;
+        require(kingMoves == FreeKingMoves,
+                "the free-king fixture produced " + std::to_string(kingMoves)
+                  + " Black king moves instead of 8");
+    }
 
     // Gate 2
     const std::size_t gate2Checks = verify_scalar_equals_avx2(parameters, positions);

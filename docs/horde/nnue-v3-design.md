@@ -783,11 +783,32 @@ ranges, their structural hashes, and the `white_piece_count` bucket lookup
 table, which must be serialized explicitly and never inferred.
 
 The contextual blocks require the invalidation discipline the V2 design already
-specifies: every accumulator frame retains the per file categorical codes and
-the frontier and rearmost bitboards, an incremental update recomputes only the
-candidate files, the candidate set is derived from every physically changed
-square rather than from the nominal move source and destination, and undo
-restores the saved source frame rather than inferring old contextual roles.
+specifies: every accumulator frame retains the per file categorical codes, an
+incremental update recomputes only the candidate files, the candidate set is
+derived from every physically changed square rather than from the nominal move
+source and destination, and undo restores the saved source frame rather than
+inferring old contextual roles.
+
+**The frame contract needs more than the per file triple, and this is a
+correction to the V2 sketch.** Retaining the frontier rank, the rearmost rank
+and the pawn count per file is not sufficient. When the frontier pawn of a file
+is removed, the new frontier is whichever White pawn is next down that file, and
+that rank is not recoverable from the three retained summaries. The same problem
+appears from the side: the blocked predicate depends on occupancy by any piece,
+so a capture two files away that vacates a square can change a predicate on a
+file whose own squares did not change.
+
+Each frame therefore also retains two bitboards, the White pawns and the total
+occupancy, at 16 bytes per frame. Both are updated directly from `DirtyPiece`,
+so they cost two word operations per changed square and no board scan. With them
+the new frontier after a removal is a single trailing-bit query and every
+predicate is recomputable for the candidate files alone.
+
+The measured consequence is that the candidate set is genuinely wider than the
+moved squares. In the incremental parity run, 59 of the transitions updated a
+file that contained no changed square at all. Deriving the candidate set from the
+move alone would have silently corrupted those 59 frames, and the widening is
+structural rather than an artifact of the test positions.
 
 ### 2.3 Lever C: protocol
 

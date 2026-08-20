@@ -9,9 +9,8 @@
     "rule50": "trunc_toward_zero(value * (100 - min(rule50, 100)), 100)",
     "value": "trunc_toward_zero(out_pre + psqt_sum, 16)"
   },
-  "binding": "parameter_sha256 is reproducible from fixture.model_seed and fixture.gains; file_sha256 additionally covers the synthetic provenance of this fixture",
+  "binding": "parameter_sha256 and container_structural_sha256 are reproducible by any builder from fixture.model_seed and fixture.gains; the container file hash is deliberately not published here because it also covers a synthetic provenance block that each builder generates for itself, so it is not a reproducible binding and a consumer must gate on parameter_sha256",
   "container_structural_sha256": "5FD8D6DE6B375312C1610597260528150A1D49A6C54C4A8FB1B1E8A6A78A854C",
-  "file_sha256": "810956C42F2B9476FB350EC3CE4C4BA5521559C184846C6CB1FA96A5652ADA10",
   "fixture": {
     "gains": {
       "ft_weights": 6.0,

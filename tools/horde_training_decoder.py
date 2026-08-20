@@ -319,6 +319,89 @@ def reflect_v3_row(row: int) -> int:
     raise wire.FormatError(f"row {row} is outside the V3 stream")
 
 
+def synthetic_boards(count: int, seed: int = 20260820) -> list[tuple[int, ...]]:
+    """Deterministic legal-shaped boards for environments without a corpus.
+
+    Continuous integration has no access to the authenticated training volume,
+    so every V3 suite must be able to run without it. These boards satisfy the
+    physical contract the decoder enforces: one Black king, no White pawn on
+    rank 8, no Black pawn on rank 1 or 8, at most 36 White and 16 Black pieces.
+    """
+
+    import random
+
+    generator = random.Random(seed)
+    boards: list[tuple[int, ...]] = []
+    while len(boards) < count:
+        board = [0] * 64
+        board[generator.randrange(56, 64)] = BLACK_KING
+        for _ in range(generator.randrange(1, 34)):
+            square = generator.randrange(0, 56)
+            if board[square] == 0:
+                board[square] = WHITE_PAWN
+        for _ in range(generator.randrange(0, 6)):
+            square = generator.randrange(0, 64)
+            if board[square] == 0:
+                board[square] = generator.choice((2, 3, 4, 5))
+        for _ in range(generator.randrange(0, 10)):
+            square = generator.randrange(8, 56)
+            if board[square] == 0:
+                board[square] = generator.choice((6, 7, 8, 9, 10))
+        white = sum(1 for code in board if 1 <= code <= 5)
+        black = sum(1 for code in board if 6 <= code <= 11)
+        if 1 <= white <= 36 and 1 <= black <= 16 and white + black <= 52:
+            boards.append(tuple(board))
+    return boards
+
+
+def synthetic_record_payload(count: int, seed: int = 20260820) -> bytes:
+    """Deterministic HORDE_BIN_V1 record payload for corpus-free environments.
+
+    Each record carries a synthetic board plus a quiet White pawn push as both
+    best and played move, so it satisfies every check in
+    ``horde_bin_v1.validate_record`` without needing the authenticated volume.
+    Labels are synthetic and carry no meaning; only the physical board and the
+    clock fields are consumed by the V3 suites.
+    """
+
+    import random
+    import struct
+
+    generator = random.Random(seed ^ 0x5EED)
+    out = bytearray()
+    produced = 0
+    attempt = 0
+    while produced < count:
+        attempt += 1
+        board = list(synthetic_boards(1, seed=seed + attempt)[0])
+        pushes = [
+            square
+            for square in range(48)
+            if board[square] == WHITE_PAWN and board[square + 8] == 0
+        ]
+        if not pushes:
+            continue
+        origin = generator.choice(pushes)
+        move = ((origin & 63) << 6) | ((origin + 8) & 63)
+        packed = bytearray(48)
+        for square in range(0, 64, 2):
+            packed[square >> 1] = (board[square] & 0x0F) | ((board[square + 1] & 0x0F) << 4)
+        rule50 = generator.randrange(0, 120)
+        game_ply = generator.randrange(0, 150) * 2
+        score = generator.randrange(-2500, 2500)
+        result = generator.choice((-1, 0, 1))
+        reason = 2 if result else 3
+        packed[32] = WHITE
+        packed[33] = 0
+        packed[34] = 64
+        packed[35] = 0
+        struct.pack_into("<HHhHHbB", packed, 36, rule50, game_ply, score, move, move, result, reason)
+        wire.validate_record(bytes(packed), produced)
+        out.extend(packed)
+        produced += 1
+    return bytes(out)
+
+
 def decode_training_record(raw: bytes, index: int) -> TrainingRecord:
     decoded = wire.validate_record(raw, index)
     return TrainingRecord(

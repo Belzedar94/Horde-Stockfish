@@ -797,7 +797,7 @@ def test_bound_rejections(fixture: Fixture) -> None:
 
 
 def test_quantization_parity(
-    model: models.HordeV3Model, records: Path, count: int, scratch: Path
+    model: models.HordeV3Model, payload: bytes, count: int, scratch: Path
 ) -> tuple[integer_eval.IntegerNetworkV3, Path]:
     print("c) quantization parity against the float model")
     work = scratch / "export"
@@ -833,7 +833,7 @@ def test_quantization_parity(
     health = network.parameter_health()
     check(bool(health["passed"]), f"parameter health failed: {health}")
 
-    batch = integer_eval.batch_from_file(records, count)
+    batch = integer_eval.batch_from_records(payload, count)
     layers = network.evaluate_layers(batch)
     integer_scores = layers["score"].astype(np.int64)
 
@@ -1003,10 +1003,12 @@ def test_layer_trace(
         "network_schema_id": NETWORK_SCHEMA_ID,
         "container_structural_sha256": structural_sha256(),
         "parameter_sha256": network.container.parameter_sha256,
-        "file_sha256": network.container.file_sha256,
         "binding": (
-            "parameter_sha256 is reproducible from fixture.model_seed and fixture.gains; "
-            "file_sha256 additionally covers the synthetic provenance of this fixture"
+            "parameter_sha256 and container_structural_sha256 are reproducible by any "
+            "builder from fixture.model_seed and fixture.gains; the container file hash "
+            "is deliberately not published here because it also covers a synthetic "
+            "provenance block that each builder generates for itself, so it is not a "
+            "reproducible binding and a consumer must gate on parameter_sha256"
         ),
         "fixture": {
             "model_seed": FIXTURE_SEED,
@@ -1060,13 +1062,50 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def verify_committed_trace() -> None:
+    """Check the checked-in trace is self consistent without rewriting it."""
+
+    path = Path(__file__).resolve().parent / "data" / "horde_v3_layer_trace.json"
+    check(path.is_file(), "the committed layer trace is missing")
+    if not path.is_file():
+        return
+    trace = json.loads(path.read_text(encoding="utf-8"))
+    check(trace.get("schema") == TRACE_SCHEMA, "committed trace schema mismatch")
+    check(
+        trace.get("container_structural_sha256") == structural_sha256(),
+        "the committed trace was authored against a different container schema",
+    )
+    check(
+        trace.get("network_schema") == NETWORK_SCHEMA_NAME,
+        "the committed trace names a different network schema",
+    )
+    check("file_sha256" not in trace, "the committed trace publishes an unreproducible file hash")
+    positions = trace.get("positions") or []
+    check(len(positions) == 8, f"the committed trace holds {len(positions)} positions, not 8")
+    buckets = sorted({int(entry["phase_bucket"]) for entry in positions})
+    sides = sorted({int(entry["side_to_move"]) for entry in positions})
+    check(buckets == list(range(8)), f"the committed trace covers buckets {buckets}")
+    check(sides == [0, 1], f"the committed trace covers sides {sides}")
+    for entry in positions:
+        rows = entry.get("active_rows") or []
+        check(len(rows) == len(set(rows)), "a committed trace position repeats a row")
+        check(len(rows) <= dec.V3_MAX_ACTIVE_ROWS, "a committed trace position exceeds the bound")
+    print(f"  committed trace verified: 8 positions, buckets {buckets}, sides {sides}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     torch.manual_seed(0)
     torch.use_deterministic_algorithms(True)
-    if not args.records.is_file():
-        print(f"ERROR: record corpus does not exist: {args.records}", file=sys.stderr)
-        return 1
+    synthetic = not args.records.is_file()
+    if synthetic:
+        print(
+            f"record corpus absent at {args.records}; using deterministic synthetic "
+            "records so this suite runs without the authenticated volume"
+        )
+        payload = dec.synthetic_record_payload(args.count)
+    else:
+        payload = args.records.read_bytes()
 
     print("V3 integer container checks\n")
     model = fixture_model()
@@ -1085,9 +1124,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         for label, reason in REJECTIONS:
             print(f"    {label:<52s} -> {reason}")
         print()
-        network, _ = test_quantization_parity(model, args.records, args.count, scratch)
+        network, _ = test_quantization_parity(model, payload, args.count, scratch)
         print()
-        test_layer_trace(network, args.records, args.records.read_bytes())
+        if synthetic:
+            print("d) layer trace fixture")
+            print(
+                "  skipped: the trace is the C++ gate-1 oracle and must be authored from "
+                "the authenticated corpus, never from synthetic records"
+            )
+            verify_committed_trace()
+        else:
+            test_layer_trace(network, args.records, payload)
 
     if FAILURES:
         print(f"\nFAILED with {len(FAILURES)} problems:")

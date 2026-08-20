@@ -85,6 +85,13 @@ jobs:
         run: |
           make -j2 -C src ARCH=x86-64 ${{ matrix.make_args }} horde-v2-position-test-bin
           src/horde-v2-position-test
+      - name: Verify experimental V3 feature contracts
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc             tests/horde_v3_parity.cpp src/nnue/horde_v3_container.cpp             src/data/sha256.cpp -o /tmp/horde-v3-parity
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -mavx2 -DUSE_AVX2 -Isrc             tests/horde_v3_parity.cpp src/nnue/horde_v3_container.cpp             src/data/sha256.cpp -o /tmp/horde-v3-parity-avx2
+          python3 tests/horde_v3_parity.py             --oracle /tmp/horde-v3-parity             --oracle /tmp/horde-v3-parity-avx2             --receipt /tmp/horde-v3-parity-receipt.json
+      - name: Verify V3 contextual decoder invariants
+        run: python3 tests/horde_v3_decoder.py
       - name: Verify Horde rules and perfts
         run: python3 tests/horde_rules.py src/stockfish
       - name: Verify material corpus
@@ -107,6 +114,10 @@ jobs:
           tests/horde_v2_trainer_parity.py
           tests/horde_v2_engine_widths.py
           tests/horde_v2_container_parity.py
+          tests/horde_v3_decoder.py
+          tests/horde_v3_model.py
+          tests/horde_v3_container_parity.py
+          tests/horde_v3_parity.py
           tests/horde_v2_candidate_engine.py
           tests/horde_v2_c1_campaign.py
           tests/horde_v2_c1_coverage.py
@@ -200,6 +211,10 @@ jobs:
         run: python tests/horde_training_c0.py
       - name: Verify authenticated Horde V2 checkpoint export
         run: python tests/horde_v2_export.py
+      - name: Verify Horde V3 trainer model and phase lookup
+        run: python tests/horde_v3_model.py
+      - name: Verify authenticated Horde V3 container and export
+        run: python tests/horde_v3_container_parity.py
       - name: Verify frozen Horde V2 C1 campaign
         run: python tests/horde_v2_c1_campaign.py
       - name: Verify Horde V2 C1 coverage semantics
