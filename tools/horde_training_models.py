@@ -17,6 +17,7 @@ try:
         V2_GLOBAL_DIMENSIONS,
         V2_ROYAL_RANK8_DIMENSIONS,
         V2_ROYAL_DIMENSIONS,
+        V3_GLOBAL_DIMENSIONS,
         WHITE,
     )
 except ImportError:
@@ -25,6 +26,7 @@ except ImportError:
         V2_GLOBAL_DIMENSIONS,
         V2_ROYAL_RANK8_DIMENSIONS,
         V2_ROYAL_DIMENSIONS,
+        V3_GLOBAL_DIMENSIONS,
         WHITE,
     )
 
@@ -424,6 +426,125 @@ class RoyalRank8V2Model(nn.Module):
                 self.royal_rank8_bias,
             ),
             "global_transformer": (self.global_weights, self.global_bias),
+            "dense_trunk": (
+                self.hidden0_weights,
+                self.hidden0_bias,
+                self.hidden1_weights,
+                self.hidden1_bias,
+            ),
+            "output": (self.output_weights, self.output_bias),
+        }
+
+
+V3_LANES = 1024
+V3_HIDDEN0_LANES = 16
+V3_PHASE_BUCKETS = 8
+# Serialized lookup from white_piece_count 0..36 to a phase bucket. Derived for
+# balanced occupancy from the training split alone, never from a validation
+# role. Bucket edges: 0-5, 6-9, 10-13, 14-18, 19-22, 23-26, 27-29, 30-36.
+V3_PHASE_LOOKUP: tuple[int, ...] = (
+    0, 0, 0, 0, 0, 0,
+    1, 1, 1, 1,
+    2, 2, 2, 2,
+    3, 3, 3, 3, 3,
+    4, 4, 4, 4,
+    5, 5, 5, 5,
+    6, 6, 6,
+    7, 7, 7, 7, 7, 7, 7,
+)
+
+
+class V3ModelBatch(Protocol):
+    v3_global: Tensor
+    global_offsets: Tensor
+    side_to_move: Tensor
+    phase_buckets: Tensor
+
+
+def v3_phase_bucket(white_piece_count: Tensor) -> Tensor:
+    """Apply the serialized white_piece_count phase lookup."""
+
+    table = torch.tensor(V3_PHASE_LOOKUP, dtype=torch.long, device=white_piece_count.device)
+    if bool(((white_piece_count < 0) | (white_piece_count > 36)).any()):
+        raise ValueError("white_piece_count is outside the 0..36 domain")
+    return table[white_piece_count]
+
+
+class HordeV3Model(nn.Module):
+    """V3: one 896-row transformer at 1024 lanes with white_piece_count buckets.
+
+    The Horde frame is fixed and forbids the vertical colour flip, so there is
+    one perspective rather than two. The legacy PSQT skip folds its two
+    perspectives into a signed difference; that construction has no meaning
+    here, so the skip carries an explicit side-to-move dimension instead and is
+    gathered at ``bucket * 2 + side_to_move``.
+    """
+
+    def __init__(self, seed: int, lanes: int = V3_LANES) -> None:
+        super().__init__()
+        self.lanes = int(lanes)
+        self.rows = V3_GLOBAL_DIMENSIONS
+        self.ft_weights = _uniform_parameter(
+            (self.rows, self.lanes), seed, "v3.ft_weights", 0.012
+        )
+        self.ft_bias = nn.Parameter(torch.full((self.lanes,), 0.45))
+        self.psqt_weights = _uniform_parameter(
+            (self.rows, V3_PHASE_BUCKETS * 2), seed, "v3.psqt_weights", 0.004
+        )
+        self.hidden0_weights = _uniform_parameter(
+            (V3_PHASE_BUCKETS, V3_HIDDEN0_LANES, self.lanes), seed, "v3.hidden0_weights", 0.012
+        )
+        self.hidden0_bias = nn.Parameter(
+            torch.full((V3_PHASE_BUCKETS, V3_HIDDEN0_LANES), 0.20)
+        )
+        self.hidden1_weights = _uniform_parameter(
+            (V3_PHASE_BUCKETS, HIDDEN1_LANES, V3_HIDDEN0_LANES),
+            seed,
+            "v3.hidden1_weights",
+            0.025,
+        )
+        self.hidden1_bias = nn.Parameter(torch.full((V3_PHASE_BUCKETS, HIDDEN1_LANES), 0.20))
+        self.output_weights = _uniform_parameter(
+            (V3_PHASE_BUCKETS, 2, HIDDEN1_LANES), seed, "v3.output_weights", 0.020
+        )
+        self.output_bias = nn.Parameter(torch.zeros((V3_PHASE_BUCKETS, 2)))
+
+    def forward(self, batch: V3ModelBatch) -> Tensor:
+        buckets = batch.phase_buckets
+        transformed = torch.clamp(
+            _sparse_sum(batch.v3_global, batch.global_offsets, self.ft_weights, self.ft_bias),
+            0.0,
+            1.0,
+        )
+        hidden0 = torch.clamp(
+            torch.bmm(self.hidden0_weights[buckets], transformed.unsqueeze(2)).squeeze(2)
+            + self.hidden0_bias[buckets],
+            0.0,
+            1.0,
+        )
+        hidden1 = torch.clamp(
+            torch.bmm(self.hidden1_weights[buckets], hidden0.unsqueeze(2)).squeeze(2)
+            + self.hidden1_bias[buckets],
+            0.0,
+            1.0,
+        )
+        heads = torch.bmm(self.output_weights[buckets], hidden1.unsqueeze(2)).squeeze(2)
+        heads = heads + self.output_bias[buckets]
+        positional = heads.gather(1, batch.side_to_move.unsqueeze(1)).squeeze(1)
+
+        psqt = _sparse_sum(
+            batch.v3_global,
+            batch.global_offsets,
+            self.psqt_weights,
+            self.psqt_weights.new_zeros(V3_PHASE_BUCKETS * 2),
+        )
+        selector = (buckets * 2 + batch.side_to_move).unsqueeze(1)
+        return positional + psqt.gather(1, selector).squeeze(1)
+
+    def gradient_groups(self) -> dict[str, Iterable[nn.Parameter]]:
+        return {
+            "feature_transformer": (self.ft_weights, self.ft_bias),
+            "psqt": (self.psqt_weights,),
             "dense_trunk": (
                 self.hidden0_weights,
                 self.hidden0_bias,

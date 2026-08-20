@@ -33,6 +33,41 @@ V2_GLOBAL_DIMENSIONS = 704
 V2_ROYAL_DIMENSIONS = 20_480
 V2_ROYAL_RANK8_DIMENSIONS = 5_120
 
+# V3 appends six contextual White-pawn blocks after the immutable G0 rows of the
+# same stream. Every block is keyed on the frontier pawn of a file, so each has
+# at most eight active rows and the whole contextual tail has at most 48.
+V3_SCHEMA = "V3_G1024_PAWN_WPC8"
+V3_PAWN_SQUARES = 56  # ranks 1 through 7; a White pawn on rank 8 is illegal
+V3_FILE_COUNT_STATES = 7  # a file holds 1 to 7 White pawns, never 8
+V3_BLOCK_BASES = {
+    "frontier_square": V2_GLOBAL_DIMENSIONS,
+    "rearmost_square": V2_GLOBAL_DIMENSIONS + 56,
+    "file_count": V2_GLOBAL_DIMENSIONS + 112,
+    "frontier_blocked": V2_GLOBAL_DIMENSIONS + 168,
+    "frontier_supported": V2_GLOBAL_DIMENSIONS + 176,
+    "frontier_phalanx": V2_GLOBAL_DIMENSIONS + 184,
+}
+V3_BLOCK_WIDTHS = {
+    "frontier_square": 56,
+    "rearmost_square": 56,
+    "file_count": 56,
+    "frontier_blocked": 8,
+    "frontier_supported": 8,
+    "frontier_phalanx": 8,
+}
+V3_BLOCK_ORDER = (
+    "frontier_square",
+    "rearmost_square",
+    "file_count",
+    "frontier_blocked",
+    "frontier_supported",
+    "frontier_phalanx",
+)
+V3_CONTEXTUAL_ROWS = 192
+V3_GLOBAL_DIMENSIONS = V2_GLOBAL_DIMENSIONS + V3_CONTEXTUAL_ROWS  # 896
+V3_MAX_ACTIVE_CONTEXTUAL_ROWS = 48
+V3_MAX_ACTIVE_ROWS = 52 + V3_MAX_ACTIVE_CONTEXTUAL_ROWS  # 100
+
 # HORDE_BIN_V1 physical piece codes are deliberately aligned with V2 fixed
 # roles after subtracting one. Legacy families preserve Run 6B's H/P split.
 LEGACY_FAMILY_BY_CODE = (-1, 5, 1, 2, 3, 4, 0, 1, 2, 3, 4, 6)
@@ -176,6 +211,112 @@ def extract_sparse_features(board: Sequence[int]) -> SparseFeatures:
         royal_bucket,
         royal_mirror,
     )
+
+
+def v3_contextual_rows(board: Sequence[int]) -> tuple[int, ...]:
+    """Enumerate the six V3 contextual White-pawn blocks from a physical board.
+
+    Every predicate is keyed on the frontier pawn of a non-empty file, so each
+    block contributes at most one row per file. Rows are emitted block by block
+    in ``V3_BLOCK_ORDER`` and file by file in ascending order, so the stream is
+    deterministic and independent of board scan order.
+    """
+
+    _require(len(board) == 64, f"contextual board has {len(board)} squares instead of 64")
+    _require(
+        all(type(code) is int and 0 <= code <= BLACK_KING for code in board),
+        "contextual board contains an invalid physical piece code",
+    )
+
+    frontier: list[int] = [-1] * 8
+    rearmost: list[int] = [-1] * 8
+    counts: list[int] = [0] * 8
+    for square in range(64):
+        if board[square] != WHITE_PAWN:
+            continue
+        rank, file_index = divmod(square, 8)
+        _require(rank != 7, "a White pawn occupies rank 8")
+        counts[file_index] += 1
+        if rank > frontier[file_index]:
+            frontier[file_index] = rank
+        if rearmost[file_index] < 0 or rank < rearmost[file_index]:
+            rearmost[file_index] = rank
+
+    blocks: dict[str, list[int]] = {name: [] for name in V3_BLOCK_ORDER}
+    for file_index in range(8):
+        rank = frontier[file_index]
+        if rank < 0:
+            _require(counts[file_index] == 0, "empty file reported a White pawn count")
+            continue
+        _require(
+            1 <= counts[file_index] <= V3_FILE_COUNT_STATES,
+            f"file {file_index} holds {counts[file_index]} White pawns",
+        )
+        blocks["frontier_square"].append(rank * 8 + file_index)
+        blocks["rearmost_square"].append(rearmost[file_index] * 8 + file_index)
+        blocks["file_count"].append(file_index * V3_FILE_COUNT_STATES + counts[file_index] - 1)
+        if board[(rank + 1) * 8 + file_index] != 0:
+            blocks["frontier_blocked"].append(file_index)
+        neighbours = [file_index - 1, file_index + 1]
+        if rank >= 1 and any(
+            0 <= neighbour < 8 and board[(rank - 1) * 8 + neighbour] == WHITE_PAWN
+            for neighbour in neighbours
+        ):
+            blocks["frontier_supported"].append(file_index)
+        if any(
+            0 <= neighbour < 8 and board[rank * 8 + neighbour] == WHITE_PAWN
+            for neighbour in neighbours
+        ):
+            blocks["frontier_phalanx"].append(file_index)
+
+    rows: list[int] = []
+    for name in V3_BLOCK_ORDER:
+        base = V3_BLOCK_BASES[name]
+        width = V3_BLOCK_WIDTHS[name]
+        offsets = blocks[name]
+        _require(len(offsets) <= 8, f"contextual block {name} activated more than eight rows")
+        for offset in offsets:
+            _require(0 <= offset < width, f"contextual block {name} offset {offset} is out of range")
+            rows.append(base + offset)
+    _require(
+        len(rows) <= V3_MAX_ACTIVE_CONTEXTUAL_ROWS,
+        f"contextual tail activated {len(rows)} rows",
+    )
+    _require(len(set(rows)) == len(rows), "duplicate V3 contextual feature")
+    _require(
+        all(V2_GLOBAL_DIMENSIONS <= row < V3_GLOBAL_DIMENSIONS for row in rows),
+        "V3 contextual row escaped its reserved range",
+    )
+    return tuple(rows)
+
+
+def v3_global_rows(board: Sequence[int]) -> tuple[int, ...]:
+    """Return the complete V3 stream: immutable G0 rows then the contextual tail."""
+
+    rows = extract_sparse_features(board).v2_global + v3_contextual_rows(board)
+    _require(len(rows) <= V3_MAX_ACTIVE_ROWS, f"V3 stream activated {len(rows)} rows")
+    _require(len(set(rows)) == len(rows), "duplicate V3 stream feature")
+    return rows
+
+
+def reflect_v3_row(row: int) -> int:
+    """Map one V3 stream row to its horizontally reflected counterpart."""
+
+    if row < V2_GLOBAL_DIMENSIONS:
+        role, square = divmod(row, 64)
+        return role * 64 + (square ^ 7)
+    for name in V3_BLOCK_ORDER:
+        base = V3_BLOCK_BASES[name]
+        width = V3_BLOCK_WIDTHS[name]
+        if base <= row < base + width:
+            offset = row - base
+            if name in ("frontier_square", "rearmost_square"):
+                return base + (offset ^ 7)
+            if name == "file_count":
+                file_index, state = divmod(offset, V3_FILE_COUNT_STATES)
+                return base + (7 - file_index) * V3_FILE_COUNT_STATES + state
+            return base + (7 - offset)
+    raise wire.FormatError(f"row {row} is outside the V3 stream")
 
 
 def decode_training_record(raw: bytes, index: int) -> TrainingRecord:
