@@ -145,16 +145,30 @@ none of which should be taken without a ruling:
    meaning of every stored loss and of the frozen WDL calibration, whose SHA-256
    is bound into every comparable recipe.
 
-The recommendation is option 1 for V3 now, plus option 2 scheduled before any
-further `.hsv2` against `.nnue` match is used as architecture evidence. Option 3
-is not recommended: the WDL link was fitted against teacher scores on the 600
+### The ruling
+
+Option 1 is adopted. Schema `0x00020001` is registered in
+`tools/horde_v3_container.py` with `OUTPUT_WEIGHT_SCALE = 9600/127` and
+`OUTPUT_BIAS_SCALE = 9600`, so a V3 container evaluates at `600 * v`, aligned
+with `NNUE_TO_SCORE`, with the legacy exporter and with the WDL link. The
+descriptor records `value_semantics` explicitly so the property is readable
+rather than implied, and the reader re-checks the two scales out of the header
+extension block.
+
+Option 2 is prepared and not executed. The exporter patch, the new schema ids
+the corrected structural hash forces, the re-export procedure and the list of
+evidence that must be rerun are written up in
+[v2-output-scale-repair.md](v2-output-scale-repair.md). Nothing has been applied
+and no existing artifact has been rewritten. The Rank-8 lambda comparison in
+flight uses two exports of the old scale on both arms, so it is clean as a
+lambda comparison and is not touched.
+
+Option 3 is discarded. The WDL link was fitted against teacher scores on the 600
 scale, so moving the trainer to 508 would misalign the label and the prediction
 rather than align the prediction and the engine.
 
-Until the ruling lands, the V3 container schema, the export path, the C++ reader
-and the three parity gates are not started, because all four are downstream of
-the constant in question. The trainer model, the contextual decoder and their
-tests are independent of it and are complete.
+V3 therefore never carries the defect, and the V3 parity gates measure a network
+whose value is `600 * v` by construction.
 
 ## 3. What was verified
 
