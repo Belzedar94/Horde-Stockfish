@@ -925,6 +925,60 @@ under test is the architecture rather than the objective, but it does place a
 standing caution on them: a metric computed under one objective cannot rank
 models trained under a different one.
 
+### 1.8 The architecture control, archctl
+
+V3 was trained on the existing 50M corpus at lambda 1.0 with the campaign seed,
+the same calibration and optimizer as the lambda cells, and played against
+legacy-l1p0, which was trained on the same corpus at the same lambda and seed.
+Both arms evaluate at 600 times the model output, so this pairing does not carry
+the export scale defect. Logs in
+`D:\horde-train\matches	ournament-20aug\`.
+
+| Control | Result for v3-arch | Elo | Status |
+| --- | --- | ---: | --- |
+| 2+0.02 | 97-166-5 | -92 | sealed |
+| 10+0.1 | 134-194-3 | -64 | sealed |
+| 30+0.3 | 70-90-2 | -44 | adjudicated |
+
+**A sweep for legacy. Under the pre-registered reading this is the clear loss
+branch: the first real evidence against the design rather than against the
+labels.** The pre-registration is at
+[nnue-v3-training-prereg.json](nnue-v3-training-prereg.json), committed before
+the run existed.
+
+Validation agreed in advance, for once: V3 finished worse on all three metrics,
+composite 0.005784 against 0.005205, result half-Brier 0.176686 against 0.175741
+and score half-Brier 0.005957 against 0.005360. That does not retroactively make
+loss a valid selector, since section 2.3 records three metrics picking three
+different lambda winners and none picking the one that won games. It is one
+agreement, not a rule.
+
+**The gradient across time controls is the finding.** The deficit shrinks
+monotonically as thinking time grows, -92 then -64 then -44. A pure knowledge
+deficit would not shrink with time; a speed deficit would, because the faster
+arm converts its extra nodes into more advantage at short controls than at long
+ones. The honest decomposition is therefore that some of the loss is search
+throughput and some is the absence of any knowledge gain, and the split is
+**unmeasured**. P1 and P4 are exactly the probes that separate them, and they
+have not run: every window offered so far has had a loaded table, and NPS is far
+more sensitive to background load than the single threaded kernel matrix was.
+
+What the kernel matrix already told us bounds the speed side. V3's incremental
+path is 1,207 nanoseconds with dense propagation at 80 percent of it, and that
+dense term is 16 by 1024, exactly legacy's shape. So V3 should be close to
+legacy per node, and a large throughput gap would be a surprise pointing at the
+frame stack, which grows from about 131 to about 270 kilobytes over 64 plies.
+That is P4's question.
+
+**What this does not settle.** The teacher is measurably blind in the phases
+where the contextual pawn blocks carry their signal, 18.0 percent of the result
+explained at 25 to 30 White pieces and 3.7 percent at 31 to 36. A design cannot
+demonstrate a knowledge gain against a grader that cannot see the knowledge. So
+archctl is evidence against **this** V3 as built, at **this** width, under
+**these** labels. It is not evidence that width, output buckets or pawn features
+are worthless, and it is not a strength verdict: r4gate already placed the whole
+50M distillation more than 200 Elo below Run 6B.
+
 ## 3. Decision forks
 
 **Fork 1, the primary one. RESOLVED: branch A, the labels.**
@@ -1080,6 +1134,40 @@ binding the labels but requires engine work. An external relabelling tool, in
 the style of Spell's lab scripts, is faster to build but breaks the provenance
 chain that every Horde receipt currently depends on. The recommendation is the
 in engine route; the fork is open because it changes the schedule materially.
+
+## 3b. Recommendation for R2 to R5 on corpus A
+
+archctl changes what the ladder must isolate. The base V3 bundles four changes
+at once: width 256 to 1024, one domain instead of two, eight output buckets
+instead of one, and 192 contextual pawn rows. It lost, so the bundle is wrong
+somewhere, and a bundle that loses tells you nothing about which part is at
+fault. Corpus A is the moment to stop bundling.
+
+**Run the ladder in cost order, cheapest variable first, and let each rung
+inherit only what earned its place.**
+
+| Rung | Isolates | Why this order |
+| --- | --- | --- |
+| R2 | one G0 table against the two-domain split, equal lanes | the control the V2 program never ran at strength; settles whether the second domain was ever worth its rows |
+| R3 | width alone, 256 against 512 against 1024, one bucket, no contextual rows | width is the change most likely to be paying for itself in speed rather than knowledge, and archctl's time-control gradient says exactly that |
+| R4 | output buckets, best R3 width, 1 against 8 | the largest single linear block in section 1.5 at +0.0589 R squared, and the cheapest to add |
+| R5 | the 192 contextual rows, best R4 point, with and without | the block the whole dossier argues for; it must be tested against a teacher that can see it |
+
+Two rules that archctl earned.
+
+- **R5 is only meaningful on corpus A.** Testing pawn features against a depth-4
+  teacher that explains 3.7 percent of the result in the phase where they matter
+  is not a test. If corpus A slips, R5 waits; it does not run early on the old
+  labels.
+- **Every rung reports fixed node before equal time, and the incumbent is a
+  point in each.** archctl's gradient is only readable because three time
+  controls were run. A single control would have shown a loss and hidden the
+  mechanism.
+
+**On width specifically.** Do not carry 1024 into corpus A by default. R3 exists
+to find the cheapest width that holds the knowledge, and the kernel matrix says
+1024 costs incumbent-class rather than free. If 512 holds, it is the better base
+and it halves the frame stack that P4 was built to interrogate.
 
 ## 4. Cost, schedule and parallelism
 
