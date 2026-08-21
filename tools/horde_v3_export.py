@@ -103,8 +103,12 @@ except ImportError:
     )
 
 
-CHECKPOINT_SCHEMA = "HORDE_V3_BASE_CHECKPOINT_V1"
-TRAINING_RECEIPT_SCHEMA = "HORDE_V3_BASE_TRAINING_V1"
+# The trainer writes HORDE_V3_CHECKPOINT_V1. V2 carried "BASE" because it had a
+# V2_BASE_P0 topology to distinguish; V3 has no base variant, so the trainer's
+# name is the correct one and the exporter follows the artifact, never the
+# reverse: a produced checkpoint is evidence and is not renamed to suit a reader.
+CHECKPOINT_SCHEMA = "HORDE_V3_CHECKPOINT_V1"
+TRAINING_RECEIPT_SCHEMA = "HORDE_V3_TRAINING_V1"  # matches the trainer, see above
 EXPORT_RECEIPT_SCHEMA = "HORDE_V3_INTEGER_CHECKPOINT_EXPORT_V1"
 
 OUTPUT_WEIGHT_SCALE = Fraction(
@@ -113,7 +117,14 @@ OUTPUT_WEIGHT_SCALE = Fraction(
 
 # ``phase_lookup`` is a frozen constant rather than a trained tensor, so the
 # training side declares only the nine learned sections.
-TRAINED_PARAMETER_BYTES = PARAMETER_BYTES - PHASE_LOOKUP_ENTRIES
+# The training architecture receipt declares the FULL serialized payload,
+# 2,033,765 bytes, phase lookup included. The lookup is not trained, but it is
+# serialized, and "serialized_parameter_bytes" is a statement about the
+# serialized form. This value is baked into the pinned structural hash
+# 5B49DC20 that the contract, the trainer and every completed run already
+# carry, so the exporter follows it rather than subtracting the lookup and
+# forcing a hash change that would invalidate finished work.
+TRAINED_PARAMETER_BYTES = PARAMETER_BYTES
 
 DTYPE_LIMITS = {
     "i8": (-(1 << 7), (1 << 7) - 1),
