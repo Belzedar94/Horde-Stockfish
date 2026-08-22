@@ -1786,7 +1786,7 @@ def _contextual_extractor(architecture: str):
 # margin. Twelve did not go faster, and each worker pays a full torch import on
 # Windows spawn because the child re-imports __main__: twelve of those exhausted
 # the commit limit and the pool died loading shm.dll.
-PREFETCH_WORKERS = max(1, min(5, (os.cpu_count() or 2) - 2))
+PREFETCH_WORKERS = max(1, min(7, (os.cpu_count() or 2) - 2))
 PREFETCH_DEPTH = 2
 _PREFETCH_STATE: dict[str, Any] = {}
 
