@@ -173,16 +173,19 @@ OBJS = $(notdir $(SRCS:.cpp=.o))
 HORDE_V2_POSITION_TEST_OBJS = horde_v2_position_stack_test.o horde_v2_container_test_impl.o \
 	horde_v2_container_sha256_test_impl.o
 
-HORDE_DATA_GENERATOR_SRCS = data/sha256.cpp data/horde_bin_v1.cpp data/training_data_generator.cpp
+HORDE_DATA_GENERATOR_SRCS = data/sha256.cpp data/horde_bin_v1.cpp data/expansion_selection.cpp \
+	data/training_data_generator.cpp
 HORDE_DATA_GENERATOR_HEADERS = data/sha256.h data/horde_bin_v1.h data/training_data.h \
-	data/random_seed.h data/training_data_generator.h
+	data/expansion_selection.h data/random_seed.h data/training_data_generator.h
 HORDE_DATA_GENERATOR_OBJS = $(filter-out search.o uci.o,$(OBJS)) \
 	horde_data_generator_search.o horde_data_generator_uci.o \
 	horde_data_generator_sha256.o horde_data_generator_horde_bin_v1.o \
+	horde_data_generator_expansion_selection.o \
 	horde_data_generator_training_data_generator.o
 HORDE_BIN_V1_TEST_EXE = horde-bin-v1-tests$(if $(filter yes,$(target_windows)),.exe,)
 HORDE_BIN_V1_TEST_OBJS = $(filter-out main.o,$(OBJS)) horde_data_generator_sha256.o \
-	horde_data_generator_horde_bin_v1.o horde_bin_v1_tests.o
+	horde_data_generator_horde_bin_v1.o horde_data_generator_expansion_selection.o \
+	horde_bin_v1_tests.o
 
 # OpenBench generic DATAGEN builds pass OPENBENCH_DATAGEN=1 and bench the
 # resulting binary, so the main EXE must carry the in-engine generator:

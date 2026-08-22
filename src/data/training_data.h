@@ -27,6 +27,16 @@ enum class HordeOutcomeReason : u8 {
     FIVEFOLD_REPETITION = 6
 };
 
+// HORDE_BIN_V1_R2: which expansion family produced this record. Parents carry
+// NONE and are byte-identical to V1, so a corpus without expansion is
+// bit-for-bit what V1 would have written and old readers accept it unchanged.
+enum class HordeExpansionFamily : u8 {
+    NONE      = 0,
+    BESTMOVE  = 1,
+    PROMOTION = 2,
+    CHECK     = 3
+};
+
 struct TrainingDataSample {
     std::string        fen;
     int                score         = 0;
@@ -34,6 +44,7 @@ struct TrainingDataSample {
     Move               playedMove    = Move::none();
     int                result        = 0;
     HordeOutcomeReason outcomeReason = HordeOutcomeReason::STALEMATE;
+    HordeExpansionFamily family      = HordeExpansionFamily::NONE;
 };
 
 enum class DataError {

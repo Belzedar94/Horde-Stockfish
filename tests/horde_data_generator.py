@@ -21,11 +21,26 @@ LABEL_SCHEMA = REPO_ROOT / "schemas" / "horde-label-contract-v1.json"
 CAPABILITY_JSON = (
     '{"schema":"HORDE_BIN_V1","schema_sha256":'
     '"B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4",'
+    '"revision":"HORDE_BIN_V1_R2","revision_sha256":'
+    '"013BF155072149A766B54A391ADBCB3EB1C539F49362EB06CA4E1530AE22B6A6",'
+    '"expansion_families":["none","bestmove","promotion","check"],'
     '"label_contract":{"schema":"HORDE_LABEL_CONTRACT_V1","schema_sha256":'
     '"C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"},'
     '"write":true,"record_size":48,"header_size":2048}'
 )
 SCHEMA_SHA256 = "B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4"
+R2_SCHEMA = REPO_ROOT / "schemas" / "horde-bin-v1-r2.schema.json"
+R2_SCHEMA_SHA256 = "013BF155072149A766B54A391ADBCB3EB1C539F49362EB06CA4E1530AE22B6A6"
+EXPANSION_RECORDS = 6
+# Black to move with two distinct promotion pushes, b2-b1 and b2xa1. The second
+# takes White's last piece, so its child is terminal and is skipped; the first
+# leaves White a legal move, so its child survives. Nothing here can give check,
+# because the Horde has no king.
+EXPANSION_BOOK = """k7/8/8/8/8/p7/1p6/P7 b - - 0 1
+1k6/8/8/8/8/p7/1p6/P7 b - - 0 1
+2k5/8/8/8/8/p7/1p6/P7 b - - 0 1
+3k4/8/8/8/8/p7/1p6/P7 b - - 0 1
+"""
 LABEL_CONTRACT_SHA256 = "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"
 RUN6B_SHA256 = "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
 TEST_SEED = "horde-bin-v1-wire-test"
@@ -103,15 +118,19 @@ def generator_command(
     producer_sha256: str,
     book: Path,
     book_sha256: str,
+    records: int = TEST_RECORDS,
+    max_game_ply: int = 4,
+    expansion: str = "",
 ) -> str:
     return (
         "horde_generate_training_data "
         f"threads 1 hash 16 network {network} network_sha256 {network_sha256} "
-        f"producer_sha256 {producer_sha256} count {TEST_RECORDS} seed {TEST_SEED} "
+        f"producer_sha256 {producer_sha256} count {records} seed {TEST_SEED} "
         f"book {book.as_posix()} book_sha256 {book_sha256} out {output.as_posix()} "
         "depth 1 nodes 0 random_move_min_ply 0 random_move_max_ply 0 "
         "random_move_count 0 random_multi_pv 1 random_multi_pv_diff 0 "
-        "write_min_ply 0 write_max_ply 2 max_game_ply 4 set_recommended_uci_options"
+        f"write_min_ply 0 write_max_ply 2 max_game_ply {max_game_ply} "
+        f"{expansion}set_recommended_uci_options"
     )
 
 
@@ -135,6 +154,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     observed_schema_sha = hashlib.sha256(SCHEMA.read_bytes()).hexdigest().upper()
     if observed_schema_sha != SCHEMA_SHA256:
         raise AssertionError(f"HORDE_BIN_V1 schema SHA-256 mismatch: {observed_schema_sha}")
+    observed_r2_sha = hashlib.sha256(R2_SCHEMA.read_bytes()).hexdigest().upper()
+    if observed_r2_sha != R2_SCHEMA_SHA256:
+        raise AssertionError(f"HORDE_BIN_V1_R2 schema SHA-256 mismatch: {observed_r2_sha}")
     observed_label_sha = hashlib.sha256(LABEL_SCHEMA.read_bytes()).hexdigest().upper()
     if observed_label_sha != LABEL_CONTRACT_SHA256:
         raise AssertionError(
@@ -189,6 +211,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "schema_sha256": LABEL_CONTRACT_SHA256,
         }:
             raise AssertionError("manifest label contract mismatch")
+        if manifest["schema"] != "HORDE_BIN_V1" or manifest["schema_sha256"] != SCHEMA_SHA256:
+            raise AssertionError("a run without expansion did not keep the V1 identity")
+        if any(key.startswith("expand_") for key in manifest["generation"]):
+            raise AssertionError("a run without expansion emitted expansion manifest keys")
+        if coverage["expansion"] != {
+            "ceiling": 0,
+            "families": {"none": TEST_RECORDS},
+            "children_per_parent": {"0": TEST_RECORDS},
+        }:
+            raise AssertionError(f"a run without expansion reported children: {coverage}")
         if coverage["outcome_reasons"] != {"extinction": TEST_RECORDS}:
             raise AssertionError(f"forced-extinction fixture was not preserved: {coverage}")
         if coverage["results"] != {"1": TEST_RECORDS}:
@@ -336,6 +368,114 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_engine(generator, (second_command, "quit"), expect_success=True)
         if second.read_bytes() != first.read_bytes():
             raise AssertionError("Threads=1 fixed-seed HORDE_BIN_V1 output is not reproducible")
+
+        # HORDE_BIN_V1_R2 tactical expansion, end to end.
+        expansion_book = root / "expansion.epd"
+        expansion_book.write_text(EXPANSION_BOOK, encoding="ascii", newline="\n")
+        expansion_book_sha = hashlib.sha256(expansion_book.read_bytes()).hexdigest().upper()
+        expanded = root / "expanded.bin"
+        run_engine(
+            generator,
+            (
+                generator_command(
+                    output=expanded,
+                    network=relative_network.as_posix(),
+                    network_sha256=network_sha,
+                    producer_sha256=producer_sha,
+                    book=expansion_book,
+                    book_sha256=expansion_book_sha,
+                    records=EXPANSION_RECORDS,
+                    max_game_ply=8,
+                    expansion="expand_promo 2 expand_check 2 expand_max_children 5 ",
+                ),
+                "quit",
+            ),
+            expect_success=True,
+        )
+
+        expanded_manifest, expanded_coverage = decoder.validate_file(expanded)
+        if (
+            expanded_manifest["schema"] != "HORDE_BIN_V1_R2"
+            or expanded_manifest["schema_sha256"] != R2_SCHEMA_SHA256
+        ):
+            raise AssertionError("an expanded run did not carry the R2 identity")
+        generation = expanded_manifest["generation"]
+        if [generation.get(key) for key in decoder.EXPANSION_GENERATION_KEYS] != [2, 2, 5]:
+            raise AssertionError(f"expansion caps were not declared in the manifest: {generation}")
+        if list(generation)[-3:] != decoder.EXPANSION_GENERATION_KEYS:
+            raise AssertionError("expansion keys are not appended to the generation object")
+        if decoder.manifest_expansion_ceiling(expanded_manifest) != 4:
+            raise AssertionError("the declared ceiling is not min(promo + check, max_children)")
+
+        families = expanded_coverage["expansion"]["families"]
+        if families.get("promotion", 0) < 1:
+            raise AssertionError(f"expansion produced no promotion child: {expanded_coverage}")
+        if families.get("bestmove") or families.get("check"):
+            raise AssertionError(
+                f"expansion produced a family the command did not ask for: {expanded_coverage}"
+            )
+        if families.get("none", 0) < 1:
+            raise AssertionError(f"expansion produced no parents: {expanded_coverage}")
+        if sum(families.values()) != EXPANSION_RECORDS:
+            raise AssertionError(f"family counts do not cover the payload: {expanded_coverage}")
+
+        # Every child carries the flag and the family together, and follows a
+        # parent rather than opening the payload.
+        expanded_payload = expanded.read_bytes()
+        child_index = None
+        for index, raw in enumerate(decoder.iter_records(expanded_payload)):
+            record = decoder.validate_record(raw, index)
+            is_child = bool(record["flags"] & 0x80)
+            if is_child != (record["family"] != 0):
+                raise AssertionError(f"record {index} broke the child/family cross-check")
+            if is_child and child_index is None:
+                if index == 0:
+                    raise AssertionError("the payload opens with an expansion child")
+                child_index = index
+        if child_index is None:
+            raise AssertionError("no expansion child reached the payload")
+
+        with training_decoder.HordeBinV1Dataset(expanded) as dataset:
+            families_seen = {dataset.record(i).expansion_family for i in range(len(dataset))}
+            if 2 not in families_seen or not families_seen <= {0, 2}:
+                raise AssertionError(
+                    f"the trainer decoder did not expose the expansion family: {families_seen}"
+                )
+
+        # Breaking either half of the marking must fail closed, because the flag
+        # and the family are cross-checked against each other.
+        record_start = decoder.HEADER_SIZE + child_index * decoder.RECORD_SIZE
+        for offset, mask in ((35, 0x80), (47, 0x38)):
+            broken = bytearray(expanded_payload)
+            broken[record_start + offset] ^= mask
+            try:
+                decoder.validate_record(
+                    bytes(broken[record_start : record_start + decoder.RECORD_SIZE]),
+                    child_index,
+                )
+            except decoder.FormatError:
+                continue
+            raise AssertionError(f"a record with a broken byte {offset} cross-check was accepted")
+
+        inconsistent = root / "inconsistent.bin"
+        failed = run_engine(
+            generator,
+            (
+                generator_command(
+                    output=inconsistent,
+                    network=relative_network.as_posix(),
+                    network_sha256=network_sha,
+                    producer_sha256=producer_sha,
+                    book=expansion_book,
+                    book_sha256=expansion_book_sha,
+                    expansion="expand_promo 2 ",
+                ),
+                "quit",
+            ),
+            expect_success=False,
+        )
+        if "expand_max_children" not in failed or inconsistent.exists():
+            raise AssertionError(f"an inconsistent expansion budget was accepted:\n{failed}")
 
         bad = root / "bad.bin"
         bad_command = generator_command(

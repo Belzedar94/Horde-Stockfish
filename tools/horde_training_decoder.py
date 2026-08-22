@@ -96,6 +96,11 @@ class TrainingRecord:
     played_move: int
     result: int
     outcome_reason: int
+    # HORDE_BIN_V1_R2: 0 for a self-play line sample, 1-3 for an expansion child.
+    # Children are not independent samples; they share their parent's game and
+    # inherit its result, so any dedup or shuffle must treat the (parent,
+    # children) unit as one.
+    expansion_family: int = 0
     board: tuple[int, ...] = ()
     castling_rights: int = 0
     ep_square: int = 64
@@ -415,6 +420,7 @@ def decode_training_record(raw: bytes, index: int) -> TrainingRecord:
         played_move=decoded["played_move"],
         result=decoded["result"],
         outcome_reason=decoded["reason"],
+        expansion_family=decoded["family"],
         board=tuple(decoded["board"]),
         castling_rights=decoded["castling"],
         ep_square=decoded["ep_square"],
@@ -701,6 +707,7 @@ class HordeBinV1Dataset:
             played_move=record.played_move,
             result=record.result,
             outcome_reason=record.outcome_reason,
+            expansion_family=record.expansion_family,
             board=record.board,
             castling_rights=record.castling_rights,
             ep_square=record.ep_square,

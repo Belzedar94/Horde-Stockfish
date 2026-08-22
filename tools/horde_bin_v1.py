@@ -20,6 +20,18 @@ HEADER_SIZE = 2048
 RECORD_SIZE = 48
 SCHEMA_NAME = "HORDE_BIN_V1"
 SCHEMA_SHA256 = "B46ADE18AB8954A6AB232593484273E50C12B51550A938763A7A7D94DCCB63E4"
+# HORDE_BIN_V1_R2. Same 48-byte layout; two reserved bit ranges gain meaning.
+# Only a file that actually contains expansion children carries this identity, so
+# a corpus generated without expansion stays byte-identical to V1 and readable by
+# unmodified V1 tooling.
+SCHEMA_R2_NAME = "HORDE_BIN_V1_R2"
+SCHEMA_R2_SHA256 = "013BF155072149A766B54A391ADBCB3EB1C539F49362EB06CA4E1530AE22B6A6"
+SCHEMA_IDENTITIES = {
+    SCHEMA_NAME: SCHEMA_SHA256,
+    SCHEMA_R2_NAME: SCHEMA_R2_SHA256,
+}
+EXPANSION_GENERATION_KEYS = ["expand_promo", "expand_check", "expand_max_children"]
+MAX_EXPANSION_CAP = 8
 RUN6B_SHA256 = "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7"
 LABEL_CONTRACT_NAME = "HORDE_LABEL_CONTRACT_V1"
 LABEL_CONTRACT_SHA256 = "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"
@@ -54,6 +66,13 @@ FLAG_NAMES = {
     4: "best_castling",
     5: "played_differs",
     6: "royal_in_check",
+    7: "expansion_child",
+}
+EXPANSION_FAMILY_NAMES = {
+    0: "none",
+    1: "bestmove",
+    2: "promotion",
+    3: "check",
 }
 
 
@@ -128,11 +147,13 @@ def parse_header(payload: bytes) -> dict[str, Any]:
         ],
         "manifest fields are incomplete or out of order",
     )
-    _require(manifest.get("schema") == SCHEMA_NAME, "manifest schema name mismatch")
+    schema_name = manifest.get("schema")
+    _require(schema_name in SCHEMA_IDENTITIES, "manifest schema name mismatch")
     _require(
-        manifest.get("schema_sha256") == SCHEMA_SHA256,
+        manifest.get("schema_sha256") == SCHEMA_IDENTITIES[schema_name],
         "manifest schema SHA-256 mismatch",
     )
+    expanded = schema_name == SCHEMA_R2_NAME
     _require(manifest.get("format_version") == FORMAT_VERSION, "manifest version mismatch")
     _require(manifest.get("header_bytes") == HEADER_SIZE, "manifest header size mismatch")
     _require(manifest.get("record_bytes") == RECORD_SIZE, "manifest record size mismatch")
@@ -200,6 +221,8 @@ def parse_header(payload: bytes) -> dict[str, Any]:
         "max_game_ply",
         "opening_count",
     ]
+    if expanded:
+        generation_keys = generation_keys + EXPANSION_GENERATION_KEYS
     _require(
         isinstance(generation, dict) and list(generation) == generation_keys,
         "manifest generation object is incomplete or out of order",
@@ -238,7 +261,33 @@ def parse_header(payload: bytes) -> dict[str, Any]:
         and generation["opening_count"] > 0,
         "manifest generation values are outside the format domain",
     )
+    if expanded:
+        _require(
+            all(
+                0 <= generation[key] <= MAX_EXPANSION_CAP
+                for key in EXPANSION_GENERATION_KEYS
+            ),
+            "manifest expansion caps are outside the format domain",
+        )
+        # The three settings must agree, so the identity is a reliable statement
+        # about whether the payload can contain children.
+        _require(
+            (generation["expand_promo"] > 0 or generation["expand_check"] > 0)
+            and generation["expand_max_children"] > 0,
+            "manifest claims the R2 identity without a usable expansion budget",
+        )
     return manifest
+
+
+def manifest_expansion_ceiling(manifest: dict[str, Any]) -> int:
+    """Realised per-parent child ceiling, zero when the file carries V1 identity."""
+    if manifest.get("schema") != SCHEMA_R2_NAME:
+        return 0
+    generation = manifest["generation"]
+    return min(
+        generation["expand_promo"] + generation["expand_check"],
+        generation["expand_max_children"],
+    )
 
 
 def decode_board(record: bytes) -> list[int]:
@@ -341,7 +390,6 @@ def validate_record(record: bytes, index: int) -> dict[str, Any]:
     _require(side in (0, 1), f"record {index} has invalid side to move")
     _require(castling & ~0x03 == 0, f"record {index} has reserved castling bits")
     _require(ep_square <= 64, f"record {index} has invalid en-passant square")
-    _require(flags & 0x80 == 0, f"record {index} has reserved sample flags")
     if castling:
         _require(board[60] == 11, f"record {index} castling king is not on e8")
         _require(
@@ -380,11 +428,26 @@ def validate_record(record: bytes, index: int) -> dict[str, Any]:
             f"record {index} has no en-passant attacker",
         )
 
-    rule50, game_ply, score, best_move, played_move, result, reason = struct.unpack_from(
+    rule50, game_ply, score, best_move, played_move, result, outcome = struct.unpack_from(
         "<HHhHHbB", record, 36
     )
-    _require(result in (-1, 0, 1), f"record {index} has invalid result")
+    # HORDE_BIN_V1_R2 reader half: bits 0-2 carry the terminal reason, bits 3-5
+    # the expansion family, bits 6-7 stay reserved zero.
+    reason = outcome & 0x07
+    family = (outcome >> 3) & 0x07
+    _require(outcome & 0xC0 == 0, f"record {index} sets reserved outcome-byte bits")
     _require(reason in OUTCOME_NAMES, f"record {index} has invalid terminal reason")
+    _require(
+        family in EXPANSION_FAMILY_NAMES,
+        f"record {index} has an unregistered expansion family",
+    )
+    # The cross-check that makes expansion auditable: a record cannot claim to be
+    # a child in one field and a parent in the other.
+    _require(
+        bool(flags & 0x80) == (family != 0),
+        f"record {index} EXPANSION_CHILD flag disagrees with its expansion family",
+    )
+    _require(result in (-1, 0, 1), f"record {index} has invalid result")
     _require(
         (reason in (1, 2) and result in (-1, 1))
         or (reason in (3, 4, 5, 6) and result == 0),
@@ -426,6 +489,7 @@ def validate_record(record: bytes, index: int) -> dict[str, Any]:
         "played_move": played_move,
         "result": result,
         "reason": reason,
+        "family": family,
         "white_count": white_count,
     }
 
@@ -457,13 +521,43 @@ def validate_file(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     reasons: Counter[str] = Counter()
     white_buckets: Counter[str] = Counter()
     flags: Counter[str] = Counter()
+    families: Counter[str] = Counter()
+    children_per_parent: Counter[int] = Counter()
     promoted_white = 0
     ep_states = 0
     black_castling_states = 0
     scores: list[int] = []
+    ceiling = manifest_expansion_ceiling(manifest)
+    open_parent = False
+    run_length = 0
 
     for index, raw in enumerate(iter_records(payload)):
         record = validate_record(raw, index)
+        family = record["family"]
+        families[EXPANSION_FAMILY_NAMES[family]] += 1
+        if family == 0:
+            _require(
+                not (ceiling == 0 and record["flags"] & 0x80),
+                f"record {index} is a child in a file that declares no expansion",
+            )
+            if open_parent:
+                children_per_parent[run_length] += 1
+            open_parent = True
+            run_length = 0
+        else:
+            _require(
+                ceiling > 0,
+                f"record {index} carries an expansion family in a file that declares none",
+            )
+            _require(
+                open_parent,
+                f"record {index} is an expansion child with no preceding parent",
+            )
+            run_length += 1
+            _require(
+                run_length <= ceiling,
+                f"record {index} exceeds the declared per-parent child ceiling",
+            )
         sides["white" if record["side"] == 0 else "black"] += 1
         results[str(record["result"])] += 1
         reasons[OUTCOME_NAMES[record["reason"]]] += 1
@@ -477,11 +571,19 @@ def validate_file(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         for bit, name in FLAG_NAMES.items():
             flags[name] += int(bool(record["flags"] & (1 << bit)))
 
+    if open_parent:
+        children_per_parent[run_length] += 1
+
     summary = {
         "file": str(path.resolve()),
         "file_sha256": hashlib.sha256(payload).hexdigest().upper(),
         "payload_sha256": actual_payload_sha,
         "record_count": record_count,
+        "expansion": {
+            "ceiling": ceiling,
+            "families": dict(families),
+            "children_per_parent": {str(key): value for key, value in sorted(children_per_parent.items())},
+        },
         "sides": dict(sides),
         "results": dict(results),
         "outcome_reasons": dict(reasons),
@@ -514,7 +616,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.schema:
         observed = hashlib.sha256(args.schema.read_bytes()).hexdigest().upper()
-        _require(observed == SCHEMA_SHA256, f"schema file SHA-256 mismatch: {observed}")
+        _require(
+            observed in SCHEMA_IDENTITIES.values(),
+            f"schema file SHA-256 mismatch: {observed}",
+        )
 
     manifest, summary = validate_file(args.file)
     if args.expect_records is not None:
