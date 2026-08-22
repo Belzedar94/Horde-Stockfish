@@ -1580,7 +1580,13 @@ def _finalize_scale_binding(
     )
     return {
         "schema": SCALE_BINDING_SCHEMA,
-        "contract": {"schema": SCALE_CONTRACT_SCHEMA, "sha256": contract_sha256},
+        # The contract names itself. Stamping one registered schema on every
+        # binding would record the wrong provenance the moment a second scale
+        # contract exists, which is exactly what corpus A introduces.
+        "contract": {
+            "schema": str(contract.get("schema_name")),
+            "sha256": contract_sha256,
+        },
         "campaign_id": contract["openbench"]["campaign_id"],
         "cohort": contract["openbench"]["cohort"],
         "train_chunk_set_sha256": train_file["chunk_set_sha256"],
