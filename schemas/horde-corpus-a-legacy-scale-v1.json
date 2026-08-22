@@ -1,0 +1,176 @@
+{
+  "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-corpus-a-legacy-scale-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "NOTE": "This contract owns the corpus A data. The chunk sets are assembled and authenticated under it, and their receipts are never rewritten. The V3 contract for the same corpus declares this one as its data campaign, because data provenance and recipe provenance are independent axes.",
+  "books": {
+    "complete_partition": true,
+    "disjoint": true,
+    "reflection_safe": true,
+    "source": {
+      "name": "HORDE_openings_v3.epd",
+      "raw_sha256": "E09630E8A0A7D28028E2B02131E82A176DD2D8B18634D671F93E230F9D14F304",
+      "records": 1500
+    },
+    "training": {
+      "name": "HORDE_openings_v3_train.epd",
+      "raw_sha256": "1DC2DD829962CD29FA98CAFC1B0613AC2FCAAFF088B65977E10AAEAF76E96A55",
+      "records": 1203
+    },
+    "validation": {
+      "name": "HORDE_openings_v3_validation.epd",
+      "raw_sha256": "81FD618F879F04D732D462713BCB75BC6F157C9B4CD9E4D6829D3169DAD0BF4A",
+      "records": 297
+    }
+  },
+  "claims": {
+    "architecture_selection": false,
+    "production_network": false,
+    "strength_evidence": false
+  },
+  "dependencies": {
+    "architecture_selection": {
+      "note": "the legacy control topology, unchanged; this contract binds the data",
+      "path": "docs/horde/nnue-v3-design.md",
+      "selected_architecture": "fresh-legacy-hp"
+    },
+    "book_split_schema": "HORDE_TRAINING_BOOK_SPLIT_V2",
+    "dataset": {
+      "schema": "HORDE_BIN_V1_R2",
+      "schema_sha256": "013BF155072149A766B54A391ADBCB3EB1C539F49362EB06CA4E1530AE22B6A6"
+    },
+    "labels": {
+      "schema": "HORDE_LABEL_CONTRACT_V1",
+      "schema_sha256": "C299BA9ECD96DEF24363F8F62A8C67B88241AA860FB0735D4558B8EFEA0DCC22"
+    },
+    "openbench": {
+      "environment_contract_sha256": "310D337236145781F7EBF75437014F9EDA5E359DCC99A8323D8F607F316E3E36",
+      "producer_contract_sha256": "B3CFFF3248705F63168F19D154DF27989159840CA093A7F429F0382A161C0BB0",
+      "publication_contract_sha256": {
+        "training": "0E160055B7B5E1233A56F2AF50627653BAEF782CE502D8A2DCC36D63374185A5",
+        "validation_candidate": "FC86B1F5F2368661059C7DEBC7181F5F4A10B6883B9D52A75DF5A7B97A5AD05A"
+      }
+    },
+    "overlap_audit_schema": "HORDE_TRAINING_ROLE_OVERLAP_AUDIT_V1",
+    "selected_validation_schema": "HORDE_TRAINING_SELECTED_ROLE_V1",
+    "teacher": {
+      "network_schema": "HORDETEST_HP_LEGACY_V1",
+      "network_sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7",
+      "producer_sha256": [
+        "3C05E6A285C9B59FEBEFCFFDD4EFD79FD38E3691C9147F53C6F134EA045D252F",
+        "98988E6A734286BCE064CFF00EE91B61263375CF7E188593E8D0514F9CD6D5C5",
+        "B07133BE0DC967E96905D6C0C1B56867F9285E6EBB0259CD2039F2F950B1B8BF",
+        "DEB6C45789473F25FFA1778CAA752357445C6C5DFB605C72BB8A7556722EB6E5"
+      ],
+      "source_commit": "0f0872e5f8d94fdf7f34d1e2f2cb4634fbea25e4"
+    },
+    "wdl_calibration_schema": "HORDE_WDL_CALIBRATION_V1"
+  },
+  "gates": {
+    "authenticated_chunk_receipts": true,
+    "complete_training_receipt": true,
+    "fresh_wdl_calibration_from_exact_training_role": true,
+    "integer_export": true,
+    "parents_only_validation_role": true,
+    "three_time_control_equal_time_gate_against_run6b": true,
+    "wrong_network_rejected": true,
+    "zero_cross_role_overlap": true
+  },
+  "generation": {
+    "common": {
+      "depth": 64,
+      "expand_check": 2,
+      "expand_max_children": 5,
+      "expand_promo": 2,
+      "hash_mb": 16,
+      "max_game_ply": 300,
+      "nodes": 10000,
+      "random_move_count": 4,
+      "random_move_max_ply": 16,
+      "random_move_min_ply": 4,
+      "random_multi_pv": 4,
+      "random_multi_pv_diff": 100,
+      "write_max_ply": 200,
+      "write_min_ply": 5
+    },
+    "training": {
+      "base_seed": 202608200100000,
+      "chunk_count": 800,
+      "chunk_order": "chunk index ascending",
+      "expected_seed": "base_seed + chunk_index",
+      "positions_per_chunk": 250000,
+      "producer_sha256": [
+        "3C05E6A285C9B59FEBEFCFFDD4EFD79FD38E3691C9147F53C6F134EA045D252F",
+        "98988E6A734286BCE064CFF00EE91B61263375CF7E188593E8D0514F9CD6D5C5",
+        "DEB6C45789473F25FFA1778CAA752357445C6C5DFB605C72BB8A7556722EB6E5"
+      ],
+      "records": 200000000
+    },
+    "validation_candidate": {
+      "base_seed": 202608200300000,
+      "chunk_count": 8,
+      "chunk_order": "chunk index ascending",
+      "expected_seed": "base_seed + chunk_index",
+      "positions_per_chunk": 250000,
+      "producer_sha256": [
+        "B07133BE0DC967E96905D6C0C1B56867F9285E6EBB0259CD2039F2F950B1B8BF"
+      ],
+      "records": 2000000
+    }
+  },
+  "openbench": {
+    "campaign_id": "horde-corpus-a-20260820",
+    "cohort": "run6b-n10k-v3-split-expand2x2",
+    "publication_protocol": 41,
+    "training_workload_id": "train-200m-expanded",
+    "validation_cohort": "run6b-n10k-v3-split-expand2x2-val",
+    "validation_workload_id": "validation-candidate-2m-expanded"
+  },
+  "purpose": "Answer whether 10,000 node labels break the ceiling the 50M corpus could not: the depth-4 champion loses about 220 Elo to its own teacher. The legacy run is the gate, and the V3 run is the architecture rematch on labels that see the pawns. Neither is strength evidence until the boards at three time controls say so.",
+  "schema_name": "HORDE_CORPUS_A_LEGACY_SCALE_V1",
+  "status": "registered_not_run",
+  "title": "Horde corpus A legacy campaign V1",
+  "training": {
+    "architecture": {
+      "name": "fresh-legacy-hp",
+      "schema": "HORDETEST_HP_FRESH_CONTROL_V1"
+    },
+    "batch_size": 4096,
+    "block_size": 65536,
+    "checkpoint_steps": [
+      8192,
+      16384,
+      24576,
+      32768,
+      40960,
+      48829
+    ],
+    "dense_learning_rate_multiplier": 0.1,
+    "device": {
+      "cpu_threads": 1,
+      "expected_name": "NVIDIA GeForce RTX 3080",
+      "type": "cuda"
+    },
+    "epochs": 1,
+    "lambda": 1.0,
+    "learning_rate": 0.0015,
+    "optimizer": "torch.optim.RAdam",
+    "optimizer_steps": 48829,
+    "output_learning_rate_multiplier": 0.1,
+    "resume_must_be_bit_exact": true,
+    "scheduler_gamma": 0.987,
+    "seed": 4431809517202381621,
+    "training_example_exposures": 200000000
+  },
+  "validation_selection": {
+    "algorithm": "FIRST_ELIGIBLE_DUAL_KEY_V1",
+    "candidate_order": "chunk index ascending, then local record index ascending",
+    "insufficient_candidate_records_fail_closed": true,
+    "label_blind": true,
+    "parents_only": true,
+    "reject_selected_legacy_model_input_duplicate": true,
+    "reject_selected_physical_duplicate": true,
+    "reject_training_legacy_model_input_key": true,
+    "reject_training_physical_key": true,
+    "target_records": 250000
+  }
+}

@@ -63,13 +63,14 @@ CORPUS_A_LEGACY_CONTRACT_SCHEMA = "HORDE_CORPUS_A_LEGACY_SCALE_V1"
 CORPUS_A_LEGACY_CONTRACT_RELATIVE_PATH = Path(
     "schemas/horde-corpus-a-legacy-scale-v1.json"
 )
-# Empty until the contract file is written and its hash is pinned here. An empty
-# pin can never equal a digest, so the schema is registered and unusable rather
-# than registered and unchecked.
-CORPUS_A_LEGACY_CONTRACT_SHA256 = ""
+CORPUS_A_LEGACY_CONTRACT_SHA256 = (
+    "2708D6B1C426ACD2B8F41A7C4CD945FC9E8E8F25DCC7C876C92384CA54C7E91E"
+)
 CORPUS_A_V3_CONTRACT_SCHEMA = "HORDE_CORPUS_A_V3_SCALE_V1"
 CORPUS_A_V3_CONTRACT_RELATIVE_PATH = Path("schemas/horde-corpus-a-v3-scale-v1.json")
-CORPUS_A_V3_CONTRACT_SHA256 = ""
+CORPUS_A_V3_CONTRACT_SHA256 = (
+    "21D181D4E6AD9223B7732EF9405780BE6B80798252BDF523CA1F1A9448D65B5F"
+)
 
 # Every registered scale contract, keyed by its schema name. A contract is
 # accepted only when its own SHA-256 matches the entry pinned here, and each
