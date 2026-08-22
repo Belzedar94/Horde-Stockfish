@@ -54,6 +54,12 @@ class AggregatedLabels:
     mate_counts: tuple[int, int]
     selection_sha256: str
     eligible_sha256: str
+    # HORDE_BIN_V1_R2: children excluded because the fit was restricted to
+    # parents. Zero for every corpus that has no children, so a plain corpus
+    # produces the artifact it always produced.
+    parents_only: bool = False
+    child_records_excluded: int = 0
+    child_counts: tuple[int, int] = (0, 0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,23 +129,45 @@ def probabilities(score: float, parameters: Sequence[float]) -> tuple[float, flo
     return loss / total, draw / total, win / total
 
 
-def aggregate_labels(dataset: HordeBinV1Dataset) -> AggregatedLabels:
-    """Aggregate sufficient score/result statistics in one bounded-memory pass."""
+def aggregate_labels(
+    dataset: HordeBinV1Dataset,
+    *,
+    parents_only: bool = False,
+) -> AggregatedLabels:
+    """Aggregate sufficient score/result statistics in one bounded-memory pass.
+
+    With ``parents_only`` the fit sees self-play line samples and not expansion
+    children. A child inherits its parent's game result, so counting it as an
+    independent observation reweights the very score-to-result mapping the fit
+    exists to measure, and it reweights it hardest in exactly the tactical
+    positions expansion targets.
+
+    A child is excluded the same way a mate score is: it enters the selection
+    digest marked ineligible, so the digest still describes every record the
+    pass saw and what was decided about it.
+    """
 
     histograms = (array("Q", [0]) * (SCORE_DOMAIN * 3), array("Q", [0]) * (SCORE_DOMAIN * 3))
     class_counts = [[0, 0, 0], [0, 0, 0]]
     mate_counts = [0, 0]
+    child_counts = [0, 0]
     selection_digest = hashlib.sha256()
     eligible_digest = hashlib.sha256()
     eligible_records = 0
 
     for index in range(len(dataset)):
         side, score, result, reason = dataset.label(index)
-        eligible = abs(score) < MATE_SCORE_THRESHOLD
+        is_child = parents_only and dataset.expansion_family(index) != 0
+        eligible = abs(score) < MATE_SCORE_THRESHOLD and not is_child
         encoded = struct.pack("<QBhbBB", index, side, score, result, reason, int(eligible))
         selection_digest.update(encoded)
         if not eligible:
-            mate_counts[side] += 1
+            # A child that also carries a mate score is counted once, as a
+            # child, so the two exclusions never double count.
+            if is_child:
+                child_counts[side] += 1
+            else:
+                mate_counts[side] += 1
             continue
 
         result_index = RESULT_INDEX[result]
@@ -171,6 +199,9 @@ def aggregate_labels(dataset: HordeBinV1Dataset) -> AggregatedLabels:
         mate_counts=(mate_counts[WHITE], mate_counts[BLACK]),
         selection_sha256=selection_digest.hexdigest().upper(),
         eligible_sha256=eligible_digest.hexdigest().upper(),
+        parents_only=parents_only,
+        child_records_excluded=sum(child_counts),
+        child_counts=(child_counts[WHITE], child_counts[BLACK]),
     )
 
 
@@ -467,8 +498,18 @@ def build_artifact(
     )
     _require(
         aggregated.total_records
-        == aggregated.eligible_records + aggregated.mate_records_excluded,
+        == aggregated.eligible_records
+        + aggregated.mate_records_excluded
+        + aggregated.child_records_excluded,
         "WDL aggregation record accounting is inconsistent",
+    )
+    _require(
+        aggregated.child_records_excluded == sum(aggregated.child_counts),
+        "WDL aggregation child accounting is inconsistent",
+    )
+    _require(
+        aggregated.parents_only or aggregated.child_records_excluded == 0,
+        "WDL aggregation excluded children without being restricted to parents",
     )
     _require(
         aggregated.eligible_records == sum(sum(counts) for counts in aggregated.class_counts),
@@ -533,6 +574,20 @@ def build_artifact(
             "mate_counts_by_side": {
                 SIDE_NAMES[side]: aggregated.mate_counts[side] for side in (WHITE, BLACK)
             },
+            # Emitted only for a parents-only fit, so a plain corpus produces
+            # the artifact it always produced, byte for byte.
+            **(
+                {
+                    "parents_only": True,
+                    "child_records_excluded": aggregated.child_records_excluded,
+                    "child_counts_by_side": {
+                        SIDE_NAMES[side]: aggregated.child_counts[side]
+                        for side in (WHITE, BLACK)
+                    },
+                }
+                if aggregated.parents_only
+                else {}
+            ),
         },
         "fit": {
             "objective": "unweighted mean categorical negative log likelihood",
@@ -663,21 +718,39 @@ def validate_artifact(payload: object) -> dict[str, tuple[float, float, float]]:
 
     selection = payload.get("selection")
     _require(isinstance(selection, dict), "WDL calibration selection is missing")
+    base_fields = {
+        "total_records",
+        "eligible_records",
+        "mate_records_excluded",
+        "mate_threshold",
+        "mate_policy",
+        "selection_sha256",
+        "eligible_records_sha256",
+        "class_counts_by_side",
+        "mate_counts_by_side",
+    }
+    # The parents-only fields arrived with HORDE_BIN_V1_R2. An artifact fitted
+    # before the revision existed carries neither them nor any children, and it
+    # stays valid: the frozen calibration is the comparability currency of the
+    # V2 era and nothing here may retire it. The three fields travel together,
+    # so a partially rewritten artifact still fails closed.
+    expansion_fields = {
+        "parents_only",
+        "child_records_excluded",
+        "child_counts_by_side",
+    }
+    observed = set(selection)
     _require(
-        set(selection)
-        == {
-            "total_records",
-            "eligible_records",
-            "mate_records_excluded",
-            "mate_threshold",
-            "mate_policy",
-            "selection_sha256",
-            "eligible_records_sha256",
-            "class_counts_by_side",
-            "mate_counts_by_side",
-        },
+        observed == base_fields or observed == base_fields | expansion_fields,
         "WDL calibration selection fields are incomplete",
     )
+    if not (observed & expansion_fields):
+        selection = {
+            **selection,
+            "parents_only": False,
+            "child_records_excluded": 0,
+            "child_counts_by_side": {name: 0 for name in SIDE_NAMES.values()},
+        }
     _require(selection.get("mate_threshold") == MATE_SCORE_THRESHOLD, "WDL mate threshold mismatch")
     _require(
         selection.get("mate_policy")
@@ -688,10 +761,26 @@ def validate_artifact(payload: object) -> dict[str, tuple[float, float, float]]:
         type(selection.get("total_records")) is int
         and type(selection.get("eligible_records")) is int
         and type(selection.get("mate_records_excluded")) is int
+        and type(selection.get("child_records_excluded")) is int
         and selection["total_records"]
-        == selection["eligible_records"] + selection["mate_records_excluded"]
+        == selection["eligible_records"]
+        + selection["mate_records_excluded"]
+        + selection["child_records_excluded"]
         == training_file["records"],
         "WDL selection record accounting is inconsistent",
+    )
+    _require(
+        type(selection.get("parents_only")) is bool
+        and (selection["parents_only"] or selection["child_records_excluded"] == 0),
+        "WDL selection excluded children without being restricted to parents",
+    )
+    child_counts = selection.get("child_counts_by_side")
+    _require(
+        isinstance(child_counts, dict)
+        and set(child_counts) == set(SIDE_NAMES.values())
+        and all(type(count) is int and count >= 0 for count in child_counts.values())
+        and sum(child_counts.values()) == selection["child_records_excluded"],
+        "WDL child-count accounting is inconsistent",
     )
     _require(
         all(

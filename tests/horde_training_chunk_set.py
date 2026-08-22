@@ -62,6 +62,10 @@ def _write_contract(path: Path) -> None:
                 "schema": wire.LABEL_CONTRACT_NAME,
                 "schema_sha256": wire.LABEL_CONTRACT_SHA256,
             },
+            "dataset": {
+                "schema": wire.SCHEMA_NAME,
+                "schema_sha256": wire.SCHEMA_SHA256,
+            },
         },
         "openbench": {
             "campaign_id": "fixture-rank8-scale",

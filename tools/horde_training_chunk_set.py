@@ -38,7 +38,12 @@ SCHEMA_SHA256 = "CAAF9D19B4A04BA8854FDBC24B4A7D1948577B17FB652E39EF4DB4287BB0DD4
 SCALE_SCHEMA = "HORDE_V2_RANK8_SCALE_V1"
 # Contract vocabularies this tool can read. A contract still binds exactly one
 # architecture; that binding lives in the scale-contract registry, not here.
-SCALE_SCHEMAS = {SCALE_SCHEMA, "HORDE_V3_SCALE_V1"}
+SCALE_SCHEMAS = {
+    SCALE_SCHEMA,
+    "HORDE_V3_SCALE_V1",
+    "HORDE_CORPUS_A_LEGACY_SCALE_V1",
+    "HORDE_CORPUS_A_V3_SCALE_V1",
+}
 
 # HORDE_DATA_CAMPAIGN_V1.  Data provenance and recipe provenance are independent
 # axes. A contract that trains a new architecture on an existing corpus does not
@@ -80,6 +85,23 @@ GENERATION_COMMON_FIELDS = (
     "max_game_ply",
     "opening_count",
 )
+# The expansion caps are generation settings like any other, so they belong in
+# the authenticated common manifest: without them a chunk generated at 4/4/8
+# assembles into a campaign that declares 2/2/5 and nothing objects.
+#
+# They are added ONLY under the revision identity. A contract that declares the
+# plain identity keeps the twelve fields above, byte for byte, so every receipt
+# already written re-authenticates unchanged and the registered contracts whose
+# SHA-256 is pinned stay correct for the roles they describe.
+EXPANSION_COMMON_FIELDS = tuple(wire.EXPANSION_GENERATION_KEYS)
+DATASET_FIELDS = {"schema", "schema_sha256", "source", "expansion_common_fields"}
+DATASET_SOURCE = "campaign contract dependencies.dataset"
+
+
+def _generation_common_fields(dataset_schema: str) -> tuple[str, ...]:
+    if dataset_schema == wire.SCHEMA_R2_NAME:
+        return GENERATION_COMMON_FIELDS + EXPANSION_COMMON_FIELDS
+    return GENERATION_COMMON_FIELDS
 FORMAT_FIELDS = (
     "schema",
     "schema_sha256",
@@ -262,6 +284,7 @@ class CampaignExpectation:
     book_sha256: str
     generation_common: dict[str, int]
     data_campaign: dict[str, str]
+    dataset: dict[str, str]
 
 
 def load_campaign_expectation(contract_path: Path, role: str) -> CampaignExpectation:
@@ -283,6 +306,21 @@ def load_campaign_expectation(contract_path: Path, role: str) -> CampaignExpecta
     teacher = _mapping(dependencies.get("teacher"), "campaign teacher")
     labels = _mapping(dependencies.get("labels"), "campaign labels")
 
+    # The record format the campaign was generated under is declared, not
+    # assumed. Corpus A is HORDE_BIN_V1_R2 and the 50M corpus is HORDE_BIN_V1;
+    # a tool that hardcodes either one can only ever read half the corpora.
+    dataset = _mapping(dependencies.get("dataset"), "campaign dataset")
+    dataset_schema = dataset.get("schema")
+    dataset_sha256 = dataset.get("schema_sha256")
+    _require(
+        isinstance(dataset_schema, str)
+        and dataset_schema in wire.SCHEMA_IDENTITIES
+        and dataset_sha256 == wire.SCHEMA_IDENTITIES[dataset_schema],
+        "campaign dataset identity is not a registered HORDE_BIN_V1 identity",
+    )
+    dataset_schema = str(dataset_schema)
+    generation_fields = _generation_common_fields(dataset_schema)
+
     records = role_generation.get("records")
     positions_per_chunk = role_generation.get("positions_per_chunk")
     chunk_count = role_generation.get("chunk_count")
@@ -302,7 +340,7 @@ def load_campaign_expectation(contract_path: Path, role: str) -> CampaignExpecta
     assert isinstance(base_seed, int)
     _require(records == positions_per_chunk * chunk_count, f"campaign {role} totals drifted")
 
-    expected_common_keys = set(GENERATION_COMMON_FIELDS) - {"opening_count"}
+    expected_common_keys = set(generation_fields) - {"opening_count"}
     _require(
         set(common_generation) == expected_common_keys,
         "campaign common generation fields are incomplete or unexpected",
@@ -415,6 +453,15 @@ def load_campaign_expectation(contract_path: Path, role: str) -> CampaignExpecta
         book_sha256=str(book_sha256),
         generation_common=generation_common,
         data_campaign=data_campaign,
+        dataset={
+            "schema": dataset_schema,
+            "schema_sha256": str(dataset_sha256),
+            "source": DATASET_SOURCE,
+            "expansion_common_fields": list(
+                EXPANSION_COMMON_FIELDS
+                if dataset_schema == wire.SCHEMA_R2_NAME else ()
+            ),
+        },
     )
 
 
@@ -470,27 +517,32 @@ def _producer_set_identity(allowed: Sequence[str]) -> str:
     return digest.hexdigest().upper()
 
 
-def _common_manifest_identity(manifest: Mapping[str, Any]) -> dict[str, object]:
+def _common_manifest_identity(
+    manifest: Mapping[str, Any],
+    fields: Sequence[str] = GENERATION_COMMON_FIELDS,
+) -> dict[str, object]:
     """Fields every chunk in a role must share EXACTLY.
 
     `producer_sha256` is deliberately absent: it is per-chunk and checked for
     membership by `_validate_chunk_manifest`.
     """
     generation = _mapping(manifest.get("generation"), "chunk generation")
+    for field in fields:
+        _require(field in generation, f"chunk generation is missing {field}")
     return {
         "source_commit": str(manifest["source_commit"]).lower(),
         "source_dirty": manifest["source_dirty"],
         "network": manifest["network"],
         "book_sha256": manifest["book_sha256"],
         "label_contract": manifest["label_contract"],
-        "generation": {field: generation[field] for field in GENERATION_COMMON_FIELDS},
+        "generation": {field: generation[field] for field in fields},
     }
 
 
-def _expected_format() -> dict[str, object]:
+def _expected_format(expectation: CampaignExpectation) -> dict[str, object]:
     return {
-        "schema": wire.SCHEMA_NAME,
-        "schema_sha256": wire.SCHEMA_SHA256,
+        "schema": expectation.dataset["schema"],
+        "schema_sha256": expectation.dataset["schema_sha256"],
         "format_version": wire.FORMAT_VERSION,
         "header_bytes": wire.HEADER_SIZE,
         "record_bytes": wire.RECORD_SIZE,
@@ -516,12 +568,17 @@ def _validate_chunk_manifest(
     manifest: Mapping[str, Any],
     expectation: CampaignExpectation,
 ) -> int:
-    _require(_format_identity(manifest) == _expected_format(), "chunk format identity drifted")
+    _require(
+        _format_identity(manifest) == _expected_format(expectation),
+        "chunk format identity drifted",
+    )
     expected_common = dict(_expected_common(expectation))
     expected_common.pop("producer_sha256", None)
     expected_common.pop("producer_sha256_allowed", None)
     _require(
-        _common_manifest_identity(manifest) == expected_common,
+        _common_manifest_identity(
+            manifest, _generation_common_fields(expectation.dataset["schema"])
+        ) == expected_common,
         "chunk common manifest identity drifted",
     )
     _require(
@@ -582,7 +639,7 @@ def _chunk_set_identity_document(receipt: Mapping[str, Any]) -> dict[str, object
     }
     chunks = receipt.get("chunks")
     _require(isinstance(chunks, list), "receipt chunks are not a list")
-    return {
+    document = {
         "schema": receipt["schema"],
         "schema_sha256": receipt["schema_sha256"],
         "campaign": campaign_identity,
@@ -592,6 +649,11 @@ def _chunk_set_identity_document(receipt: Mapping[str, Any]) -> dict[str, object
         "ordering": receipt["ordering"],
         "chunks": [_identity_chunk(_mapping(chunk, "receipt chunk")) for chunk in chunks],
     }
+    # Present only under the revision identity, so a plain-identity receipt
+    # keeps the identity it was written with.
+    if "dataset" in receipt:
+        document["dataset"] = receipt["dataset"]
+    return document
 
 
 def _logical_payload_sha256(paths: Sequence[Path]) -> str:
@@ -676,7 +738,7 @@ def assemble_chunk_set(
         "schema_sha256": SCHEMA_SHA256,
         "campaign": _campaign_section(expectation),
         "role": role,
-        "format": _expected_format(),
+        "format": _expected_format(expectation),
         "common_manifest": _expected_common(expectation),
         "ordering": _ordering_section(expectation),
         "chunks": entries,
@@ -710,6 +772,12 @@ def assemble_chunk_set(
             "passed": True,
         },
     }
+    # Under the revision identity the receipt states what the contract declared,
+    # so a reader never has to infer it from the fact that the match succeeded.
+    # A plain-identity receipt does not carry the block at all, which is what
+    # keeps every receipt written before this change byte for byte valid.
+    if expectation.dataset["schema"] == wire.SCHEMA_R2_NAME:
+        receipt["dataset"] = dict(expectation.dataset)
     identity = _sha256_bytes(_canonical_bytes(_chunk_set_identity_document(receipt)))
     _mapping(receipt["identity"], "receipt identity")["chunk_set_sha256"] = identity
     payload = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8")
@@ -750,7 +818,31 @@ class HordeChunkSetDataset:
             "identity",
             "gates",
         }
+        # The dataset block is required exactly when the receipt carries the
+        # revision identity, and forbidden otherwise. Fail closed both ways:
+        # a plain-identity receipt that grew the block, or a revision receipt
+        # that lost it, is not the receipt that was written.
+        receipt_format = _mapping(self.receipt.get("format"), "receipt format")
+        if receipt_format.get("schema") == wire.SCHEMA_R2_NAME:
+            expected_top = expected_top | {"dataset"}
         _require(set(self.receipt) == expected_top, "chunk-set receipt fields are incomplete")
+        if "dataset" in expected_top:
+            dataset = _mapping(self.receipt["dataset"], "receipt dataset")
+            _require(set(dataset) == DATASET_FIELDS,
+                     "receipt dataset fields are incomplete")
+            _require(
+                dataset.get("schema") == receipt_format.get("schema")
+                and dataset.get("schema_sha256")
+                == receipt_format.get("schema_sha256"),
+                "receipt dataset identity disagrees with the receipt format",
+            )
+            _require(dataset.get("source") == DATASET_SOURCE,
+                     "receipt dataset source drifted")
+            _require(
+                list(dataset.get("expansion_common_fields") or ())
+                == list(EXPANSION_COMMON_FIELDS),
+                "receipt dataset does not authenticate the expansion settings",
+            )
         _require(self.receipt["schema"] == SCHEMA, "chunk-set receipt schema mismatch")
         _require(self.receipt["schema_sha256"] == SCHEMA_SHA256, "chunk-set schema SHA-256 mismatch")
         role = self.receipt["role"]
@@ -802,8 +894,11 @@ class HordeChunkSetDataset:
             "receipt common manifest fields are incomplete",
         )
         common_generation = _mapping(common_manifest.get("generation"), "common generation")
+        receipt_fields = _generation_common_fields(
+            str(receipt_format.get("schema"))
+        )
         _require(
-            set(common_generation) == set(GENERATION_COMMON_FIELDS),
+            set(common_generation) == set(receipt_fields),
             "receipt common generation fields are incomplete",
         )
         _require(common_manifest.get("source_dirty") is False, "receipt source is dirty")
@@ -858,7 +953,15 @@ class HordeChunkSetDataset:
             expectation = load_campaign_expectation(contract_path, str(role))
             _require(campaign == _campaign_section(expectation), "receipt campaign identity drifted")
             _require(ordering == _ordering_section(expectation), "receipt ordering contract drifted")
-            _require(self.receipt["format"] == _expected_format(), "receipt format drifted")
+            _require(
+                self.receipt["format"] == _expected_format(expectation),
+                "receipt format drifted",
+            )
+            _require(
+                self.receipt.get("dataset", expectation.dataset)
+                == expectation.dataset,
+                "receipt dataset identity drifted from the contract",
+            )
             _require(
                 self.receipt["common_manifest"] == _expected_common(expectation),
                 "receipt common manifest drifted",
@@ -869,7 +972,17 @@ class HordeChunkSetDataset:
                 "receipt campaign schema drifted",
             )
             _require(_valid_sha256(campaign.get("contract_sha256")), "receipt contract SHA-256 is invalid")
-            _require(self.receipt["format"] == _expected_format(), "receipt format drifted")
+            _require(
+                set(receipt_format) == set(FORMAT_FIELDS)
+                and receipt_format.get("schema") in wire.SCHEMA_IDENTITIES
+                and receipt_format.get("schema_sha256")
+                == wire.SCHEMA_IDENTITIES[str(receipt_format.get("schema"))]
+                and receipt_format.get("format_version") == wire.FORMAT_VERSION
+                and receipt_format.get("header_bytes") == wire.HEADER_SIZE
+                and receipt_format.get("record_bytes") == wire.RECORD_SIZE
+                and receipt_format.get("byte_order") == "little",
+                "receipt format drifted",
+            )
 
         root = self.path.parent.resolve()
         expected_index = 0
@@ -916,7 +1029,8 @@ class HordeChunkSetDataset:
                 receipt_common.pop("producer_sha256", None)
                 receipt_allowed = receipt_common.pop("producer_sha256_allowed", [])
                 _require(
-                    _common_manifest_identity(manifest) == receipt_common,
+                    _common_manifest_identity(manifest, receipt_fields)
+                    == receipt_common,
                     "receipt chunk common manifest identity drifted",
                 )
                 _require(
@@ -1063,6 +1177,11 @@ class HordeChunkSetDataset:
     def label(self, index: int) -> tuple[int, int, int, int]:
         decoded = wire.validate_record(self.raw_record(index), index)
         return decoded["side"], decoded["score"], decoded["result"], decoded["reason"]
+
+    def expansion_family(self, index: int) -> int:
+        """0 for a self-play line sample, 1-3 for an expansion child."""
+
+        return int(wire.validate_record(self.raw_record(index), index)["family"])
 
     def batches(self, batch_size: int) -> Iterator[SparseBatch]:
         _require(batch_size > 0, f"invalid batch size {batch_size}")

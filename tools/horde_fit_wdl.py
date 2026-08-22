@@ -73,8 +73,9 @@ def fit(args: argparse.Namespace) -> dict[str, object]:
         if chunk_set
         else HordeBinV1Dataset(train)
     )
+    parents_only = bool(getattr(args, "parents_only", False))
     with dataset_context as dataset:
-        aggregated = aggregate_labels(dataset)
+        aggregated = aggregate_labels(dataset, parents_only=parents_only)
         manifest = dataset.manifest
         payload_sha256 = manifest.get("payload_sha256") or manifest.get(
             "logical_payload_sha256"
@@ -128,6 +129,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="interpret train as an authenticated Horde chunk-set receipt",
     )
     parser.add_argument("--contract", type=Path)
+    parser.add_argument(
+        "--parents-only",
+        action="store_true",
+        help=(
+            "fit on self-play line samples only, excluding expansion children, "
+            "which inherit their parent's result and are not independent"
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--minimum-class-support", type=int, default=32)
     return parser.parse_args(argv)

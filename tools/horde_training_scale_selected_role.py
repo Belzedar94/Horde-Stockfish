@@ -55,6 +55,21 @@ CONTRACT_SHA256 = "B8A8512D32930C88CAD0248C05A2AAD3B2CE8E2096A46DCAB84D87F1C532E
 V3_CONTRACT_SCHEMA = "HORDE_V3_SCALE_V1"
 V3_CONTRACT_RELATIVE_PATH = Path("schemas/horde-v3-scale-v1.json")
 V3_CONTRACT_SHA256 = "5D12E05E0E383B0FA58D97BC8CF35016BB0E9019C3D6AAC40F9A725E4281E71C"
+# Corpus A: 200M records at a 10,000 node teacher budget with promotion and
+# check expansion, so HORDE_BIN_V1_R2. Two contracts, one corpus. The legacy
+# contract owns the data; the V3 contract declares it, exactly as the V3 scale
+# contract declares the Rank8 campaign that produced the 50M corpus.
+CORPUS_A_LEGACY_CONTRACT_SCHEMA = "HORDE_CORPUS_A_LEGACY_SCALE_V1"
+CORPUS_A_LEGACY_CONTRACT_RELATIVE_PATH = Path(
+    "schemas/horde-corpus-a-legacy-scale-v1.json"
+)
+# Empty until the contract file is written and its hash is pinned here. An empty
+# pin can never equal a digest, so the schema is registered and unusable rather
+# than registered and unchecked.
+CORPUS_A_LEGACY_CONTRACT_SHA256 = ""
+CORPUS_A_V3_CONTRACT_SCHEMA = "HORDE_CORPUS_A_V3_SCALE_V1"
+CORPUS_A_V3_CONTRACT_RELATIVE_PATH = Path("schemas/horde-corpus-a-v3-scale-v1.json")
+CORPUS_A_V3_CONTRACT_SHA256 = ""
 
 # Every registered scale contract, keyed by its schema name. A contract is
 # accepted only when its own SHA-256 matches the entry pinned here, and each
@@ -69,6 +84,16 @@ SCALE_CONTRACTS: dict[str, dict[str, object]] = {
     V3_CONTRACT_SCHEMA: {
         "relative_path": V3_CONTRACT_RELATIVE_PATH,
         "sha256": V3_CONTRACT_SHA256,
+        "architecture": "v3-g1024-pawn-wpc8",
+    },
+    CORPUS_A_LEGACY_CONTRACT_SCHEMA: {
+        "relative_path": CORPUS_A_LEGACY_CONTRACT_RELATIVE_PATH,
+        "sha256": CORPUS_A_LEGACY_CONTRACT_SHA256,
+        "architecture": "fresh-legacy-hp",
+    },
+    CORPUS_A_V3_CONTRACT_SCHEMA: {
+        "relative_path": CORPUS_A_V3_CONTRACT_RELATIVE_PATH,
+        "sha256": CORPUS_A_V3_CONTRACT_SHA256,
         "architecture": "v3-g1024-pawn-wpc8",
     },
 }
@@ -92,6 +117,11 @@ REJECT_TRAIN_PHYSICAL = 1
 REJECT_TRAIN_LEGACY = 2
 REJECT_SELECTED_PHYSICAL = 4
 REJECT_SELECTED_LEGACY = 8
+# HORDE_BIN_V1_R2: the candidate is an expansion child. It carries its parent's
+# game result and sits one move from a position the training role already holds,
+# so it is not an independent validation sample. The dual-key index cannot catch
+# it, because a child is a different position from its parent.
+REJECT_CHILD = 16
 
 
 class ScaleSelectedRoleError(ValueError):
@@ -214,6 +244,10 @@ def load_contract(
     _require(schema_name in SCALE_CONTRACTS, f"unknown scale contract schema: {schema_name}")
     registered = SCALE_CONTRACTS[str(schema_name)]
     _require(
+        allow_fixture or bool(registered["sha256"]),
+        f"scale contract {schema_name} is registered without a pinned SHA-256",
+    )
+    _require(
         allow_fixture or digest == registered["sha256"],
         f"scale contract SHA-256 mismatch: {digest}",
     )
@@ -223,11 +257,24 @@ def load_contract(
     training = _mapping(generation.get("training"), "training generation")
     candidate = _mapping(generation.get("validation_candidate"), "candidate generation")
     selection = _mapping(contract.get("validation_selection"), "validation selection")
+    # The record format is declared by the contract, not assumed by the tool:
+    # the 50M corpus is HORDE_BIN_V1 and corpus A is HORDE_BIN_V1_R2.
+    dataset_schema = dependencies.get("dataset", {}).get("schema")
     _require(
         dependencies.get("selected_validation_schema") == SCHEMA
-        and dependencies.get("dataset", {}).get("schema") == wire.SCHEMA_NAME
-        and dependencies.get("dataset", {}).get("schema_sha256") == wire.SCHEMA_SHA256,
+        and dataset_schema in wire.SCHEMA_IDENTITIES
+        and dependencies.get("dataset", {}).get("schema_sha256")
+        == wire.SCHEMA_IDENTITIES[str(dataset_schema)],
         "scale dataset dependencies drifted",
+    )
+    # An expanded corpus carves its validation role from parents only. Children
+    # are not independent samples: each one shares its parent's game and sits a
+    # single move away from it, so a child in the validation role is a near
+    # duplicate of a training record that the dual-key index cannot see.
+    expanded = dataset_schema == wire.SCHEMA_R2_NAME
+    _require(
+        selection.get("parents_only", False) is expanded,
+        "scale selection must select parents only under the revision identity",
     )
     _require(
         selection.get("target_records") > 0
@@ -550,6 +597,7 @@ def _select_records(
     target_records: int,
     candidate_keys: Mapping[str, object],
     rejection_flags: Mapping[str, object],
+    parents_only: bool = False,
 ) -> dict[str, object]:
     flags_path = scratch / FLAGS_FILENAME
     keys_path = scratch / KEYS_FILENAME
@@ -582,12 +630,18 @@ def _select_records(
                     mask |= REJECT_SELECTED_PHYSICAL
                 if legacy in selected_legacy:
                     mask |= REJECT_SELECTED_LEGACY
+                raw = None
+                if parents_only:
+                    raw = candidate.raw_record(index)
+                    if (raw[47] >> 3) & 0x07 != 0:
+                        mask |= REJECT_CHILD
                 decision_chain.update(struct.pack("<QB", index, mask))
                 examined = index + 1
                 if mask:
                     rejection_masks[mask] += 1
                     continue
-                raw = candidate.raw_record(index)
+                if raw is None:
+                    raw = candidate.raw_record(index)
                 selected_indices.append(index)
                 selected_records.extend(raw)
                 selected_physical.add(physical)
@@ -639,6 +693,9 @@ def _build_receipt(
     rejection_flags: Mapping[str, object],
     training_duplicates: Mapping[str, int],
     fixture_mode: bool,
+    contract_schema: str = CONTRACT_SCHEMA,
+    dataset_schema: str = wire.SCHEMA_NAME,
+    parents_only: bool = False,
 ) -> dict[str, object]:
     index_payload = selected["index_payload"]
     records_payload = selected["records_payload"]
@@ -646,11 +703,11 @@ def _build_receipt(
     _require(isinstance(records_payload, bytes), "selected record payload is invalid")
     return {
         "schema": SCHEMA,
-        "contract": {"schema": CONTRACT_SCHEMA, "sha256": contract_sha256},
+        "contract": {"schema": contract_schema, "sha256": contract_sha256},
         "role": "validation",
         "record_schema": {
-            "schema": wire.SCHEMA_NAME,
-            "schema_sha256": wire.SCHEMA_SHA256,
+            "schema": dataset_schema,
+            "schema_sha256": wire.SCHEMA_IDENTITIES[dataset_schema],
             "record_bytes": wire.RECORD_SIZE,
         },
         "selector_source": dict(source),
@@ -660,6 +717,7 @@ def _build_receipt(
             "algorithm": ALGORITHM,
             "candidate_order": "chunk index ascending, then local record index ascending",
             "selected_index_encoding": "uint64_little_endian_global_logical_index",
+            "parents_only": parents_only,
             "target_records": target_records,
             "records_examined": selected["records_examined"],
             "cutoff_candidate_index": selected["cutoff_candidate_index"],
@@ -731,6 +789,13 @@ def create_scale_selected_role(
 ) -> dict[str, object]:
     contract, contract_sha256 = load_contract(contract_path, allow_fixture=_allow_fixture)
     selection_contract = _mapping(contract.get("validation_selection"), "validation selection")
+    contract_schema = str(contract.get("schema_name"))
+    dataset_schema = str(
+        _mapping(contract.get("dependencies"), "scale dependencies")
+        .get("dataset", {})
+        .get("schema")
+    )
+    parents_only = bool(selection_contract.get("parents_only", False))
     frozen_target = int(selection_contract["target_records"])
     target_records = _target_records if _target_records is not None else frozen_target
     _require(target_records > 0, "selected target must be positive")
@@ -768,6 +833,7 @@ def create_scale_selected_role(
             target_records,
             candidate_keys,
             rejection_flags,
+            parents_only,
         )
 
     receipt = _build_receipt(
@@ -783,6 +849,9 @@ def create_scale_selected_role(
         rejection_flags=rejection_flags,
         training_duplicates=training_duplicates,
         fixture_mode=_allow_fixture,
+        contract_schema=contract_schema,
+        dataset_schema=dataset_schema,
+        parents_only=parents_only,
     )
     output.mkdir()
     _write_exclusive(output / INDEX_FILENAME, selected["index_payload"])
@@ -815,7 +884,10 @@ class ScaleSelectedRoleDataset:
         # the previous behaviour.
         declared = contract.get("data_campaign")
         if declared is None:
-            expected_contract = {"schema": CONTRACT_SCHEMA, "sha256": contract_sha256}
+            expected_contract = {
+                "schema": str(contract.get("schema_name")),
+                "sha256": contract_sha256,
+            }
         else:
             expected_contract = {
                 "schema": str(declared["contract_schema"]),
@@ -999,7 +1071,11 @@ def verify_scale_selected_role(
     ) as candidate, ScaleSelectedRoleDataset(selected_receipt, contract_resolved) as selected:
         train_identity, candidate_identity = _validate_sources(train, candidate, contract)
         receipt = selected.receipt
-        _require(receipt.get("contract") == {"schema": CONTRACT_SCHEMA, "sha256": contract_sha256}, "contract receipt drifted")
+        _require(
+            receipt.get("contract")
+            == {"schema": str(contract.get("schema_name")), "sha256": contract_sha256},
+            "contract receipt drifted",
+        )
         _require(receipt.get("selector_source") == source, "selector source identity drifted")
         _require(receipt.get("training_reference") == train_identity, "training reference drifted")
         _require(receipt.get("candidate_source") == candidate_identity, "candidate source drifted")

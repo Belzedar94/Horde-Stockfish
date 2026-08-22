@@ -721,6 +721,11 @@ class HordeBinV1Dataset:
         decoded = wire.validate_record(raw, index)
         return decoded["side"], decoded["score"], decoded["result"], decoded["reason"]
 
+    def expansion_family(self, index: int) -> int:
+        """0 for a self-play line sample, 1-3 for an expansion child."""
+
+        return int(wire.validate_record(self.raw_record(index), index)["family"])
+
     def batches(self, batch_size: int) -> Iterator[SparseBatch]:
         _require(batch_size > 0, f"invalid batch size {batch_size}")
         for begin in range(0, len(self), batch_size):
