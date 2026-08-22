@@ -317,9 +317,62 @@ def test_the_filter_is_declared_not_inferred() -> None:
         selector.load_contract(quiet, allow_fixture=True)
 
 
+def test_parallel_partition_matches_the_serial_pass() -> None:
+    """The shard window must not be observable in any published digest.
+
+    The 50M oracle proves this at campaign scale; this is the same property
+    pinned in CI, where it costs a second instead of a quarter of an hour.
+    """
+    digests = []
+    for shard_records in (1_000_000, 2):
+        with tempfile.TemporaryDirectory(prefix="horde-r2-shard-") as directory:
+            root = Path(directory)
+            contract = root / "campaign.json"
+            _write_contract(contract)
+            training_records = [_record(identity) for identity in range(6)]
+            candidate_records = [
+                _record(20), _record(21, family=2),
+                _record(22, family=3), _record(23),
+                _record(24, family=2), _record(25),
+            ]
+            train = _assemble(
+                root, contract, "training", training_records, 1000, TRAIN_BOOK)
+            candidate = _assemble(
+                root, contract, "validation_candidate", candidate_records, 2000,
+                VALIDATION_BOOK)
+
+            previous = selector.PARTITION_SHARD_RECORDS
+            selector.PARTITION_SHARD_RECORDS = shard_records
+            try:
+                receipt = selector.create_scale_selected_role(
+                    train, candidate, root / "selected", root / "scratch",
+                    contract_path=contract,
+                    _allow_fixture=True,
+                    _source_override={"commit": SOURCE_COMMIT, "dirty": False},
+                )
+            finally:
+                selector.PARTITION_SHARD_RECORDS = previous
+
+            selection = receipt["selection"]
+            index = selection["exact_membership_index"]
+            digests.append({
+                "training_inventory": index["training_inventory_sha256"],
+                "candidate_inventory": index["candidate_inventory_sha256"],
+                "decision_chain": selection["decision_chain_sha256"],
+                "selected_indices": selection["selected_indices"]["sha256"],
+                "materialized": receipt["materialized_output"]["sha256"],
+            })
+
+    single, sharded = digests
+    if single != sharded:
+        differing = [k for k in single if single[k] != sharded[k]]
+        raise AssertionError(f"shard window changed: {differing}")
+
+
 def main() -> int:
     test_children_are_never_selected()
     test_the_filter_is_declared_not_inferred()
+    test_parallel_partition_matches_the_serial_pass()
     print("HORDE_BIN_V1_R2 selected role: PASS")
     return 0
 

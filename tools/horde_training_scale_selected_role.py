@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
+from array import array
+from bisect import bisect_right
+from collections import Counter, deque
+import concurrent.futures
 import hashlib
+from itertools import islice
 import json
 import mmap
 import os
@@ -17,7 +21,7 @@ from typing import Any, Iterator, Mapping, Sequence
 
 try:
     from . import horde_bin_v1 as wire
-    from .horde_training_chunk_set import HordeChunkSetDataset
+    from .horde_training_chunk_set import HordeChunkSetDataset, _resolve_chunk_path
     from .horde_training_decoder import (
         BLACK,
         WHITE,
@@ -31,7 +35,7 @@ try:
     )
 except ImportError:
     import horde_bin_v1 as wire
-    from horde_training_chunk_set import HordeChunkSetDataset
+    from horde_training_chunk_set import HordeChunkSetDataset, _resolve_chunk_path
     from horde_training_decoder import (
         BLACK,
         WHITE,
@@ -111,6 +115,45 @@ TRAIN_ENTRY_BYTES = 32
 QUERY_ENTRY_BYTES = 40
 KEY_PAIR_BYTES = 64
 BUFFER_BYTES = 64 * 1024
+
+# Provenance. The partition changed shape after the 50M campaign, and the
+# receipt says so rather than leaving a future reader to diff two tools and
+# guess whether the difference was semantic. Equivalence is evidenced, not
+# asserted: this selector was re-run on the 50M campaign's own inputs and its
+# five published data digests had to reproduce exactly, over fifty million real
+# records. The block is written after every digest is computed and is therefore
+# not an input to any of them.
+SELECTOR_IMPLEMENTATION = {
+    "partition": (
+        "parallel over contiguous record shards; each shard's per-bucket "
+        "contribution is concatenated in shard order, so every bucket holds "
+        "byte for byte what the serial pass wrote"
+    ),
+    "legacy_feature_index": (
+        "precomputed table over (perspective, square, code); it was 39 percent "
+        "of the pass measured on real records"
+    ),
+    "changed_after_campaign": "horde-v2-rank8-scale-20260810",
+    "equivalence_evidence": {
+        "method": (
+            "re-ran this selector on the 50M campaign inputs and required the "
+            "published receipt digests to reproduce exactly"
+        ),
+        "records": 50000000,
+        "published_receipt_digests": {
+            "training_inventory_sha256":
+                "B1632DE0A88269DADB45ECCEE86222E396FAFE4D898837063BE806F23083259B",
+            "candidate_inventory_sha256":
+                "FCFE29C03225789A1F9E927A0B1323DA2A9D0C11C89CD597C7736DD0469AA66D",
+            "decision_chain_sha256":
+                "DC154F74A0FD708888D6381DC62A3AA3C386F8BC705A9A4742BC918F209CBED7",
+            "selected_indices_sha256":
+                "A754EF062E34E5DDEDCC80C99D01931E15AEF19688537D33D9FE38429B9E6CCF",
+            "materialized_output_sha256":
+                "DA97A6C8E392214100B28C2457EC2430316118EEA1932DFAA07DC152B3B28F85",
+        },
+    },
+}
 
 PHYSICAL_TAG = 0
 LEGACY_TAG = 1
@@ -368,6 +411,149 @@ def _validate_sources(
     return _dataset_identity(train), _dataset_identity(candidate)
 
 
+# legacy_feature_index is a pure function of (perspective, square, code) over a
+# domain of 2 x 64 x 15. Calling it 49 times per record was 39 percent of the
+# partition pass, measured; the table is the same arithmetic done once.
+def _build_legacy_feature_table() -> dict[tuple[int, int, int], int]:
+    table: dict[tuple[int, int, int], int] = {}
+    for perspective in (WHITE, BLACK):
+        for square in range(64):
+            for code in range(1, 16):
+                try:
+                    table[(perspective, square, code)] = legacy_feature_index(
+                        perspective, square, code
+                    )
+                except Exception:  # noqa: BLE001 - codes outside the piece domain
+                    continue
+    return table
+
+
+_LEGACY_FEATURE_TABLE = _build_legacy_feature_table()
+
+# array('H').tobytes() writes native byte order, and the legacy key is defined
+# little endian. Fail closed on a big-endian host rather than silently hashing
+# a different key than every published receipt was built from.
+if sys.byteorder != "little":  # pragma: no cover - no big-endian host in the fleet
+    raise ScaleSelectedRoleError("selection keys require a little-endian host")
+
+# The partition pass is per-record independent, so it shards. Shards are
+# CONTIGUOUS and their per-bucket contributions are concatenated IN SHARD ORDER,
+# which is what keeps every bucket byte for byte what the serial pass wrote and
+# therefore keeps the inventory digests identical.
+PARTITION_SHARD_RECORDS = 500_000
+PARTITION_WORKERS = max(1, (os.cpu_count() or 2) - 2)
+_WORKER_STATE: dict[str, Any] = {}
+
+
+def _chunk_table(dataset: HordeChunkSetDataset) -> tuple[tuple[str, int, int], ...]:
+    """(absolute path, global begin, records) for each authenticated chunk.
+
+    The parent has already authenticated every chunk by opening the chunk set,
+    which hashes each file. Workers therefore read the same bytes without
+    repeating a 9.6 GB verification once per worker.
+    """
+    root = dataset.path.parent.resolve()
+    table = []
+    for entry in dataset.receipt["chunks"]:
+        path = _resolve_chunk_path(root, entry["path"])
+        table.append((str(path), int(entry["global_begin"]), int(entry["records"])))
+    return tuple(table)
+
+
+def _worker_init(table: tuple[tuple[str, int, int], ...]) -> None:
+    _WORKER_STATE.clear()
+    _WORKER_STATE["table"] = table
+    _WORKER_STATE["starts"] = [entry[1] for entry in table]
+    _WORKER_STATE["slot"] = None
+    _WORKER_STATE["mapping"] = None
+    _WORKER_STATE["handle"] = None
+
+
+def _worker_close() -> None:
+    if _WORKER_STATE.get("mapping") is not None:
+        _WORKER_STATE["mapping"].close()
+    if _WORKER_STATE.get("handle") is not None:
+        _WORKER_STATE["handle"].close()
+    _WORKER_STATE["mapping"] = None
+    _WORKER_STATE["handle"] = None
+    _WORKER_STATE["slot"] = None
+
+
+def _worker_record(index: int) -> bytes:
+    state = _WORKER_STATE
+    if state["slot"] is None or not (state["lo"] <= index < state["hi"]):
+        slot = bisect_right(state["starts"], index) - 1
+        path, begin, records = state["table"][slot]
+        _worker_close()
+        handle = open(path, "rb")
+        state["handle"] = handle
+        state["mapping"] = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+        state["slot"] = slot
+        state["lo"] = begin
+        state["hi"] = begin + records
+    offset = wire.HEADER_SIZE + (index - state["lo"]) * wire.RECORD_SIZE
+    return state["mapping"][offset : offset + wire.RECORD_SIZE]
+
+
+def _shard_training(bounds: tuple[int, int]) -> list[bytes]:
+    begin, end = bounds
+    parts = [bytearray() for _ in range(BUCKET_COUNT)]
+    for index in range(begin, end):
+        physical, legacy = _selection_key_digests(_worker_record(index), index)
+        parts[physical[0]] += bytes((PHYSICAL_TAG,)) + physical[1:]
+        parts[legacy[0]] += bytes((LEGACY_TAG,)) + legacy[1:]
+    return [bytes(part) for part in parts]
+
+
+def _shard_candidate(bounds: tuple[int, int]) -> tuple[list[bytes], bytes]:
+    begin, end = bounds
+    parts = [bytearray() for _ in range(BUCKET_COUNT)]
+    keys = bytearray()
+    for index in range(begin, end):
+        physical, legacy = _selection_key_digests(_worker_record(index), index)
+        keys += physical + legacy
+        encoded_index = struct.pack("<Q", index)
+        parts[physical[0]] += bytes((PHYSICAL_TAG,)) + encoded_index + physical[1:]
+        parts[legacy[0]] += bytes((LEGACY_TAG,)) + encoded_index + legacy[1:]
+    return [bytes(part) for part in parts], bytes(keys)
+
+
+def _shard_results(dataset: HordeChunkSetDataset, worker: Any) -> Iterator[Any]:
+    """Yield each shard's contribution in shard order, bounded in flight."""
+
+    total = len(dataset)
+    bounds = [
+        (begin, min(begin + PARTITION_SHARD_RECORDS, total))
+        for begin in range(0, total, PARTITION_SHARD_RECORDS)
+    ]
+    table = _chunk_table(dataset)
+    workers = min(PARTITION_WORKERS, len(bounds))
+    if workers <= 1:
+        _worker_init(table)
+        try:
+            for shard in bounds:
+                yield worker(shard)
+        finally:
+            _worker_close()
+        return
+
+    pending: deque[Any] = deque()
+    remaining = iter(bounds)
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=workers, initializer=_worker_init, initargs=(table,)
+    ) as pool:
+        # Bounded window: submitting every shard at once would hold the whole
+        # index in memory while the pool drained.
+        for shard in islice(remaining, workers * 2):
+            pending.append(pool.submit(worker, shard))
+        while pending:
+            result = pending.popleft().result()
+            following = next(remaining, None)
+            if following is not None:
+                pending.append(pool.submit(worker, following))
+            yield result
+
+
 def _selection_key_digests(raw: bytes, index: int) -> tuple[bytes, bytes]:
     """Return exact physical and legacy-input digests without building V2 rows."""
 
@@ -379,11 +565,14 @@ def _selection_key_digests(raw: bytes, index: int) -> tuple[bytes, bytes]:
     occupied = [(square, code) for square, code in enumerate(board) if code]
     piece_count = len(occupied)
     bucket = min((piece_count - 1) * 8 // 52, 7)
-    legacy = bytearray(struct.pack("<BBH", decoded["side"], bucket, decoded["rule50"]))
+    table = _LEGACY_FEATURE_TABLE
+    values = array("H")
     for perspective in (WHITE, BLACK):
-        legacy.extend(struct.pack("<H", piece_count))
-        for square, code in occupied:
-            legacy.extend(struct.pack("<H", legacy_feature_index(perspective, square, code)))
+        values.append(piece_count)
+        values.extend(table[(perspective, square, code)] for square, code in occupied)
+    legacy = struct.pack(
+        "<BBH", decoded["side"], bucket, decoded["rule50"]
+    ) + values.tobytes()
     return hashlib.sha256(physical).digest(), hashlib.sha256(legacy).digest()
 
 
@@ -401,6 +590,24 @@ class _BucketWriter:
         self._buffers[bucket].extend(entry)
         self._digests[bucket].update(entry)
         self.counts[bucket] += 1
+        if len(self._buffers[bucket]) >= BUFFER_BYTES:
+            self._files[bucket].write(self._buffers[bucket])
+            self._buffers[bucket].clear()
+
+    def write_many(self, bucket: int, payload: bytes) -> None:
+        """Append one shard's contribution to a bucket, in shard order.
+
+        The digest is updated over exactly the bytes the serial pass would
+        have appended one entry at a time, so the inventory identity does
+        not move.
+        """
+        _require(
+            len(payload) % self.entry_bytes == 0,
+            "bucket payload framing drifted",
+        )
+        self._buffers[bucket].extend(payload)
+        self._digests[bucket].update(payload)
+        self.counts[bucket] += len(payload) // self.entry_bytes
         if len(self._buffers[bucket]) >= BUFFER_BYTES:
             self._files[bucket].write(self._buffers[bucket])
             self._buffers[bucket].clear()
@@ -440,10 +647,10 @@ def _partition_training(
     scratch: Path,
 ) -> list[dict[str, object]]:
     with _BucketWriter(scratch, "training", TRAIN_ENTRY_BYTES) as buckets:
-        for index in range(len(dataset)):
-            physical, legacy = _selection_key_digests(dataset.raw_record(index), index)
-            buckets.write(physical[0], bytes((PHYSICAL_TAG,)) + physical[1:])
-            buckets.write(legacy[0], bytes((LEGACY_TAG,)) + legacy[1:])
+        for parts in _shard_results(dataset, _shard_training):
+            for bucket, payload in enumerate(parts):
+                if payload:
+                    buckets.write_many(bucket, payload)
     inventory = buckets.inventory()
     _require(
         sum(entry["records"] for entry in inventory) == 2 * len(dataset),
@@ -460,16 +667,12 @@ def _partition_candidate(
     key_digest = hashlib.sha256()
     with _BucketWriter(scratch, "candidate", QUERY_ENTRY_BYTES) as buckets:
         with keys_path.open("xb", buffering=BUFFER_BYTES) as keys:
-            for index in range(len(dataset)):
-                physical, legacy = _selection_key_digests(dataset.raw_record(index), index)
-                pair = physical + legacy
-                keys.write(pair)
-                key_digest.update(pair)
-                encoded_index = struct.pack("<Q", index)
-                buckets.write(
-                    physical[0], bytes((PHYSICAL_TAG,)) + encoded_index + physical[1:]
-                )
-                buckets.write(legacy[0], bytes((LEGACY_TAG,)) + encoded_index + legacy[1:])
+            for parts, spool in _shard_results(dataset, _shard_candidate):
+                keys.write(spool)
+                key_digest.update(spool)
+                for bucket, payload in enumerate(parts):
+                    if payload:
+                        buckets.write_many(bucket, payload)
             keys.flush()
             os.fsync(keys.fileno())
     inventory = buckets.inventory()
@@ -712,6 +915,7 @@ def _build_receipt(
             "record_bytes": wire.RECORD_SIZE,
         },
         "selector_source": dict(source),
+        "selector_implementation": SELECTOR_IMPLEMENTATION,
         "training_reference": dict(train_identity),
         "candidate_source": dict(candidate_identity),
         "selection": {

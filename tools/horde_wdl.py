@@ -155,9 +155,16 @@ def aggregate_labels(
     eligible_digest = hashlib.sha256()
     eligible_records = 0
 
+    # One validation per record, not two: reading the family through a second
+    # accessor would re-validate all 48 bytes to recover three bits.
+    label = dataset.label_with_family if parents_only else None
     for index in range(len(dataset)):
-        side, score, result, reason = dataset.label(index)
-        is_child = parents_only and dataset.expansion_family(index) != 0
+        if label is None:
+            side, score, result, reason = dataset.label(index)
+            is_child = False
+        else:
+            side, score, result, reason, family = label(index)
+            is_child = family != 0
         eligible = abs(score) < MATE_SCORE_THRESHOLD and not is_child
         encoded = struct.pack("<QBhbBB", index, side, score, result, reason, int(eligible))
         selection_digest.update(encoded)

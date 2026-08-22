@@ -726,6 +726,13 @@ class HordeBinV1Dataset:
 
         return int(wire.validate_record(self.raw_record(index), index)["family"])
 
+    def label_with_family(self, index: int) -> tuple[int, int, int, int, int]:
+        """The calibration label fields plus the family, from ONE validation."""
+
+        decoded = wire.validate_record(self.raw_record(index), index)
+        return (decoded["side"], decoded["score"], decoded["result"],
+                decoded["reason"], decoded["family"])
+
     def batches(self, batch_size: int) -> Iterator[SparseBatch]:
         _require(batch_size > 0, f"invalid batch size {batch_size}")
         for begin in range(0, len(self), batch_size):
