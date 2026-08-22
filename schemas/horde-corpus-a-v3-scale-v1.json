@@ -1,7 +1,7 @@
 {
   "$id": "https://github.com/Belzedar94/Horde-Stockfish/schemas/horde-corpus-a-v3-scale-v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "NOTE": "This contract owns the recipe: architecture v3-g1024-pawn-wpc8 on corpus A, at the same lambda and the same predesignated campaign seed as the legacy run. It does not own the corpus. Those 800 chunks were generated, authenticated and receipted under the legacy contract named below, and the receipt comparison is made against that declared data campaign.",
+  "NOTE": "This contract owns the recipe: architecture v3-g1024-pawn-wpc8 on corpus A, at the same lambda and the same predesignated campaign seed as the legacy run. It does not own the corpus. Those 800 chunks were generated, authenticated and receipted under the legacy contract named below, and the receipt comparison is made against that declared data campaign. Amended after the first attempt: the feature transformer quantises to int16 and nothing held it there, so 2 weights of 917,504 fell outside the range and the export refused. The trainer now clips that stream the same way it has always clipped the int8 dense layers, and this contract declares the range. The first checkpoint is kept as evidence and is never exported.",
   "books": {
     "complete_partition": true,
     "disjoint": true,
@@ -159,6 +159,10 @@
       "type": "cuda"
     },
     "epochs": 1,
+    "feature_transformer_weight_clipping": [
+      -4.031373031496063,
+      4.031373031496063
+    ],
     "lambda": 1.0,
     "learning_rate": 0.0015,
     "optimizer": "torch.optim.RAdam",

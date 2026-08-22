@@ -1,4 +1,37 @@
 {
+  "amendments": [
+    {
+      "amendment": 1,
+      "applies_to": "the second run only, v3-corpusA-l1p0",
+      "batch_oracle": "Not re-run, and not required. The clip lives in the optimizer step, after the loss and the backward pass. Batch materialisation is untouched, so the batch stream digest for this architecture, 5F3E622768C841295DBB75A4AC148F6A0A5A0105F5631336EC6D0502CB514F2C, still describes exactly what the loader produces.",
+      "comparability_with_the_legacy_run": {
+        "claim": "The V3 recipe gains a field the legacy recipe does not have, and that field cannot bite in the legacy run, so the architectural comparison stands.",
+        "evidence_from_the_legacy_export_receipt": {
+          "feature_scale": 127.0,
+          "fraction_of_int16_used_pct": 1.55,
+          "headroom_multiple": 64.6,
+          "realised_float_extreme": 3.9939029216766357,
+          "realised_integer_extreme": 507,
+          "representable_float_limit": 258.00787401574803
+        },
+        "why_the_scales_differ": "Legacy quantises the feature transformer at 127 and V3 at 127 times 64, so the same float weight consumes 64x more of int16 under V3. Legacy's realised float extreme is 3.9939, a magnitude comparable to V3's 4.1533; what saves legacy is not smaller weights but coarser quantisation."
+      },
+      "date": "2026-08-22",
+      "no_result_existed": "Zero results of any kind. The first V3 checkpoint never played a game, was never exported and produced no strength evidence. It is kept on disk as evidence of the overflow and is never exported.",
+      "preregistered_reading": "UNCHANGED. Every branch of the reading of both matches stands exactly as committed, and so do the pre-designated parents-only ablation and its trigger.",
+      "reason": "A design gap found at export, not a result. The V3 feature transformer quantises to int16 and nothing held the trained weights inside it: the trainer clipped the int8 dense layers after every optimizer step from the first campaign and left the int16 stream alone. The integer bounds document derived the int32 accumulator bounds ASSUMING int16 weights, which assumed the thing that needed proving. Corpus A put 2 weights of 917,504 outside the range and the exporter refused.",
+      "what_changed": {
+        "clipping_range": [
+          -4.031373031496063,
+          4.031373031496063
+        ],
+        "contract_sha256_after": "B029E453259AB51F47E6120E576DC6FB233B086F7598D06DB06C887E5C88727A",
+        "contract_sha256_before": "21D181D4E6AD9223B7732EF9405780BE6B80798252BDF523CA1F1A9448D65B5F",
+        "everything_else": "unchanged, including the predesignated seed",
+        "trainer": "_clip_serialized_weights clamps every int16 feature stream to 32767 divided by its scale after each optimizer step, per architecture, the same mechanism and the same place the dense weights already used. V2 holds two such streams and both are covered; an architecture naming its stream something unknown fails closed rather than training unclipped."
+      }
+    }
+  ],
   "campaign": {
     "batch_size": 4096,
     "campaign_id": "horde-corpus-a-20260820",

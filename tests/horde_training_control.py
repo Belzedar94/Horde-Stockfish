@@ -114,7 +114,7 @@ def test_gradient_path() -> None:
     if set(norms) != {"feature_transformer", "psqt", "dense_trunk", "output"}:
         raise AssertionError(f"gradient domains changed: {norms}")
     optimizer.step()
-    control._clip_serialized_dense_weights(model)
+    control._clip_serialized_weights(model, control.LEGACY_ARCHITECTURE)
     after = control._state_sha256(model)
     if before == after:
         raise AssertionError("optimizer step did not change the model")
@@ -418,7 +418,7 @@ def test_v2_gradient_path() -> None:
         if set(norms) != expected_groups:
             raise AssertionError(f"{architecture} gradient domains changed: {norms}")
         optimizer.step()
-        control._clip_serialized_dense_weights(model)
+        control._clip_serialized_weights(model, control.LEGACY_ARCHITECTURE)
         if control._state_sha256(model) == before:
             raise AssertionError(f"{architecture} optimizer step did not change the model")
         if not control._all_finite(model):

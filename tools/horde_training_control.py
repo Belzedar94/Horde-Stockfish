@@ -978,13 +978,66 @@ def _gradient_norms(model: nn.Module) -> dict[str, float]:
     return norms
 
 
-def _clip_serialized_dense_weights(model: nn.Module) -> None:
+# Every int16 feature stream a registered architecture holds. Legacy and V3
+# have one; V2 splits its transformer into a royal and a global stream.
+FEATURE_TRANSFORMER_PARAMETERS = ("ft_weights", "royal_weights", "global_weights")
+
+
+def _feature_transformer_scale(architecture: str) -> float:
+    """The scale the exporter quantises ft_weights with, per architecture.
+
+    Legacy uses 127; the V2 container, its controls and V3 all use 127 * 64.
+    The scales differ by 64x, so the same float weight consumes wildly
+    different fractions of int16 depending on which architecture holds it.
+    """
+    return 127.0 if architecture == LEGACY_ARCHITECTURE else float(127 * 64)
+
+
+def _serialized_weight_limits(architecture: str) -> dict[str, float]:
+    return {
+        "dense": 127.0 / 64.0,
+        "output": (127.0 * 127.0) / 9600.0,
+        "feature_transformer": 32767.0 / _feature_transformer_scale(architecture),
+    }
+
+
+def _clip_serialized_weights(model: nn.Module, architecture: str) -> None:
+    """Hold every serialized weight inside the range its dtype can represent.
+
+    The dense layers were clipped into their int8 range from the first
+    campaign. The feature transformer quantises to int16 and was never clipped
+    at all: nothing held it inside the range the exporter then demands it fit.
+    The integer bounds document derived the int32 accumulator bound ASSUMING
+    int16 weights, which assumed the thing that needed proving.
+
+    It went unnoticed because no corpus had stressed it. The 50M V3 control
+    peaked at 2.05 against a limit of 4.03; corpus A's calibration is about
+    three times sharper and roughly doubled the magnitudes, putting 2 weights
+    of 917,504 outside int16 and refusing the export.
+    """
+    limits = _serialized_weight_limits(architecture)
     with torch.no_grad():
-        dense_limit = 127.0 / 64.0
-        output_limit = (127.0 * 127.0) / 9600.0
+        dense_limit = limits["dense"]
+        output_limit = limits["output"]
+        feature_limit = limits["feature_transformer"]
         getattr(model, "hidden0_weights").clamp_(-dense_limit, dense_limit)
         getattr(model, "hidden1_weights").clamp_(-dense_limit, dense_limit)
         getattr(model, "output_weights").clamp_(-output_limit, output_limit)
+        # Legacy and V3 hold one feature stream; V2 holds two, royal and
+        # global, and both quantise to int16. Fail closed if an architecture
+        # names its stream something else: silently leaving a stream unclipped
+        # is exactly the hole this closes.
+        clipped = 0
+        for name in FEATURE_TRANSFORMER_PARAMETERS:
+            parameter = getattr(model, name, None)
+            if parameter is None:
+                continue
+            parameter.clamp_(-feature_limit, feature_limit)
+            clipped += 1
+        _require(
+            clipped > 0,
+            f"no feature transformer weights to clip for {architecture}",
+        )
 
 
 def _all_finite(model: nn.Module) -> bool:
@@ -1557,6 +1610,16 @@ def _finalize_scale_binding(
         and target_steps == recipe.get("optimizer_steps"),
         "scale trainer recipe differs from the contract",
     )
+    # A contract that declares the feature transformer clipping range binds the
+    # trainer to it. The legacy contract predates the field and does not
+    # declare it, which is why the check is conditional rather than absent.
+    declared_clip = recipe.get("feature_transformer_weight_clipping")
+    if declared_clip is not None:
+        limit = _serialized_weight_limits(architecture)["feature_transformer"]
+        _require(
+            list(declared_clip) == [-limit, limit],
+            "scale contract feature transformer clipping differs from the trainer",
+        )
     _require(
         recipe.get("optimizer") == "torch.optim.RAdam"
         and device.get("type") == args.device
@@ -2568,7 +2631,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 if optimizer_steps == 0:
                     gradient_norms = _gradient_norms(model)
                 optimizer.step()
-                _clip_serialized_dense_weights(model)
+                _clip_serialized_weights(model, architecture)
                 _require(_all_finite(model), "model parameters became non-finite")
                 train_metrics.update(
                     composite.detach(),
@@ -2780,6 +2843,10 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                     "hidden": [-127.0 / 64.0, 127.0 / 64.0],
                     "output": [-(127.0 * 127.0) / 9600.0, (127.0 * 127.0) / 9600.0],
                 },
+                "feature_transformer_weight_clipping": [
+                    -_serialized_weight_limits(architecture)["feature_transformer"],
+                    _serialized_weight_limits(architecture)["feature_transformer"],
+                ],
             },
             "run": {
                 "seed": args.seed,

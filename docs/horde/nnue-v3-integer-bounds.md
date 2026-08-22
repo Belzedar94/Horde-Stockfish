@@ -45,6 +45,47 @@ against a largest observed legacy magnitude of 18,317, which is 1.9 units. The
 bound is therefore not restrictive in practice and keeps the final sum inside
 range with a factor of 1.82.
 
+## 1b. The weights themselves, which section 1 assumed
+
+Section 1 derives every accumulator bound **from** signed `int16` feature
+weights. It never asks whether the trained weights are inside `int16`. That is
+assuming the thing that needed proving, and corpus A found it.
+
+Nothing held them there. The trainer clipped `hidden0`, `hidden1` and `output`
+into their `int8` ranges after every optimizer step from the first campaign
+onward, and left `ft_weights` alone. The export is the first place the question
+is asked, and it asks it three hours after the run started.
+
+Measured, on the same architecture and seed, changing only the corpus:
+
+| run | max abs weight | representable | fraction used | outside `int16` |
+| --- | ---: | ---: | ---: | ---: |
+| V3 control, 50M depth-4 corpus | 2.0506 | 4.0314 | 51% | 0 |
+| V3, corpus A 200M at 10k nodes | 4.1533 | 4.0314 | 103% | 2 of 917,504 |
+
+The corpus A WDL calibration is about three times sharper in its Davidson
+parameters, because the draw rate collapses from 8.69% to 2.55%. Harder targets
+give larger gradients and larger weights. The control had 2x of headroom and
+never stressed the bound; the real corpus ate it.
+
+The scale is what makes this architecture-specific rather than universal.
+Legacy quantises `ft_weights` at 127 and V2, its controls and V3 at `127 * 64`,
+so the same float weight consumes 64x more of `int16` under V3. The legacy
+corpus A run reaches 3.9939 in float, a magnitude comparable to V3's 4.1533,
+and lands at **1.5% of its representable range**. It is not that legacy trains
+smaller weights; it is that legacy quantises 64x more coarsely.
+
+**Bound now enforced where it can be held.** `_clip_serialized_weights` clamps
+`ft_weights` to `32767 / scale` after every optimizer step, per architecture,
+the same mechanism and the same place the dense weights have always used. The
+export gate stays as the second line of defence; it should now never be the
+first thing to notice.
+
+The rule this generalises to, and the one worth carrying: **a bound the
+exporter enforces must also be a bound the trainer holds.** Anywhere those two
+disagree, the disagreement is discovered after the compute is spent.
+
+
 ## 2. The output scale does not close, and V2 has a defect
 
 The V3 container was meant to inherit the frozen V2 integer scales unchanged.
@@ -264,4 +305,5 @@ the first one.
 | V3 active row bound of 100, analytic and measured | closes |
 | feature accumulator, hidden0, hidden1, output `int32` bounds at 1024 lanes | closes |
 | PSQT skip bound, new constant `2^20` required | closes, needs registering |
+| `int16` bound on the feature weights themselves, held by the trainer | closes, was assumed by section 1 and found open by corpus A |
 | output scale consistency with `NNUE_TO_SCORE` | does not close, blocks the container |
