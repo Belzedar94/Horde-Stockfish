@@ -94,9 +94,73 @@ def test_the_dense_clipping_still_holds() -> None:
         raise AssertionError("output clipping regressed")
 
 
+def test_the_contract_declaration_is_actually_enforced() -> None:
+    """The binding check must run, not just exist.
+
+    It first shipped referencing a name that is not in scope in that function,
+    so it raised NameError the moment a contract declared the field. No test
+    covered the branch, so the failure surfaced at launch. This runs it.
+    """
+    import argparse
+    import json
+
+    contract_path = ROOT / "schemas" / "horde-corpus-a-v3-scale-v1.json"
+    contract = json.loads(contract_path.read_text())
+    recipe = contract["training"]
+    if "feature_transformer_weight_clipping" not in recipe:
+        raise AssertionError("the V3 contract no longer declares the clipping range")
+
+    generation = contract["generation"]["training"]
+    selection = contract["validation_selection"]
+    args = argparse.Namespace(
+        seed=recipe["seed"],
+        epochs=recipe["epochs"],
+        batch_size=recipe["batch_size"],
+        block_size=recipe["block_size"],
+        lambda_value=recipe["lambda"],
+        learning_rate=recipe["learning_rate"],
+        scheduler_gamma=recipe["scheduler_gamma"],
+        dense_learning_rate_multiplier=recipe["dense_learning_rate_multiplier"],
+        output_learning_rate_multiplier=recipe["output_learning_rate_multiplier"],
+        device=recipe["device"]["type"],
+        cpu_threads=recipe["device"]["cpu_threads"],
+        stop_after_steps=None,
+        scale_contract_fixture=True,
+    )
+    data_receipt = {
+        "train_file": {"chunk_set_sha256": "0" * 64},
+        "validation_file": {"selected_role": {"receipt_sha256": "1" * 64}},
+        "validation_candidate": {"chunk_set_sha256": "2" * 64},
+    }
+    bundle = (contract, "3" * 64)
+
+    # Declared range matches the trainer: the check passes and the branch runs.
+    ctl._finalize_scale_binding(
+        bundle, args, data_receipt,
+        generation["records"], selection["target_records"],
+        recipe["optimizer_steps"],
+    )
+
+    # Declared range disagrees: the check must refuse.
+    tampered = json.loads(json.dumps(contract))
+    tampered["training"]["feature_transformer_weight_clipping"] = [-1.0, 1.0]
+    try:
+        ctl._finalize_scale_binding(
+            (tampered, "3" * 64), args, data_receipt,
+            generation["records"], selection["target_records"],
+            recipe["optimizer_steps"],
+        )
+    except ctl.TrainingError as error:
+        if "feature transformer clipping differs" not in str(error):
+            raise AssertionError(f"unexpected refusal: {error}")
+    else:
+        raise AssertionError("a contract declaring the wrong range was accepted")
+
+
 def main() -> int:
     test_feature_transformer_is_clipped_to_its_own_scale()
     test_the_dense_clipping_still_holds()
+    test_the_contract_declaration_is_actually_enforced()
     print("Horde serialized weight clipping: PASS")
     return 0
 

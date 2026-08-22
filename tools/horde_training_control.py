@@ -1615,7 +1615,13 @@ def _finalize_scale_binding(
     # declare it, which is why the check is conditional rather than absent.
     declared_clip = recipe.get("feature_transformer_weight_clipping")
     if declared_clip is not None:
-        limit = _serialized_weight_limits(architecture)["feature_transformer"]
+        # The contract names its own architecture, and _load_scale_contract has
+        # already checked that name against the registry binding, so it is the
+        # honest source here rather than a parameter threaded in for one check.
+        bound_architecture = str(
+            _mapping(recipe.get("architecture"), "scale architecture contract").get("name")
+        )
+        limit = _serialized_weight_limits(bound_architecture)["feature_transformer"]
         _require(
             list(declared_clip) == [-limit, limit],
             "scale contract feature transformer clipping differs from the trainer",
