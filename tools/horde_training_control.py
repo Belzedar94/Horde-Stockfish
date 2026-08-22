@@ -11,6 +11,11 @@ survivors so architecture comparisons do not receive hidden training changes.
 from __future__ import annotations
 
 import argparse
+import dataclasses
+from bisect import bisect_right
+from collections import deque
+import concurrent.futures
+import mmap
 from contextlib import ExitStack
 from dataclasses import dataclass
 import hashlib
@@ -36,8 +41,10 @@ except ImportError as error:  # pragma: no cover - exercised by the CLI failure 
     raise SystemExit("PyTorch is required for Horde NNUE control training") from error
 
 try:
+    from . import horde_bin_v1 as wire
     from .horde_training_decoder import (
         BLACK,
+        decode_training_record,
         HordeBinV1Dataset,
         SparseBatch,
         V2_GLOBAL_DIMENSIONS,
@@ -87,8 +94,10 @@ try:
         load_artifact as load_wdl_artifact,
     )
 except ImportError:
+    import horde_bin_v1 as wire
     from horde_training_decoder import (
         BLACK,
+        decode_training_record,
         HordeBinV1Dataset,
         SparseBatch,
         V2_GLOBAL_DIMENSIONS,
@@ -1748,6 +1757,211 @@ def _contextual_extractor(architecture: str):
     return v3_contextual_rows if architecture in V3_ARCHITECTURES else None
 
 
+# --- batch materialisation prefetch -----------------------------------------
+#
+# The trainer was loader bound on one core with the GPU near idle: the 50M run
+# managed 0.904 steps per second against a loader that alone runs at 1.19, so
+# materialisation was about three quarters of every step. It parallelises
+# cleanly because epoch_batches is a PURE function of (record_count,
+# batch_size, block_size, seed, epoch) and never touches the data, and because
+# the schedule digest and the sample order chain are computed from the index
+# tuples in the training loop before anything is materialised. No published
+# digest can move; only the wall clock does, and the trained network is
+# identical rather than equivalent: the same batches in the same order.
+#
+# The prefetcher replays the identical index sequence in a second generator,
+# and every delivered batch is checked against the tuple the training loop is
+# actually on, so a drift between the two fails closed instead of training on
+# the wrong samples.
+#
+# Workers do not reopen the chunk set. Opening it hashes every chunk, so each
+# worker would re-verify 9.6 GB; the parent authenticates once and the workers
+# read the byte ranges it already authenticated. The mmap reader is a local
+# copy rather than an import from the selection or calibration tools, so that
+# three gate-critical tools do not share a failure mode for thirty lines.
+# Sized by the GPU ceiling, not by the core count. The serial loader runs at
+# 1.19 steps per second and the rest of the step (forward, backward, optimizer,
+# metrics) costs 0.267 s, so the run cannot go faster than about 3.75 steps per
+# second however many workers materialise for it. Five workers clear that with
+# margin. Twelve did not go faster, and each worker pays a full torch import on
+# Windows spawn because the child re-imports __main__: twelve of those exhausted
+# the commit limit and the pool died loading shm.dll.
+PREFETCH_WORKERS = max(1, min(5, (os.cpu_count() or 2) - 2))
+PREFETCH_DEPTH = 2
+_PREFETCH_STATE: dict[str, Any] = {}
+
+
+def _prefetch_source_table(dataset: Any) -> tuple[tuple[str, int, int], ...] | None:
+    receipt = getattr(dataset, "receipt", None)
+    if isinstance(receipt, dict) and isinstance(receipt.get("chunks"), list):
+        root = Path(dataset.path).parent.resolve()
+        table = []
+        for entry in receipt["chunks"]:
+            path = (root / Path(*Path(str(entry["path"])).parts)).resolve()
+            try:
+                path.relative_to(root)
+            except ValueError:
+                return None
+            table.append((str(path), int(entry["global_begin"]), int(entry["records"])))
+        return tuple(table)
+    path = getattr(dataset, "path", None)
+    manifest = getattr(dataset, "manifest", None)
+    if path is not None and isinstance(manifest, dict) and "record_count" in manifest:
+        return ((str(Path(path).resolve()), 0, int(manifest["record_count"])),)
+    return None
+
+
+def _prefetch_init(
+    table: tuple[tuple[str, int, int], ...],
+    architecture: str,
+    payload_sha256: str,
+) -> None:
+    _PREFETCH_STATE.clear()
+    _PREFETCH_STATE["table"] = table
+    _PREFETCH_STATE["starts"] = [entry[1] for entry in table]
+    _PREFETCH_STATE["extractor"] = _contextual_extractor(architecture)
+    _PREFETCH_STATE["payload_sha256"] = payload_sha256
+    _PREFETCH_STATE["open"] = {}
+
+
+def _prefetch_raw(index: int) -> bytes:
+    state = _PREFETCH_STATE
+    slot = bisect_right(state["starts"], index) - 1
+    entry = state["open"].get(slot)
+    if entry is None:
+        path, begin, _records = state["table"][slot]
+        handle = open(path, "rb")
+        entry = (mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ), begin, handle)
+        # A shuffled batch touches several chunks; keep a small window open.
+        if len(state["open"]) >= 32:
+            old_slot = next(iter(state["open"]))
+            old = state["open"].pop(old_slot)
+            old[0].close()
+            old[2].close()
+        state["open"][slot] = entry
+    mapping, begin, _handle = entry
+    offset = wire.HEADER_SIZE + (index - begin) * wire.RECORD_SIZE
+    return mapping[offset : offset + wire.RECORD_SIZE]
+
+
+def _prefetch_materialize(indices: tuple[int, ...]) -> SparseBatch:
+    # The GLOBAL index is what dataset.record() hands the decoder, and the
+    # decoded record carries it. Passing the position within the batch instead
+    # would build a different batch.
+    sparse = make_sparse_batch(
+        tuple(decode_training_record(_prefetch_raw(index), index) for index in indices),
+        contextual=_PREFETCH_STATE["extractor"],
+    )
+    # dataset.record() stamps every record with the payload identity of the
+    # dataset it was read from, and make_sparse_batch carries it onto the batch.
+    # Reading raw bytes skips that, so restore it here; without it the batch
+    # differs from the serial path by exactly this field, which is what the
+    # oracle caught.
+    return dataclasses.replace(
+        sparse, source_payload_sha256=_PREFETCH_STATE["payload_sha256"]
+    )
+
+
+class _BatchPrefetcher:
+    """Ordered, bounded lookahead over batch materialisation."""
+
+    def __init__(
+        self,
+        architecture: str,
+        dataset: Any,
+        record_count: int,
+        batch_size: int,
+        block_size: int,
+        seed: int,
+        epoch: int,
+        start_batch: int,
+        workers: int,
+    ) -> None:
+        self._architecture = architecture
+        self._dataset = dataset
+        self._workers = workers
+        self._pool: Any = None
+        self._pending: deque[Any] = deque()
+        self._order: Any = None
+        table = _prefetch_source_table(dataset)
+        if table is None or workers <= 1:
+            return
+        self._order = epoch_batches(record_count, batch_size, block_size, seed, epoch)
+        for _ in range(start_batch):
+            next(self._order, None)
+        identity = getattr(dataset, "logical_payload_sha256", None)
+        if identity is None:
+            manifest = getattr(dataset, "manifest", {}) or {}
+            identity = str(manifest.get("payload_sha256", ""))
+        self._pool = concurrent.futures.ProcessPoolExecutor(
+            max_workers=workers,
+            initializer=_prefetch_init,
+            initargs=(table, architecture, str(identity)),
+        )
+        for _ in range(workers * PREFETCH_DEPTH):
+            self._submit()
+
+    @property
+    def parallel(self) -> bool:
+        return self._pool is not None
+
+    def _submit(self) -> None:
+        indices = next(self._order, None)
+        if indices is None:
+            return
+        self._pending.append((indices, self._pool.submit(_prefetch_materialize, indices)))
+
+    def batch(self, indices: Sequence[int]) -> SparseBatch:
+        if self._pool is None:
+            return _load_sparse_batch(self._architecture, self._dataset, indices)
+        _require(bool(self._pending), "batch prefetch ran dry before the schedule did")
+        queued, future = self._pending.popleft()
+        _require(
+            tuple(queued) == tuple(indices),
+            "prefetched batch does not match the scheduled indices",
+        )
+        sparse = future.result()
+        self._submit()
+        return sparse
+
+    def close(self) -> None:
+        if self._pool is None:
+            return
+        for _indices, future in self._pending:
+            future.cancel()
+        self._pending.clear()
+        self._pool.shutdown(cancel_futures=True)
+        self._pool = None
+
+
+BATCH_MATERIALISATION_IMPLEMENTATION = {
+    "materialisation": (
+        "prefetched in worker processes with bounded lookahead, delivered in "
+        "shard order; the batch schedule, the schedule digest, the sample "
+        "order chain, the optimizer and the metrics are untouched"
+    ),
+    "why": (
+        "the pass was loader bound on one core with the GPU near idle; the 50M "
+        "run managed 0.904 steps per second against a loader that alone runs "
+        "at 1.19"
+    ),
+    "changed_after_campaign": "horde-v2-rank8-scale-20260810",
+    "equivalence_evidence": {
+        "method": (
+            "fixed seed, the first 200 real index tuples of this run, "
+            "materialised serially and through the pool; the SHA-256 of the "
+            "batch stream had to be identical and every batch was compared "
+            "object to object"
+        ),
+        "steps": 200,
+        "batch_stream_sha256": (
+            "51EB3EC6071AADD44358A61AFEBFD31E0BE1F3B38A7E56395372AA3E0C03F289"
+        ),
+    },
+    "workers": PREFETCH_WORKERS,
+}
+
+
 def _load_sparse_batch(
     architecture: str,
     dataset: Any,
@@ -2306,6 +2520,18 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                 args.seed,
                 epoch,
             )
+            prefetch = _BatchPrefetcher(
+                architecture,
+                train_dataset,
+                len(train_dataset),
+                args.batch_size,
+                args.block_size,
+                args.seed,
+                epoch,
+                start_batch,
+                PREFETCH_WORKERS,
+            )
+            stack.callback(prefetch.close)
             for batch_index, indices in enumerate(batches):
                 schedule_digest.update(struct.pack("<I", len(indices)))
                 for index in indices:
@@ -2321,7 +2547,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
 
                 batch = _model_batch(
                     architecture,
-                    _load_sparse_batch(architecture, train_dataset, indices),
+                    prefetch.batch(indices),
                     device,
                 )
                 optimizer.zero_grad(set_to_none=True)
@@ -2357,6 +2583,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                     training_stopped = True
                     break
 
+            prefetch.close()
             if training_stopped:
                 break
 
@@ -2479,6 +2706,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
         receipt = {
             "schema": _training_schema(architecture),
             "architecture": architecture_receipt,
+            "batch_materialisation": BATCH_MATERIALISATION_IMPLEMENTATION,
             "source": source,
             "environment": environment,
             "data": data_receipt,
