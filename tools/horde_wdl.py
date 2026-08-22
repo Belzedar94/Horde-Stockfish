@@ -4,6 +4,12 @@
 from __future__ import annotations
 
 from array import array
+from bisect import bisect_right
+from collections import deque
+import concurrent.futures
+from itertools import islice
+import mmap
+import os
 from dataclasses import dataclass
 import hashlib
 import json
@@ -21,6 +27,38 @@ except ImportError:
 
 
 SCHEMA = "HORDE_WDL_CALIBRATION_V1"
+
+# Provenance. The aggregation pass was sharded after the 50M campaign, and the
+# artifact says so rather than leaving a future reader to diff two tools and
+# guess whether the difference was semantic. Both digests are order-dependent
+# SHA-256 chains, which is exactly what sharding could have broken, so the
+# equivalence is evidenced: this pass was re-run on the corpus the 50M
+# calibration was fitted from and had to reproduce both digests and both
+# counters exactly. Artifacts fitted before the change carry no such block and
+# stay valid, because the frozen calibration is the comparability currency of
+# the V2 era and nothing here may retire it.
+AGGREGATION_IMPLEMENTATION = {
+    "pass": (
+        "parallel over contiguous record shards; each shard returns its own "
+        "byte stream and the parent folds those streams into both digests in "
+        "shard order, so each digest sees exactly the bytes the serial pass "
+        "fed it"
+    ),
+    "changed_after_campaign": "horde-v2-rank8-scale-20260810",
+    "equivalence_evidence": {
+        "method": (
+            "re-ran this pass on the corpus the 50M calibration was fitted "
+            "from and required its published digests and counters to "
+            "reproduce exactly"
+        ),
+        "published_artifact_selection": {
+            "selection_sha256": "9399CBEC6D389F0A4F1051F444486F7EE558CF4789F4BD4F6F5D8E18C1C69AD9",
+            "eligible_records_sha256": "7B89800FD307F605980FC74ED74F214C771A79B037636090ACA849C424E031A2",
+            "total_records": 50000000,
+            "eligible_records": 48378691,
+        },
+    },
+}
 LINK_SCHEMA = "DAVIDSON_STM_SOFTMAX_V1"
 SCORE_SCALE = 600.0
 MATE_SCORE_THRESHOLD = 31_507
@@ -129,6 +167,126 @@ def probabilities(score: float, parameters: Sequence[float]) -> tuple[float, flo
     return loss / total, draw / total, win / total
 
 
+# The aggregation pass is per-record independent apart from two order-dependent
+# SHA-256 chains. Shards are CONTIGUOUS and each shard returns its own byte
+# stream; the parent folds those streams into the digests IN SHARD ORDER, so
+# both digests are computed over exactly the bytes the serial pass fed them.
+# Everything else the pass accumulates is a sum and does not care about order.
+#
+# The mmap shard reader is deliberately a local copy rather than an import from
+# the selection tool: these are two gate-critical tools and an import edge
+# between them would couple their failure modes for thirty lines of code.
+WDL_SHARD_RECORDS = 500_000
+WDL_WORKERS = max(1, (os.cpu_count() or 2) - 2)
+_WDL_STATE: dict[str, Any] = {}
+
+
+def _wdl_source_table(dataset: Any) -> tuple[tuple[str, int, int], ...] | None:
+    """(path, global begin, records) per backing file, or None if unsupported."""
+
+    receipt = getattr(dataset, "receipt", None)
+    if isinstance(receipt, dict) and isinstance(receipt.get("chunks"), list):
+        root = Path(dataset.path).parent.resolve()
+        table = []
+        for entry in receipt["chunks"]:
+            path = (root / Path(*Path(str(entry["path"])).parts)).resolve()
+            try:
+                path.relative_to(root)
+            except ValueError:
+                return None
+            table.append((str(path), int(entry["global_begin"]), int(entry["records"])))
+        return tuple(table)
+    path = getattr(dataset, "path", None)
+    manifest = getattr(dataset, "manifest", None)
+    if path is not None and isinstance(manifest, dict) and "record_count" in manifest:
+        return ((str(Path(path).resolve()), 0, int(manifest["record_count"])),)
+    return None
+
+
+def _wdl_init(table: tuple[tuple[str, int, int], ...]) -> None:
+    _WDL_STATE.clear()
+    _WDL_STATE["table"] = table
+    _WDL_STATE["starts"] = [entry[1] for entry in table]
+    _WDL_STATE["slot"] = None
+    _WDL_STATE["mapping"] = None
+    _WDL_STATE["handle"] = None
+
+
+def _wdl_close() -> None:
+    if _WDL_STATE.get("mapping") is not None:
+        _WDL_STATE["mapping"].close()
+    if _WDL_STATE.get("handle") is not None:
+        _WDL_STATE["handle"].close()
+    _WDL_STATE["mapping"] = None
+    _WDL_STATE["handle"] = None
+    _WDL_STATE["slot"] = None
+
+
+def _wdl_raw(index: int) -> bytes:
+    state = _WDL_STATE
+    if state["slot"] is None or not (state["lo"] <= index < state["hi"]):
+        slot = bisect_right(state["starts"], index) - 1
+        path, begin, records = state["table"][slot]
+        _wdl_close()
+        handle = open(path, "rb")
+        state["handle"] = handle
+        state["mapping"] = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+        state["slot"] = slot
+        state["lo"] = begin
+        state["hi"] = begin + records
+    offset = wire.HEADER_SIZE + (index - state["lo"]) * wire.RECORD_SIZE
+    return state["mapping"][offset : offset + wire.RECORD_SIZE]
+
+
+def _wdl_shard(job: tuple[int, int, bool]) -> tuple[Any, ...]:
+    begin, end, parents_only = job
+    histograms: tuple[dict[int, int], dict[int, int]] = ({}, {})
+    class_counts = [[0, 0, 0], [0, 0, 0]]
+    mate_counts = [0, 0]
+    child_counts = [0, 0]
+    eligible_records = 0
+    selection_stream = bytearray()
+    eligible_stream = bytearray()
+
+    for index in range(begin, end):
+        decoded = wire.validate_record(_wdl_raw(index), index)
+        side = decoded["side"]
+        score = decoded["score"]
+        result = decoded["result"]
+        reason = decoded["reason"]
+        is_child = parents_only and decoded["family"] != 0
+        eligible = abs(score) < MATE_SCORE_THRESHOLD and not is_child
+        encoded = struct.pack(
+            "<QBhbBB", index, side, score, result, reason, int(eligible)
+        )
+        selection_stream += encoded
+        if not eligible:
+            if is_child:
+                child_counts[side] += 1
+            else:
+                mate_counts[side] += 1
+            continue
+        result_index = RESULT_INDEX[result]
+        key = ((score + 32_768) * 3) + result_index
+        histogram = histograms[side]
+        histogram[key] = histogram.get(key, 0) + 1
+        class_counts[side][result_index] += 1
+        eligible_records += 1
+        eligible_stream += encoded[:-1]
+
+    return (
+        histograms, class_counts, mate_counts, child_counts, eligible_records,
+        bytes(selection_stream), bytes(eligible_stream),
+    )
+
+
+def _wdl_shards(total: int, parents_only: bool) -> list[tuple[int, int, bool]]:
+    return [
+        (begin, min(begin + WDL_SHARD_RECORDS, total), parents_only)
+        for begin in range(0, total, WDL_SHARD_RECORDS)
+    ]
+
+
 def aggregate_labels(
     dataset: HordeBinV1Dataset,
     *,
@@ -154,6 +312,41 @@ def aggregate_labels(
     selection_digest = hashlib.sha256()
     eligible_digest = hashlib.sha256()
     eligible_records = 0
+
+    table = _wdl_source_table(dataset)
+    shards = _wdl_shards(len(dataset), parents_only) if table else []
+    workers = min(WDL_WORKERS, len(shards)) if table else 1
+    if table is not None and workers > 1:
+        pending: deque[Any] = deque()
+        remaining = iter(shards)
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=workers, initializer=_wdl_init, initargs=(table,)
+        ) as pool:
+            for shard in islice(remaining, workers * 2):
+                pending.append(pool.submit(_wdl_shard, shard))
+            while pending:
+                (shard_histograms, shard_classes, shard_mates, shard_children,
+                 shard_eligible, selection_stream, eligible_stream) = (
+                    pending.popleft().result())
+                following = next(remaining, None)
+                if following is not None:
+                    pending.append(pool.submit(_wdl_shard, following))
+                selection_digest.update(selection_stream)
+                eligible_digest.update(eligible_stream)
+                for side in (WHITE, BLACK):
+                    target = histograms[side]
+                    for key, count in shard_histograms[side].items():
+                        target[key] += count
+                    for result_index in range(3):
+                        class_counts[side][result_index] += (
+                            shard_classes[side][result_index])
+                    mate_counts[side] += shard_mates[side]
+                    child_counts[side] += shard_children[side]
+                eligible_records += shard_eligible
+        return _aggregated(
+            dataset, histograms, class_counts, mate_counts, child_counts,
+            eligible_records, selection_digest, eligible_digest, parents_only,
+        )
 
     # One validation per record, not two: reading the family through a second
     # accessor would re-validate all 48 bytes to recover three bits.
@@ -184,6 +377,23 @@ def aggregate_labels(
         eligible_records += 1
         eligible_digest.update(encoded[:-1])
 
+    return _aggregated(
+        dataset, histograms, class_counts, mate_counts, child_counts,
+        eligible_records, selection_digest, eligible_digest, parents_only,
+    )
+
+
+def _aggregated(
+    dataset: Any,
+    histograms: Any,
+    class_counts: Any,
+    mate_counts: Any,
+    child_counts: Any,
+    eligible_records: int,
+    selection_digest: Any,
+    eligible_digest: Any,
+    parents_only: bool,
+) -> AggregatedLabels:
     by_side: list[tuple[WeightedObservation, ...]] = []
     for side in (WHITE, BLACK):
         observations: list[WeightedObservation] = []
@@ -565,6 +775,7 @@ def build_artifact(
             "perspective": "side_to_move",
             "side_specific": True,
         },
+        "implementation": AGGREGATION_IMPLEMENTATION,
         "source": source,
         "selection": {
             "total_records": aggregated.total_records,
@@ -620,8 +831,9 @@ def build_artifact(
 
 def validate_artifact(payload: object) -> dict[str, tuple[float, float, float]]:
     _require(isinstance(payload, dict), "WDL calibration root is not an object")
+    base_fields = {"schema", "link", "source", "selection", "fit", "claims"}
     _require(
-        set(payload) == {"schema", "link", "source", "selection", "fit", "claims"},
+        set(payload) in (base_fields, base_fields | {"implementation"}),
         "WDL calibration top-level fields are incomplete",
     )
     _require(payload.get("schema") == SCHEMA, "WDL calibration schema mismatch")

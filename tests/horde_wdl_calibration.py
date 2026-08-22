@@ -351,6 +351,40 @@ def test_parents_only_aggregation() -> None:
             )
 
 
+def test_parallel_aggregation_matches_the_serial_pass() -> None:
+    """The shard window must not be observable in either digest.
+
+    Both digests are order-dependent SHA-256 chains, so this is the property
+    that the sharding could plausibly break. The 50M oracle proves it at
+    campaign scale; this pins it in CI for a second.
+    """
+    with tempfile.TemporaryDirectory(prefix="horde-wdl-shard-") as temporary:
+        path = Path(temporary) / "train.bin"
+        _write_wire_dataset(path, expanded=True)
+        results = []
+        for shard_records, workers in ((1_000_000, 1), (37, 4)):
+            previous_records = wdl.WDL_SHARD_RECORDS
+            previous_workers = wdl.WDL_WORKERS
+            wdl.WDL_SHARD_RECORDS = shard_records
+            wdl.WDL_WORKERS = workers
+            try:
+                with decoder.HordeBinV1Dataset(path) as dataset:
+                    results.append(wdl.aggregate_labels(dataset, parents_only=True))
+            finally:
+                wdl.WDL_SHARD_RECORDS = previous_records
+                wdl.WDL_WORKERS = previous_workers
+
+        serial, sharded = results
+        if serial.selection_sha256 != sharded.selection_sha256:
+            raise AssertionError("the shard window moved the selection digest")
+        if serial.eligible_sha256 != sharded.eligible_sha256:
+            raise AssertionError("the shard window moved the eligible digest")
+        if serial != sharded:
+            raise AssertionError("the shard window changed the aggregation")
+        if sharded.child_records_excluded == 0:
+            raise AssertionError("the fixture exercised no children")
+
+
 def main() -> int:
     test_probability_contract()
     test_derivatives()
@@ -360,6 +394,7 @@ def main() -> int:
     test_fail_closed_non_positive_slope()
     test_dataset_aggregation()
     test_parents_only_aggregation()
+    test_parallel_aggregation_matches_the_serial_pass()
     print("Horde Davidson WDL calibration tests passed")
     return 0
 
