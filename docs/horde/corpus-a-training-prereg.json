@@ -1,0 +1,160 @@
+{
+  "campaign": {
+    "batch_size": 4096,
+    "campaign_id": "horde-corpus-a-20260820",
+    "checkpoint_steps": [
+      8192,
+      16384,
+      24576,
+      32768,
+      40960,
+      48829
+    ],
+    "device": "cuda",
+    "epochs": 1,
+    "expected_optimizer_steps": 48829,
+    "lambda": 1.0,
+    "lambda_note": "1.0 is pure teacher score, zero weight on the game result. The ladder selected it by play in both architectures, and it also defuses the sharpest hazard of expansion: a child inherits its parent's result, and at this lambda the result carries no weight.",
+    "seed": 4431809517202381621,
+    "seed_derivation": "sha256('HORDE_CAMPAIGN_SEED_V1\\0' + campaign_id) first eight bytes little endian, masked to 63 bits. Derived rather than picked, and used by BOTH runs so the only difference between them is the architecture."
+  },
+  "claims": {
+    "architecture_selection": false,
+    "production_network": false,
+    "strength_evidence_vs_run6b": false
+  },
+  "committed_before_launch": true,
+  "identical_inputs": {
+    "book_split_receipt_sha256": "0301BAC3374D8DD4194E03686B27EEB1DBA2EAF0D8B09BD273EF04D33B715DD2",
+    "dataset_schema": "HORDE_BIN_V1_R2",
+    "optimizer": "RAdam, base learning rate 0.0015, StepLR gamma 0.987, dense and output multipliers 0.1",
+    "selector_implementation": {
+      "changed_after_campaign": "horde-v2-rank8-scale-20260810",
+      "equivalence_evidence": {
+        "method": "re-ran this selector on the 50M campaign inputs and required the published receipt digests to reproduce exactly",
+        "published_receipt_digests": {
+          "candidate_inventory_sha256": "FCFE29C03225789A1F9E927A0B1323DA2A9D0C11C89CD597C7736DD0469AA66D",
+          "decision_chain_sha256": "DC154F74A0FD708888D6381DC62A3AA3C386F8BC705A9A4742BC918F209CBED7",
+          "materialized_output_sha256": "DA97A6C8E392214100B28C2457EC2430316118EEA1932DFAA07DC152B3B28F85",
+          "selected_indices_sha256": "A754EF062E34E5DDEDCC80C99D01931E15AEF19688537D33D9FE38429B9E6CCF",
+          "training_inventory_sha256": "B1632DE0A88269DADB45ECCEE86222E396FAFE4D898837063BE806F23083259B"
+        },
+        "records": 50000000
+      },
+      "legacy_feature_index": "precomputed table over (perspective, square, code); it was 39 percent of the pass measured on real records",
+      "partition": "parallel over contiguous record shards; each shard's per-bucket contribution is concatenated in shard order, so every bucket holds byte for byte what the serial pass wrote"
+    },
+    "selector_source": {
+      "commit": "fc702b50a86619f1075f20cfbd01a34f92e327e9",
+      "dirty": false,
+      "file_sha256": "E2AA2F9127C4174158B08BD72317A42613E911C066C948B66AF20C58A4050397",
+      "path": "tools/horde_training_scale_selected_role.py"
+    },
+    "train_chunk_set_sha256": "28C34BBB507AC0703AEB2AFB14742B8FC424F3A59BBE3641F197BC634E1D00A5",
+    "train_logical_payload_sha256": "1114787C87FE963BA1037DAE6D63B7CD912C6B78658FDCDACFB0512E7C90663B",
+    "train_records": 200000000,
+    "validation_candidate_chunk_set_sha256": "EEA1848911500ACF26878A75E1C1FF4CCDC8842D267FD34C3369E414A89E05B6",
+    "validation_parents_only": true,
+    "validation_records": 250000,
+    "validation_selected_receipt_sha256": "44E8801C90B6895AEA3560B1CA1AA3EA15814C2CB69416CEF464B959EAED58EB",
+    "wdl_calibration_sha256": "83753C31FAB73F8FDFC9183927EA5BEDCB6815E37A40D61F347082FEA51E88EC",
+    "wdl_parents_only": true
+  },
+  "known_corpus_properties": {
+    "child_families_pct_of_children": {
+      "check": 72.79,
+      "promotion": 27.21
+    },
+    "children_per_parent": {
+      "0": 663431,
+      "1": 163846,
+      "2": 65252,
+      "3": 13859,
+      "4": 1537
+    },
+    "declared_child_ceiling": 5,
+    "effective_side_to_move_white_pct": 37.86,
+    "expansion_increment_pct": 37.677,
+    "full_corpus_confirmation": {
+      "children_black_to_move_pct": 99.554,
+      "children_excluded": 54615684,
+      "children_pct_of_records": 27.308,
+      "eligible_parent_result_split": {
+        "black_win_pct": 74.11,
+        "draw_pct": 2.55,
+        "side_to_move_white_pct": 51.44,
+        "white_win_pct": 23.34
+      },
+      "eligible_parents": 133491820,
+      "mate_records_excluded": 11892496,
+      "note": "counted by the WDL pass over all records, and it confirms the sample: the 50M depth-4 corpus splits 61.56 / 29.75 / 8.69, so corpus A is a materially harsher world for White with the draw rate collapsing, which is why the frozen calibration cannot be reused and a new one was fitted",
+      "records": 200000000
+    },
+    "note": "Measured on the corpus itself before training, not discovered afterwards. Corpus A changes TWO things at once against the 50M corpus: the label depth, and the composition. Any null result must be attributed between them, which is what the pre-designated ablation below exists for.",
+    "observed_max_children_per_parent": 4,
+    "parent_share_of_records": 0.72634,
+    "result_split_50m_d4_corpus_for_comparison": {
+      "black_win_pct": 61.5,
+      "draw_pct": 8.7,
+      "white_win_pct": 29.8
+    },
+    "result_split_children": {
+      "black_win_pct": 65.56,
+      "draw_pct": 2.86,
+      "records_sampled": 342075,
+      "side_to_move_white_pct": 0.45,
+      "white_win_pct": 31.58
+    },
+    "result_split_parents_only": {
+      "black_win_pct": 74.84,
+      "draw_pct": 2.4,
+      "records_sampled": 907925,
+      "side_to_move_white_pct": 51.95,
+      "white_win_pct": 22.77
+    },
+    "royal_in_check_pct_of_records": 23.84,
+    "side_to_move_note": "A child is the position AFTER a promotion or a check by White, so children are almost entirely Black to move. The corpus the trainer sees is therefore about 37.86 percent White to move against 51.95 percent among parents. Every child is one training example: train_records includes them."
+  },
+  "preregistered_reading": {
+    "legacy_run_vs_run6b_at_three_time_controls": {
+      "clear_improvement_on_minus_220": "Lever A is validated: the binding constraint was the labels, and a 10,000 node teacher buys what depth 4 could not. This is the result the whole campaign was built to test.",
+      "clear_regression_against_the_50m_champion": "The expansion composition actively hurts. The ablation stops being diagnostic and becomes mandatory, and the expansion budget itself goes back on the table.",
+      "no_material_improvement": "The labels were not the binding constraint, or not the only one. This does NOT by itself indict the label thesis, because corpus A also changed the composition. The parents-only ablation below becomes the first follow-up, and it is pre-designated here so that choosing it later is not a post-hoc rescue."
+    },
+    "permanent_caution": "No loss metric votes. Validation loss is diagnostic only, and in this campaign it is additionally NOT comparable to the V2 era: the WDL calibration is new, fitted on corpus A parents, and the validation role is a different set of positions carved from a different pool. Games at three time controls decide, and nothing else does.",
+    "pre_designated_first_follow_up": {
+      "name": "parents-only ablation",
+      "trigger": "the legacy run failing to improve materially on the roughly 220 Elo gap",
+      "what_it_separates": "'10,000 node labels are insufficient' from 'the side-to-move mixture that expansion introduced is harmful'. It retrains the legacy architecture on the parents of corpus A alone, same seed, same lambda, same calibration, so the only thing that moves is the presence of children."
+    },
+    "v3_run_vs_legacy_corpusA": {
+      "clear_v3_loss": "A real negative result about the architecture as built, on the labels it asked for. It would send the design back to the ladder rungs rather than forward.",
+      "clear_v3_win": "The architecture thesis is validated under labels that are no longer blind where the features matter. This is the test the first V3 control could not perform, because its teacher was measurably blind at exactly the piece counts where the pawn blocks carry signal.",
+      "draw": "Still not conclusive, but more informative than last time. The blindness excuse is weaker now: the labels are 10,000 nodes and the expansion targets precisely the promotion and check families where the earlier probe measured 373 to 788 cp median error. A tie shifts the prior against the architecture without settling it."
+    }
+  },
+  "purpose": "Pre-registered reading of the two corpus A training runs, committed before either was launched and therefore before any result existed. The legacy run is the ceiling gate: its match against run6b answers whether 10,000 node labels break the roughly 220 Elo the depth-4 distillation could not. The V3 run is the architecture rematch on labels that are no longer blind where the features should matter.",
+  "runs": {
+    "first": {
+      "architecture": "fresh-legacy-hp",
+      "contract_schema": "HORDE_CORPUS_A_LEGACY_SCALE_V1",
+      "contract_sha256": "2708D6B1C426ACD2B8F41A7C4CD945FC9E8E8F25DCC7C876C92384CA54C7E91E",
+      "role": "the ceiling gate",
+      "run_id": "legacy-corpusA-l1p0"
+    },
+    "second": {
+      "architecture": "v3-g1024-pawn-wpc8",
+      "architecture_structural_sha256": "5B49DC20A9EF5424687A649A7E1BEA8665FE96F3AB839A2BA4CEAE8289EC69EC",
+      "contract_schema": "HORDE_CORPUS_A_V3_SCALE_V1",
+      "contract_sha256": "21D181D4E6AD9223B7732EF9405780BE6B80798252BDF523CA1F1A9448D65B5F",
+      "role": "the architecture rematch, identical recipe",
+      "run_id": "v3-corpusA-l1p0"
+    }
+  },
+  "schema": "HORDE_CORPUS_A_TRAINING_PREREGISTRATION_V1",
+  "what_these_runs_cannot_show": [
+    "any engine speed property, since no NPS is measured here",
+    "that the expansion budget 2/2/5 is optimal, since no other budget is trained",
+    "an architecture verdict from the legacy run, or a label verdict from the V3 run"
+  ]
+}
