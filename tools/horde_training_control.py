@@ -1954,9 +1954,17 @@ BATCH_MATERIALISATION_IMPLEMENTATION = {
             "object to object"
         ),
         "steps": 200,
-        "batch_stream_sha256": (
-            "51EB3EC6071AADD44358A61AFEBFD31E0BE1F3B38A7E56395372AA3E0C03F289"
-        ),
+        # Per architecture, because _load_sparse_batch materialises differently
+        # for each: the V3 contextual rows are not in a legacy batch, so one
+        # digest cannot stand for both and the oracle is run for each.
+        "batch_stream_sha256": {
+            LEGACY_ARCHITECTURE:
+                "51EB3EC6071AADD44358A61AFEBFD31E0BE1F3B38A7E5"
+                "6395372AA3E0C03F289",
+            "v3-g1024-pawn-wpc8":
+                "5F3E622768C841295DBB75A4AC148F6A0A5A0105F563"
+                "1336EC6D0502CB514F2C",
+        },
     },
     "workers": PREFETCH_WORKERS,
 }
