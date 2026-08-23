@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import horde_legacy_export as exporter  # noqa: E402
+import horde_legacy_import as importer  # noqa: E402
 import horde_run6b  # noqa: E402
 
 
@@ -222,13 +223,102 @@ def main() -> int:
             "different files",
         )
 
+    check_import_round_trip()
     print("Horde fresh legacy exporter contract completed successfully")
     return 0
+
+
+def check_import_round_trip() -> None:
+    """The importer must be the exporter's inverse, on real networks.
+
+    A synthetic checkpoint is not enough evidence here. The importer exists to
+    read networks this repository did not produce, so the fixture is exported
+    first and then the shipped run6b container is imported, because the second
+    is the case that actually matters and the only one whose bytes nobody here
+    chose.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="horde-legacy-import-") as temp_name:
+        temp = Path(temp_name)
+        description = "Horde fresh legacy importer test"
+        original, _stats = exporter.build_legacy_nnue(checkpoint(), description)
+
+        state, read_description, dequantization = importer.read_legacy_nnue(original)
+        if read_description != description:
+            raise AssertionError("the description did not survive the import")
+        rebuilt, _stats = exporter.build_legacy_nnue({"model_state": state}, read_description)
+        if rebuilt != original:
+            raise AssertionError("a fixture network did not return byte for byte")
+
+        # The parameters, not just the bytes: every value the fixture set is a
+        # known integer, so the float that comes back is checkable directly.
+        expected = model_state()
+        for name in exporter.MODEL_SHAPES:
+            if state[name].dtype != torch.float32:
+                raise AssertionError(f"imported {name} is not float32")
+            if not torch.equal(state[name], expected[name]):
+                raise AssertionError(f"imported {name} differs from the exported parameters")
+
+        # Truncation, trailing bytes and a wrong magic are refused rather than
+        # read as a shorter or longer network.
+        for label, payload, marker in (
+            ("a truncated container", original[:-1], "container ends inside"),
+            ("a padded container", original + b"\x00", "trailing bytes"),
+            ("a wrong file version", b"\x00\x00\x00\x00" + original[4:], "file version"),
+        ):
+            try:
+                importer.read_legacy_nnue(payload)
+            except importer.LegacyImportError as error:
+                if marker not in str(error):
+                    raise AssertionError(
+                        f"wrong rejection for {label}: {error}"
+                    ) from error
+            else:
+                raise AssertionError(f"the importer accepted {label}")
+
+        run6b = ROOT / "networks" / "hordetest_run6b_e37_l06.nnue"
+        if not run6b.is_file():
+            print("  run6b container absent, skipping the champion round-trip")
+            return
+        payload = run6b.read_bytes()
+        state, run6b_description, _dequantization = importer.read_legacy_nnue(payload)
+        rebuilt, _stats = exporter.build_legacy_nnue(
+            {"model_state": state}, run6b_description
+        )
+        if exporter.sha256_bytes(rebuilt) != exporter.sha256_bytes(payload):
+            raise AssertionError("run6b did not return byte for byte through the importer")
+
+        # And the whole tool, not only its parser: the checkpoint it writes must
+        # be loadable and must carry the provenance of the container.
+        output = temp / "run6b-import.pt"
+        import_receipt = temp / "run6b-import.json"
+        result = importer.import_container(run6b, output, import_receipt)
+        if result["round_trip"]["byte_identical"] is not True:
+            raise AssertionError("the importer reported a lossy round-trip on run6b")
+        if result["imported_from"]["sha256"] != exporter.sha256_file(run6b):
+            raise AssertionError("the import receipt does not bind the source container")
+        loaded = torch.load(output, map_location="cpu", weights_only=True)
+        if loaded.get("schema") != exporter.CHECKPOINT_SCHEMA:
+            raise AssertionError("the imported checkpoint declares the wrong schema")
+        if loaded.get("architecture") != exporter.ARCHITECTURE_SCHEMA:
+            raise AssertionError("the imported checkpoint declares the wrong architecture")
+        for absent in ("optimizer_state", "scheduler_state", "rng_state", "progress"):
+            if absent in loaded:
+                raise AssertionError(
+                    f"the imported checkpoint carries {absent}, which no container can supply"
+                )
+        print(f"  run6b round-tripped byte for byte: {result['artifact']['sha256']}")
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (AssertionError, OSError, RuntimeError, exporter.LegacyExportError) as error:
+    except (
+        AssertionError,
+        OSError,
+        RuntimeError,
+        exporter.LegacyExportError,
+        importer.LegacyImportError,
+    ) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         raise SystemExit(1) from error
