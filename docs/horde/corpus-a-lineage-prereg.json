@@ -1,4 +1,33 @@
 {
+  "amendments": [
+    {
+      "amendment": 1,
+      "applies_to": "run B only",
+      "date": "2026-08-23",
+      "filled_in": {
+        "after": {
+          "contract_schema": "HORDE_CORPUS_A_LINEAGE_RUN6B_LEGACY_SCALE_V1",
+          "contract_sha256": "CA71CC695AAF4D81EF8C01AD32044032E73C410A494FC9697A2B8878247EB9B9",
+          "init_checkpoint_sha256": "768545C3814C0B48168029ED809DE2153830E7AF2543F4922A7DE0F28838247B"
+        },
+        "before": {
+          "contract_schema": "to be registered once the importer round-trip is green",
+          "contract_sha256": null,
+          "init_checkpoint_sha256": null
+        }
+      },
+      "no_result_existed": "Run A was still training and had produced no checkpoint, no export and no game. Run B had not been launched. Neither run had a result of any kind when this amendment was written.",
+      "precondition_met": {
+        "container_sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7",
+        "import_receipt_sha256": "2C53584B170AF862CFB6C31DC0DD6B01B7C9F5A999310D5EEAA536AD3C10CD57",
+        "method": "the imported checkpoint was handed back to horde_legacy_export.build_legacy_nnue and the bytes compared against the source container",
+        "result": "byte identical; the re-export reproduces the container's own SHA-256, so no evaluation argument in centipawns was needed and none is claimed",
+        "weights_the_first_clip_will_move": 0
+      },
+      "preregistered_reading": "UNCHANGED. Every branch of both readings stands exactly as sealed, and so does the rule that run A is read in full before any result of run B is looked at.",
+      "reason": "The three fields left null at sealing could not be filled at sealing: they identify a checkpoint that did not exist until the importer produced it."
+    }
+  ],
   "ancestor_reference": {
     "measured_against_run6b": {
       "ltc_30+0.3": {
@@ -129,10 +158,10 @@
     },
     "B": {
       "architecture": "fresh-legacy-hp",
-      "contract_schema": "to be registered once the importer round-trip is green",
-      "contract_sha256": null,
+      "contract_schema": "HORDE_CORPUS_A_LINEAGE_RUN6B_LEGACY_SCALE_V1",
+      "contract_sha256": "CA71CC695AAF4D81EF8C01AD32044032E73C410A494FC9697A2B8878247EB9B9",
       "generations_stacked": "one on top of run6b's six",
-      "init_checkpoint_sha256": null,
+      "init_checkpoint_sha256": "768545C3814C0B48168029ED809DE2153830E7AF2543F4922A7DE0F28838247B",
       "init_source": "run6b, imported from its NNUE container into a trainer checkpoint",
       "init_source_network_sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7",
       "precondition": "The importer must pass a round-trip: import run6b, re-export through the exporter's own serializer, and compare. Byte identity is the bar; anything short of it has to be justified in centipawns against the engine before run B may be launched. Without a green round-trip there is no run B.",

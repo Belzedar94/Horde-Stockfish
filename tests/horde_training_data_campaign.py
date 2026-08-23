@@ -30,7 +30,10 @@ CORPUS_A_FRESH = ROOT / "schemas" / "horde-corpus-a-legacy-scale-v1.json"
 # Every lineage contract of the corpus A phase. Each one claims to be the fresh
 # legacy contract with the initialization as its only recipe delta, and the
 # claim is checked here rather than trusted.
-LINEAGE = ("horde-corpus-a-lineage-l1-legacy-scale-v1.json",)
+LINEAGE = (
+    "horde-corpus-a-lineage-l1-legacy-scale-v1.json",
+    "horde-corpus-a-lineage-run6b-legacy-scale-v1.json",
+)
 
 
 def check(condition: bool, message: str) -> None:

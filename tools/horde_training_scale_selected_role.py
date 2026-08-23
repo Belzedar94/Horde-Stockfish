@@ -85,6 +85,16 @@ CORPUS_A_LINEAGE_L1_CONTRACT_RELATIVE_PATH = Path(
 CORPUS_A_LINEAGE_L1_CONTRACT_SHA256 = (
     "2BAC48DA7A0F14E77B8E8FD3D22570A70E8E80166C4650A8EB24F6BECC9E6295"
 )
+# The same phase, stacking on the champion instead. run6b has no trainer
+# checkpoint, so the init it names was decoded out of its NNUE container and the
+# contract pins the decoded checkpoint, not the container.
+CORPUS_A_LINEAGE_RUN6B_CONTRACT_SCHEMA = "HORDE_CORPUS_A_LINEAGE_RUN6B_LEGACY_SCALE_V1"
+CORPUS_A_LINEAGE_RUN6B_CONTRACT_RELATIVE_PATH = Path(
+    "schemas/horde-corpus-a-lineage-run6b-legacy-scale-v1.json"
+)
+CORPUS_A_LINEAGE_RUN6B_CONTRACT_SHA256 = (
+    "CA71CC695AAF4D81EF8C01AD32044032E73C410A494FC9697A2B8878247EB9B9"
+)
 
 # Every registered scale contract, keyed by its schema name. A contract is
 # accepted only when its own SHA-256 matches the entry pinned here, and each
@@ -114,6 +124,11 @@ SCALE_CONTRACTS: dict[str, dict[str, object]] = {
     CORPUS_A_LINEAGE_L1_CONTRACT_SCHEMA: {
         "relative_path": CORPUS_A_LINEAGE_L1_CONTRACT_RELATIVE_PATH,
         "sha256": CORPUS_A_LINEAGE_L1_CONTRACT_SHA256,
+        "architecture": "fresh-legacy-hp",
+    },
+    CORPUS_A_LINEAGE_RUN6B_CONTRACT_SCHEMA: {
+        "relative_path": CORPUS_A_LINEAGE_RUN6B_CONTRACT_RELATIVE_PATH,
+        "sha256": CORPUS_A_LINEAGE_RUN6B_CONTRACT_SHA256,
         "architecture": "fresh-legacy-hp",
     },
 }
