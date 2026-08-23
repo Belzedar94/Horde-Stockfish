@@ -38,11 +38,18 @@ SCHEMA_SHA256 = "CAAF9D19B4A04BA8854FDBC24B4A7D1948577B17FB652E39EF4DB4287BB0DD4
 SCALE_SCHEMA = "HORDE_V2_RANK8_SCALE_V1"
 # Contract vocabularies this tool can read. A contract still binds exactly one
 # architecture; that binding lives in the scale-contract registry, not here.
+# The names of every registered scale contract. This is the lower half of a
+# registry the selected-role tool completes with each contract's file, SHA-256
+# and bound architecture; it cannot live there because that tool imports this
+# one. A contract added to one half and forgotten in the other fails at the
+# first chunk the trainer opens, which is why the halves are compared by
+# tests/horde_training_data_campaign.py rather than by whoever edits next.
 SCALE_SCHEMAS = {
     SCALE_SCHEMA,
     "HORDE_V3_SCALE_V1",
     "HORDE_CORPUS_A_LEGACY_SCALE_V1",
     "HORDE_CORPUS_A_V3_SCALE_V1",
+    "HORDE_CORPUS_A_LINEAGE_L1_LEGACY_SCALE_V1",
 }
 
 # HORDE_DATA_CAMPAIGN_V1.  Data provenance and recipe provenance are independent

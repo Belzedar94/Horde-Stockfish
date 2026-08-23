@@ -150,6 +150,28 @@ def test_mismatch_is_rejected() -> None:
     print(f"  rejected {len(cases)} mismatches and 4 malformed declarations")
 
 
+def test_the_two_halves_of_the_registry_agree() -> None:
+    """Both registries must name the same set of scale contracts.
+
+    The schema names live in the chunk-set reader and the file, SHA-256 and
+    architecture live in the selected-role tool, because the second imports the
+    first and the dependency cannot run the other way. A contract added to one
+    half and not the other passes every contract-level check and then dies at
+    the first chunk the trainer opens, minutes into a run, with an error that
+    names neither the contract nor the omission.
+    """
+
+    names = set(cs.SCALE_SCHEMAS)
+    registered = set(cs_role.SCALE_CONTRACTS)
+    check(
+        names == registered,
+        "the scale contract registries disagree: "
+        f"only in the chunk-set reader {sorted(names - registered)}, "
+        f"only in the selected-role tool {sorted(registered - names)}",
+    )
+    print(f"  {len(names)} scale contracts registered in both halves")
+
+
 def test_lineage_contracts_differ_only_by_the_init() -> None:
     """A lineage contract must be the fresh contract plus an initialization.
 
@@ -250,6 +272,21 @@ def test_lineage_contracts_differ_only_by_the_init() -> None:
             and identity.get("changed_fields") == [],
             f"{name} misstates its own delta against the fresh contract",
         )
+
+        # Against the real chunks, not only against the fresh contract: the
+        # trainer opens these receipts, and a contract that cannot reproduce
+        # them fails minutes into a run rather than here.
+        for role, receipt_path in (
+            ("training", Path(r"D:/horde-train/corpus-a-bulk/bin/chunk-set.json")),
+            ("validation_candidate", Path(r"D:/horde-train/corpus-a-val/bin/chunk-set.json")),
+        ):
+            if not receipt_path.is_file():
+                continue
+            real = json.loads(receipt_path.read_text(encoding="utf-8"))["campaign"]
+            check(
+                cs._campaign_section(expectation(path, role)) == real,
+                f"{name} does not reproduce the real corpus A {role} chunk receipt",
+            )
         checked += 1
     print(f"  {checked} lineage contract(s) differ from the fresh recipe only by the init")
 
@@ -260,6 +297,7 @@ def main() -> int:
     test_undeclared_is_its_own_campaign()
     test_matches_the_real_receipt()
     test_mismatch_is_rejected()
+    test_the_two_halves_of_the_registry_agree()
     test_lineage_contracts_differ_only_by_the_init()
     if FAILURES:
         print(f"\nFAILED with {len(FAILURES)} problems:")
