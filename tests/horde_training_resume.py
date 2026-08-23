@@ -206,6 +206,7 @@ def _arguments(
     *,
     architecture: str = control.LEGACY_ARCHITECTURE,
     resume: Path | None = None,
+    init: Path | None = None,
     stop_after_steps: int | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
@@ -225,13 +226,242 @@ def _arguments(
         device="cpu",
         cpu_threads=1,
         resume=resume,
+        init=init,
         stop_after_steps=stop_after_steps,
         allow_legacy_book_split_v1=False,
         allow_dirty=True,
     )
 
 
+def _check_init(
+    train: Path,
+    validation: Path,
+    split_receipt: Path,
+    wdl_calibration: Path,
+    root: Path,
+    donor: Path,
+    donor_receipt: dict,
+    fresh_receipt: dict,
+) -> None:
+    """Prove what --init does, and equally what it refuses to do.
+
+    The donor is a completed run over the same fixture. Initializing from it
+    must move the parameters and nothing else: the run still starts at step
+    zero and still walks the identical batch order, because the RNG is seeded
+    by --seed and the init never touches it.
+    """
+
+    donor_checkpoint = donor / "checkpoint.pt"
+    initialized = root / "initialized"
+    receipt = control.train(
+        _arguments(
+            train,
+            validation,
+            split_receipt,
+            wdl_calibration,
+            initialized,
+            init=donor_checkpoint,
+        )
+    )
+
+    donor_sha256 = control._sha256_file(donor_checkpoint)
+    init_receipt = receipt["run"]["init"]
+    if init_receipt is None or init_receipt["checkpoint_sha256"] != donor_sha256:
+        raise AssertionError("init run did not record the checkpoint it started from")
+    if fresh_receipt["run"]["init"] is not None:
+        raise AssertionError("a run without --init reported an init")
+
+    # The parameters moved: this run opened on exactly the state the donor
+    # closed on, which a fresh run of the same seed provably does not.
+    if receipt["run"]["initial_state_sha256"] != donor_receipt["run"]["final_state_sha256"]:
+        raise AssertionError("init run did not start from the donor parameters")
+    if receipt["run"]["initial_state_sha256"] == fresh_receipt["run"]["initial_state_sha256"]:
+        raise AssertionError("init run started from the seeded state instead of the donor")
+
+    # Nothing else moved. Same seed, same data, same batch order, and a full
+    # run rather than a continuation of the donor's step count.
+    if receipt["run"]["sample_order_chain_sha256"] != fresh_receipt["run"]["sample_order_chain_sha256"]:
+        raise AssertionError("init changed the batch order")
+    if receipt["run"]["optimizer_steps"] != fresh_receipt["run"]["optimizer_steps"]:
+        raise AssertionError("init run did not train the full step budget")
+    if receipt["run"]["complete"] is not True:
+        raise AssertionError("init run did not complete")
+    if receipt["run"]["final_state_sha256"] == fresh_receipt["run"]["final_state_sha256"]:
+        raise AssertionError("init made no difference to the trained network")
+
+    # An init from another architecture is refused rather than reinterpreted.
+    wrong_architecture = root / "init-wrong-architecture"
+    try:
+        control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                wrong_architecture,
+                architecture="v2-64x192",
+                init=donor_checkpoint,
+            )
+        )
+    except control.TrainingError as error:
+        if "init checkpoint schema mismatch" not in str(error):
+            raise
+    else:
+        raise AssertionError("trainer initialized a V2 model from a legacy checkpoint")
+    if wrong_architecture.exists():
+        raise AssertionError("refused init created a partial output directory")
+
+    # An init run stays resumable, and only from its own lineage: the init
+    # identity is part of the settings the resume has to agree with.
+    partial = root / "init-partial"
+    resumed = root / "init-resumed"
+    partial_receipt = control.train(
+        _arguments(
+            train,
+            validation,
+            split_receipt,
+            wdl_calibration,
+            partial,
+            init=donor_checkpoint,
+            stop_after_steps=2,
+        )
+    )
+    if partial_receipt["run"]["complete"] is not False:
+        raise AssertionError("partial init run was marked complete")
+
+    forgotten_init = root / "init-forgotten-on-resume"
+    try:
+        control.train(
+            _arguments(
+                train,
+                validation,
+                split_receipt,
+                wdl_calibration,
+                forgotten_init,
+                resume=partial / "checkpoint.pt",
+            )
+        )
+    except control.TrainingError as error:
+        if "resume settings mismatch" not in str(error):
+            raise
+    else:
+        raise AssertionError("an init run resumed as though it had never been initialized")
+    if forgotten_init.exists():
+        raise AssertionError("refused resume created a partial output directory")
+
+    resumed_receipt = control.train(
+        _arguments(
+            train,
+            validation,
+            split_receipt,
+            wdl_calibration,
+            resumed,
+            init=donor_checkpoint,
+            resume=partial / "checkpoint.pt",
+        )
+    )
+    for field in (
+        "optimizer_steps",
+        "samples_consumed",
+        "sample_order_chain_sha256",
+        "initial_state_sha256",
+        "final_state_sha256",
+        "stop_validation",
+        "epochs_receipt",
+    ):
+        if receipt["run"][field] != resumed_receipt["run"][field]:
+            raise AssertionError(f"resumed init run field changed: {field}")
+    if (initialized / "metrics.jsonl").read_bytes() != (resumed / "metrics.jsonl").read_bytes():
+        raise AssertionError("resumed init metrics are not byte-identical")
+
+
+def _check_contract_binds_the_init() -> None:
+    """The contract owns the initialization, in both directions.
+
+    A lineage contract must refuse a run that is not initialized from the
+    checkpoint it names, and the fresh contract must refuse an initialized run
+    outright. The second half is the one that matters: without it, a warm start
+    could be slipped under the contract the fresh run was measured against, and
+    every comparison drawn between them would be silently void.
+    """
+
+    root = Path(__file__).resolve().parents[1]
+    fresh = root / "schemas" / "horde-corpus-a-legacy-scale-v1.json"
+    lineage = root / "schemas" / "horde-corpus-a-lineage-l1-legacy-scale-v1.json"
+    if not (fresh.is_file() and lineage.is_file()):
+        print("  corpus A contracts absent, skipping the init binding checks")
+        return
+    recipe = json.loads(lineage.read_text(encoding="utf-8"))["training"]
+    declared = recipe["init"]["checkpoint_sha256"]
+
+    identity = {
+        "chunk_set_sha256": "0" * 64,
+        "selected_role": {"receipt_sha256": "1" * 64},
+    }
+    data_receipt = {
+        "train_file": identity,
+        "validation_file": identity,
+        "validation_candidate": identity,
+    }
+
+    def _binding(contract: Path, init: str | None):
+        args = argparse.Namespace(
+            scale_contract=contract,
+            campaign_plan=None,
+            campaign_run_id=None,
+            scale_contract_fixture=True,
+            seed=recipe["seed"],
+            epochs=recipe["epochs"],
+            batch_size=recipe["batch_size"],
+            block_size=recipe["block_size"],
+            lambda_value=recipe["lambda"],
+            learning_rate=recipe["learning_rate"],
+            scheduler_gamma=recipe["scheduler_gamma"],
+            dense_learning_rate_multiplier=recipe["dense_learning_rate_multiplier"],
+            output_learning_rate_multiplier=recipe["output_learning_rate_multiplier"],
+            device=recipe["device"]["type"],
+            cpu_threads=recipe["device"]["cpu_threads"],
+            stop_after_steps=None,
+        )
+        bundle = control._load_scale_binding(args, control.LEGACY_ARCHITECTURE)
+        return control._finalize_scale_binding(
+            bundle,
+            args,
+            data_receipt,
+            recipe["training_example_exposures"] // recipe["epochs"],
+            json.loads(lineage.read_text(encoding="utf-8"))["validation_selection"][
+                "target_records"
+            ],
+            recipe["optimizer_steps"],
+            init,
+        )
+
+    for label, contract, init, expected in (
+        ("the fresh contract with an init", fresh, declared, "declares no init"),
+        ("the lineage contract with no init", lineage, None, "must be initialized from it"),
+        ("the lineage contract with another init", lineage, "F" * 64, "a different init"),
+    ):
+        try:
+            _binding(contract, init)
+        except control.TrainingError as error:
+            if expected not in str(error):
+                raise AssertionError(
+                    f"{label} was refused for the wrong reason: {error}"
+                ) from error
+        else:
+            raise AssertionError(f"{label} was accepted")
+
+    binding = _binding(lineage, declared)
+    if binding["init"]["checkpoint_sha256"] != declared:
+        raise AssertionError("the campaign binding did not record the init")
+    if binding["contract"]["schema"] != "HORDE_CORPUS_A_LINEAGE_L1_LEGACY_SCALE_V1":
+        raise AssertionError("the campaign binding named the wrong contract")
+    if _binding(fresh, None).get("init") is not None:
+        raise AssertionError("a run under the fresh contract reported an init")
+
+
 def main() -> int:
+    _check_contract_binds_the_init()
     with tempfile.TemporaryDirectory(prefix="horde-training-resume-") as directory:
         root = Path(directory)
         train = root / "train.bin"
@@ -378,6 +608,17 @@ def main() -> int:
         ):
             if full_receipt["run"][field] != resumed_receipt["run"][field]:
                 raise AssertionError(f"resumed run field changed: {field}")
+
+        _check_init(
+            train,
+            validation,
+            split_receipt,
+            wdl_calibration,
+            root,
+            full,
+            full_receipt,
+            full_receipt,
+        )
 
         v2_full = root / "v2-64x192-full"
         v2_partial = root / "v2-64x192-partial"

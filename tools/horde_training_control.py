@@ -1581,6 +1581,7 @@ def _finalize_scale_binding(
     train_records: int,
     validation_records: int,
     target_steps: int,
+    init_checkpoint_sha256: str | None = None,
 ) -> dict[str, object] | None:
     if bundle is None:
         return None
@@ -1610,6 +1611,29 @@ def _finalize_scale_binding(
         and target_steps == recipe.get("optimizer_steps"),
         "scale trainer recipe differs from the contract",
     )
+    # Lineage is a recipe field, so the contract owns it in both directions. A
+    # contract that declares an init binds the run to that exact checkpoint, and
+    # a contract that declares none refuses an initialized run outright. Without
+    # the second half a fresh contract would silently accept a warm start, which
+    # is the one substitution that would invalidate every comparison drawn
+    # against the fresh run it was written for.
+    declared_init = recipe.get("init")
+    if declared_init is None:
+        _require(
+            init_checkpoint_sha256 is None,
+            "scale contract declares no init, so this run cannot be initialized from a checkpoint",
+        )
+    else:
+        declared_init = _mapping(declared_init, "scale init declaration")
+        _require(
+            init_checkpoint_sha256 is not None,
+            "scale contract declares an init, so this run must be initialized from it",
+        )
+        _require(
+            str(declared_init.get("checkpoint_sha256")).upper()
+            == init_checkpoint_sha256.upper(),
+            "scale contract declares a different init checkpoint",
+        )
     # A contract that declares the feature transformer clipping range binds the
     # trainer to it. The legacy contract predates the field and does not
     # declare it, which is why the check is conditional rather than absent.
@@ -1656,7 +1680,14 @@ def _finalize_scale_binding(
     candidate = _mapping(
         data_receipt.get("validation_candidate"), "scale candidate identity"
     )
-    return {
+    binding_init: dict[str, object] | None = None
+    if declared_init is not None:
+        binding_init = {
+            "checkpoint_sha256": init_checkpoint_sha256,
+            "source": declared_init.get("source"),
+            "network_sha256": declared_init.get("network_sha256"),
+        }
+    binding: dict[str, object] = {
         "schema": SCALE_BINDING_SCHEMA,
         # The contract names itself. Stamping one registered schema on every
         # binding would record the wrong provenance the moment a second scale
@@ -1674,6 +1705,11 @@ def _finalize_scale_binding(
         ],
         "checkpoint_steps": checkpoints,
     }
+    # Present only when the contract declares one, so a run under a contract
+    # without lineage keeps exactly the binding it has always had.
+    if binding_init is not None:
+        binding["init"] = binding_init
+    return binding
 
 
 def _device_receipt(device: torch.device, cpu_threads: int) -> dict[str, object]:
@@ -2191,6 +2227,7 @@ def _training_settings(
     device: torch.device,
     wdl_calibration_sha256: str,
     architecture: str = LEGACY_ARCHITECTURE,
+    init_checkpoint_sha256: str | None = None,
 ) -> dict[str, object]:
     settings: dict[str, object] = {
         "seed": args.seed,
@@ -2205,6 +2242,12 @@ def _training_settings(
         "wdl_calibration_sha256": wdl_calibration_sha256,
         "initialization": "SHA256_NAMED_PARAMETER_SEED_V1",
     }
+    if init_checkpoint_sha256 is not None:
+        # The key appears only when the run is initialized from another
+        # checkpoint, so a run without --init keeps the settings identity a
+        # run without the flag has always had, and a run with --init cannot be
+        # resumed from a checkpoint that started anywhere else.
+        settings["init_checkpoint_sha256"] = init_checkpoint_sha256
     dense_multiplier, output_multiplier = _optimizer_learning_rate_multipliers(args)
     if (
         dense_multiplier != DEFAULT_DENSE_LEARNING_RATE_MULTIPLIER
@@ -2247,6 +2290,61 @@ def _load_checkpoint(
     return checkpoint, sha256
 
 
+def _load_init_checkpoint(
+    path: Path,
+    architecture: str,
+) -> tuple[dict[str, object], dict[str, object], str]:
+    """Read the trained parameters of a checkpoint from a different run.
+
+    An init is not a resume. A resume continues one run and therefore has to
+    agree with it on the source tree, the environment, the settings, the data
+    and the campaign binding. An init deliberately crosses those boundaries:
+    the whole point is to start a new run on new data from parameters another
+    run produced, so none of those identities can match and none is checked.
+
+    What is checked is the only thing that must hold for the parameters to mean
+    anything: the checkpoint declares the same architecture this run trains.
+    Everything else about the previous run is recorded rather than enforced, so
+    the lineage is auditable from the receipt alone.
+    """
+
+    resolved = path.expanduser().resolve()
+    _require(resolved.is_file(), f"init checkpoint does not exist: {resolved}")
+    sha256 = _sha256_file(resolved)
+    try:
+        checkpoint = torch.load(resolved, map_location="cpu", weights_only=True)
+    except (EOFError, pickle.UnpicklingError, RuntimeError, ValueError) as error:
+        raise TrainingError(f"cannot load init checkpoint: {error}") from error
+    _require(isinstance(checkpoint, dict), "init checkpoint root is not an object")
+    _require(
+        checkpoint.get("schema") == _checkpoint_schema(architecture),
+        "init checkpoint schema mismatch",
+    )
+    _require(
+        checkpoint.get("architecture") == _architecture_schema(architecture),
+        "init checkpoint architecture mismatch",
+    )
+    model_state = checkpoint.get("model_state")
+    _require(isinstance(model_state, dict), "init checkpoint model state is invalid")
+    origin = checkpoint.get("source")
+    campaign = checkpoint.get("campaign")
+    receipt: dict[str, object] = {
+        "checkpoint_sha256": sha256,
+        "schema": checkpoint.get("schema"),
+        "architecture": checkpoint.get("architecture"),
+        "origin_source": origin if isinstance(origin, dict) else None,
+        "origin_campaign": campaign if isinstance(campaign, dict) else None,
+        "parameters": len(model_state),
+        "carried": "trained parameters only",
+        "not_carried": (
+            "optimizer state, scheduler state, RNG state and progress; this run "
+            "starts at step zero with the RNG seeded by --seed exactly as a run "
+            "without --init does, so the batch order is unchanged"
+        ),
+    }
+    return model_state, receipt, sha256
+
+
 def train(args: argparse.Namespace) -> dict[str, object]:
     architecture = _architecture_name(args)
     dense_learning_rate_multiplier, output_learning_rate_multiplier = (
@@ -2279,7 +2377,15 @@ def train(args: argparse.Namespace) -> dict[str, object]:
         raise TrainingError(f"WDL calibration is invalid: {error}") from error
     device = _configure_runtime(args.seed, args.device, args.cpu_threads)
     calibration = _torch_calibration(wdl_parameters, device)
-    settings = _training_settings(args, device, wdl_sha256, architecture)
+    init_state: dict[str, object] | None = None
+    init_receipt: dict[str, object] | None = None
+    init_sha256: str | None = None
+    init_argument = getattr(args, "init", None)
+    if init_argument is not None:
+        init_state, init_receipt, init_sha256 = _load_init_checkpoint(
+            init_argument, architecture
+        )
+    settings = _training_settings(args, device, wdl_sha256, architecture, init_sha256)
     environment = {
         "python": platform.python_version(),
         "pytorch": str(torch.__version__),
@@ -2448,6 +2554,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
             len(train_dataset),
             len(validation_dataset),
             target_steps,
+            init_sha256,
         )
         _require(
             campaign_binding is None or scale_binding is None,
@@ -2459,6 +2566,20 @@ def train(args: argparse.Namespace) -> dict[str, object]:
         _require(stop_at_step <= target_steps, "stop-after-steps exceeds the target run")
 
         model = _make_model(architecture, args.seed).to(device)
+        if init_state is not None:
+            # strict=True: every parameter of this model comes from the init
+            # checkpoint and nothing in the init checkpoint is left unused, so
+            # a partially initialized network cannot be trained by accident.
+            # A resume of an init run overwrites this below with the state the
+            # interrupted run had actually reached; passing --init alongside
+            # --resume is what keeps the settings identity of such a run intact
+            # rather than being a second, competing source of parameters.
+            try:
+                model.load_state_dict(init_state, strict=True)
+            except (RuntimeError, ValueError) as error:
+                raise TrainingError(
+                    f"init checkpoint does not fit the model: {error}"
+                ) from error
         optimizer = _make_optimizer(
             model,
             args.learning_rate,
@@ -2880,6 +3001,7 @@ def train(args: argparse.Namespace) -> dict[str, object]:
                     train_metrics.receipt() if train_metrics.samples else None
                 ),
                 "resume_checkpoint_sha256": resume_sha256,
+                "init": init_receipt,
             },
             "artifacts": {
                 "checkpoint": {
@@ -2970,6 +3092,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--cpu-threads", type=int, default=1)
     parser.add_argument("--resume", type=Path)
+    parser.add_argument(
+        "--init",
+        type=Path,
+        help=(
+            "start this run from the trained parameters of another run's checkpoint; "
+            "the optimizer, the scheduler, the RNG and the step counter still start fresh"
+        ),
+    )
     parser.add_argument("--stop-after-steps", type=int)
     parser.add_argument("--allow-legacy-book-split-v1", action="store_true")
     parser.add_argument("--allow-dirty", action="store_true")
