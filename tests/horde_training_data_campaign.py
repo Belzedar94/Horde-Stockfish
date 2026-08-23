@@ -10,6 +10,7 @@ the original behaviour byte for byte.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -18,12 +19,18 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 import horde_training_chunk_set as cs  # noqa: E402
+import horde_training_scale_selected_role as cs_role  # noqa: E402
 
 FAILURES: list[str] = []
 ROOT = Path(__file__).resolve().parents[1]
 V3 = ROOT / "schemas" / "horde-v3-scale-v1.json"
 RANK8 = ROOT / "schemas" / "horde-v2-rank8-scale-v1.json"
 CORPUS = Path(r"D:/horde-train/train/chunk-set.json")
+CORPUS_A_FRESH = ROOT / "schemas" / "horde-corpus-a-legacy-scale-v1.json"
+# Every lineage contract of the corpus A phase. Each one claims to be the fresh
+# legacy contract with the initialization as its only recipe delta, and the
+# claim is checked here rather than trusted.
+LINEAGE = ("horde-corpus-a-lineage-l1-legacy-scale-v1.json",)
 
 
 def check(condition: bool, message: str) -> None:
@@ -143,12 +150,117 @@ def test_mismatch_is_rejected() -> None:
     print(f"  rejected {len(cases)} mismatches and 4 malformed declarations")
 
 
+def test_lineage_contracts_differ_only_by_the_init() -> None:
+    """A lineage contract must be the fresh contract plus an initialization.
+
+    The whole discriminator rests on this: if anything other than the init
+    moved, a difference in the boards stops being attributable to lineage. The
+    claim is therefore checked field by field against the fresh contract rather
+    than read off the NOTE.
+    """
+
+    if not CORPUS_A_FRESH.is_file():
+        print("  corpus A fresh contract absent, skipping the lineage checks")
+        return
+    fresh_raw = CORPUS_A_FRESH.read_bytes()
+    fresh = json.loads(fresh_raw)
+    fresh_sha = hashlib.sha256(fresh_raw).hexdigest().upper()
+    checked = 0
+    for name in LINEAGE:
+        path = ROOT / "schemas" / name
+        if not path.is_file():
+            FAILURES.append(f"{name} is registered in the test but missing on disk")
+            continue
+        raw = path.read_bytes()
+        contract = json.loads(raw)
+        digest = hashlib.sha256(raw).hexdigest().upper()
+
+        # Registered, pinned, and pinned to this exact file.
+        schema_name = contract["schema_name"]
+        registered = cs_role.SCALE_CONTRACTS.get(schema_name)
+        if registered is None:
+            FAILURES.append(f"{name} declares {schema_name}, which is not registered")
+            continue
+        check(
+            registered["sha256"] == digest,
+            f"{name} does not match the SHA-256 pinned for {schema_name}",
+        )
+        check(
+            registered["relative_path"].name == name,
+            f"{schema_name} is pinned to a different file than {name}",
+        )
+        check(
+            registered["architecture"] == fresh["training"]["architecture"]["name"],
+            f"{name} is bound to an architecture the fresh contract does not train",
+        )
+
+        # The recipe: identical field for field, with the init added.
+        recipe = dict(contract["training"])
+        init = recipe.pop("init", None)
+        check(init is not None, f"{name} is a lineage contract with no init")
+        check(
+            recipe == fresh["training"],
+            f"{name} changed the recipe beyond adding the init",
+        )
+        if isinstance(init, dict):
+            check(
+                isinstance(init.get("checkpoint_sha256"), str)
+                and len(init["checkpoint_sha256"]) == 64
+                and init["checkpoint_sha256"] == init["checkpoint_sha256"].upper(),
+                f"{name} declares an init without a well-formed checkpoint SHA-256",
+            )
+            check(
+                isinstance(init.get("source"), str) and init["source"],
+                f"{name} declares an init without naming its source",
+            )
+
+        # Everything the fresh contract says about the data, the gates and the
+        # selection is inherited unchanged. Only the identity fields, the
+        # declaration of the borrowed corpus and the self-description move.
+        allowed_to_differ = {
+            "$id",
+            "NOTE",
+            "data_campaign",
+            "purpose",
+            "recipe_identity",
+            "schema_name",
+            "title",
+            "training",
+        }
+        for key in set(fresh) | set(contract):
+            if key in allowed_to_differ:
+                continue
+            check(
+                contract.get(key) == fresh.get(key),
+                f"{name} changed {key}, which the fresh contract owns",
+            )
+
+        # The corpus is declared, not owned, and the self-description points at
+        # the contract this one was actually derived from.
+        check(
+            contract["data_campaign"]["contract_sha256"] == fresh_sha
+            and contract["data_campaign"]["contract_schema"] == fresh["schema_name"]
+            and contract["data_campaign"]["contract_name"] == CORPUS_A_FRESH.name,
+            f"{name} declares a data campaign other than the fresh corpus A contract",
+        )
+        identity = contract.get("recipe_identity", {})
+        check(
+            identity.get("identical_to", {}).get("contract_sha256") == fresh_sha
+            and identity.get("added_fields") == ["training.init"]
+            and identity.get("changed_fields") == [],
+            f"{name} misstates its own delta against the fresh contract",
+        )
+        checked += 1
+    print(f"  {checked} lineage contract(s) differ from the fresh recipe only by the init")
+
+
 def main() -> int:
     print("HORDE_DATA_CAMPAIGN_V1 invariants")
     test_axes_are_separate()
     test_undeclared_is_its_own_campaign()
     test_matches_the_real_receipt()
     test_mismatch_is_rejected()
+    test_lineage_contracts_differ_only_by_the_init()
     if FAILURES:
         print(f"\nFAILED with {len(FAILURES)} problems:")
         for failure in FAILURES[:20]:

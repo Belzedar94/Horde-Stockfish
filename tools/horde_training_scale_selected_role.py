@@ -75,6 +75,16 @@ CORPUS_A_V3_CONTRACT_RELATIVE_PATH = Path("schemas/horde-corpus-a-v3-scale-v1.js
 CORPUS_A_V3_CONTRACT_SHA256 = (
     "B029E453259AB51F47E6120E576DC6FB233B086F7598D06DB06C887E5C88727A"
 )
+# The lineage phase. Same corpus, same recipe, same predesignated seed as the
+# fresh legacy contract; the one field that moves is the initialization. L1
+# stacks one generation on the 50M depth-4 champion of the lambda ladder.
+CORPUS_A_LINEAGE_L1_CONTRACT_SCHEMA = "HORDE_CORPUS_A_LINEAGE_L1_LEGACY_SCALE_V1"
+CORPUS_A_LINEAGE_L1_CONTRACT_RELATIVE_PATH = Path(
+    "schemas/horde-corpus-a-lineage-l1-legacy-scale-v1.json"
+)
+CORPUS_A_LINEAGE_L1_CONTRACT_SHA256 = (
+    "2BAC48DA7A0F14E77B8E8FD3D22570A70E8E80166C4650A8EB24F6BECC9E6295"
+)
 
 # Every registered scale contract, keyed by its schema name. A contract is
 # accepted only when its own SHA-256 matches the entry pinned here, and each
@@ -100,6 +110,11 @@ SCALE_CONTRACTS: dict[str, dict[str, object]] = {
         "relative_path": CORPUS_A_V3_CONTRACT_RELATIVE_PATH,
         "sha256": CORPUS_A_V3_CONTRACT_SHA256,
         "architecture": "v3-g1024-pawn-wpc8",
+    },
+    CORPUS_A_LINEAGE_L1_CONTRACT_SCHEMA: {
+        "relative_path": CORPUS_A_LINEAGE_L1_CONTRACT_RELATIVE_PATH,
+        "sha256": CORPUS_A_LINEAGE_L1_CONTRACT_SHA256,
+        "architecture": "fresh-legacy-hp",
     },
 }
 SELECTOR_RELATIVE_PATH = Path("tools/horde_training_scale_selected_role.py")
