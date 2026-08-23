@@ -1,0 +1,171 @@
+{
+  "ancestor_reference": {
+    "measured_against_run6b": {
+      "ltc_30+0.3": {
+        "elo": -50.0,
+        "error": 352.8,
+        "games": 7
+      },
+      "note": "Recorded for context only. The STC and LTC samples are far too thin to carry weight and are not used as a baseline for anything in this phase; the VSTC figure is the only one with a usable error bar.",
+      "stc_10+0.1": {
+        "elo": -88.7,
+        "error": 108.6,
+        "games": 44
+      },
+      "vstc_2+0.02": {
+        "elo": -225.0,
+        "error": 57.5,
+        "games": 207
+      }
+    },
+    "network_sha256": "0913C1DA19BA33B2F4344B22E6397C9609EF839495219D0DF2589CAFA2850400",
+    "records": 50000000,
+    "run_id": "lambda-screen-legacy-l1p0",
+    "teacher_depth": 4,
+    "what_it_is": "The champion of the lambda ladder on the 50M depth-4 corpus, and the one previous generation this project actually owns as a trainer checkpoint. It is a much weaker ancestor than run6b, which is the whole reason run B exists."
+  },
+  "campaign_id": "horde-corpus-a-20260820",
+  "claims": {
+    "architecture_selection": false,
+    "production_network": false,
+    "strength_evidence": false
+  },
+  "committed_before_launch": true,
+  "held_constant_across_the_phase": {
+    "batch_size": 4096,
+    "block_size": 65536,
+    "checkpoint_steps": [
+      8192,
+      16384,
+      24576,
+      32768,
+      40960,
+      48829
+    ],
+    "corpus": "corpus A, 200,000,000 records, 800 authenticated chunks",
+    "lambda": 1.0,
+    "note": "Every one of these is the fresh legacy contract's value, unchanged. The seed especially: it is the campaign seed the fresh run used, so the batch order of all three runs is the same batch order. The trainer's --init moves parameters and touches neither the RNG nor the step counter, which is the property the trainer oracle proves.",
+    "optimizer_steps": 48829,
+    "seed": 4431809517202381621,
+    "train_chunk_set_sha256": "28C34BBB507AC0703AEB2AFB14742B8FC424F3A59BBE3641F197BC634E1D00A5",
+    "validation_role": "parents only, 250,000 records",
+    "validation_selected_receipt_sha256": "44E8801C90B6895AEA3560B1CA1AA3EA15814C2CB69416CEF464B959EAED58EB",
+    "wdl_calibration_sha256": "83753C31FAB73F8FDFC9183927EA5BEDCB6815E37A40D61F347082FEA51E88EC"
+  },
+  "phase": "lineage discriminator",
+  "preregistered_reading": {
+    "loss_as_diagnostic_only": {
+      "expectation_if_the_sibling_pattern_replicates": "The initial validation loss of A and of B starts far below the fresh run's, because the network no longer opens from a seeded state. This is an observation to be recorded, not a result. It would confirm that --init did what it says and nothing more: a network can open at a much lower loss and still lose every match.",
+      "fresh_run_final_validation_composite_loss": 0.02078498074967122,
+      "fresh_run_initial_validation_composite_loss": 0.12252696142022346,
+      "votes": false
+    },
+    "ordering": "Run A is read, in full and in writing, before any result of run B is looked at. B's branches are sealed here together with A's so that neither reading can be adjusted once the other is known.",
+    "permanent_caution": "No loss metric votes. Games at three time controls decide and nothing else does. Validation loss in this campaign is additionally not comparable across eras: the calibration is fitted on corpus A parents and the validation role is carved from a different pool.",
+    "run_a_vs_run6b_at_three_time_controls": {
+      "clear_improvement_over_the_fresh_run": "Generational stacking is doing work, and lineage is the variable worth spending on. Read with the ceiling in mind: A stacks one generation on an ancestor that is itself about 225 Elo behind run6b at 2+0.02, so an improvement here is evidence that stacking helps, not evidence that one generation of it is enough.",
+      "clear_regression_against_the_fresh_run": "Initializing from a weaker ancestor actively harms this recipe. That is a real finding about warm starts from below, and it raises rather than lowers the value of run B, whose ancestor is the champion itself.",
+      "no_material_change_against_minus_244_minus_66_minus_24": "One generation of init is not enough to move the result, which is consistent with a champion that carries six. It does not refute the lineage thesis and it does not rescue the label thesis. It makes run B the decisive experiment of the phase rather than a confirmation of it."
+    },
+    "run_b_vs_run6b_at_three_time_controls": {
+      "clear_loss": "A generation of corpus A placed directly on the champion makes it worse. That indicts this corpus or this recipe as a reinforcement cycle, not the lineage thesis, and it is reported without softening. The corpus composition and the 10,000 node budget both go back on the table.",
+      "clear_win": "The modern reinforcement cycle is validated: one generation of corpus A on top of the champion beats the champion. The host decision, legacy against V2, becomes the next question rather than this one.",
+      "draw": "The cycle is not yet additive on top of six generations. This is the least conclusive branch and it will be reported as such; it would put the expansion budget and the node budget, not the architecture, at the front of the queue."
+    },
+    "run_b_vs_run_a": "A large gap between B and A with the same recipe and the same seed isolates the quality of the ancestor as the operative variable, which is the cleanest statement this phase can make about lineage. A small gap says the ancestor barely matters and points back at the corpus."
+  },
+  "prior_result_being_discriminated": {
+    "gate": "equal time, three time controls, versus run6b-prod",
+    "loser": "legacy-corpusA-l1p0",
+    "network_sha256": "8FD48A15BBE58A72495443B55AFFC64C9C950261C37445A0698E324A97E1E69E",
+    "note": "The deficit collapses as the time control lengthens, from 244 Elo at 2+0.02 to 24 at 30+0.3. That shape is recorded here before the fact so that a lineage run which improves only at one end of the range cannot be read as if it had improved everywhere.",
+    "results": {
+      "ltc_30+0.3": {
+        "elo": -24.4,
+        "error": 26.3,
+        "games": 670,
+        "wdl": [
+          309,
+          356,
+          5
+        ]
+      },
+      "stc_10+0.1": {
+        "elo": -66.3,
+        "error": 37.2,
+        "games": 345,
+        "wdl": [
+          138,
+          203,
+          4
+        ]
+      },
+      "vstc_2+0.02": {
+        "elo": -244.0,
+        "error": 55.1,
+        "games": 241,
+        "wdl": [
+          45,
+          191,
+          5
+        ]
+      }
+    },
+    "teacher_nodes": 10000,
+    "training_records": 200000000
+  },
+  "purpose": "Decide between two explanations of a single measured fact. The fresh corpus A legacy run trained on 200M positions labelled at 10,000 nodes and still lost to run6b at all three time controls. Either the labels are still not good enough, or the thing run6b has that no fresh run can have is lineage: five chained initializations and about 1.35B positions of accumulated training. These two runs move the initialization and nothing else, so the boards answer that question and not another one.",
+  "runs": {
+    "A": {
+      "architecture": "fresh-legacy-hp",
+      "contract_schema": "HORDE_CORPUS_A_LINEAGE_L1_LEGACY_SCALE_V1",
+      "contract_sha256": "2BAC48DA7A0F14E77B8E8FD3D22570A70E8E80166C4650A8EB24F6BECC9E6295",
+      "generations_stacked": 1,
+      "init_checkpoint_sha256": "FA5E95EC8C9C8B8DC7A5FE603CF1CB524ACF6B326A063F87698A8F45AC68DF34",
+      "init_source": "lambda-screen-legacy-l1p0",
+      "role": "the cheap discriminator",
+      "run_id": "legacy-corpusA-lineage-l1",
+      "why_this_ancestor": "It is the only previous generation that exists as a trainer checkpoint, so run A needs no new tooling and can be launched immediately. Its weakness is a known cost, not an oversight."
+    },
+    "B": {
+      "architecture": "fresh-legacy-hp",
+      "contract_schema": "to be registered once the importer round-trip is green",
+      "contract_sha256": null,
+      "generations_stacked": "one on top of run6b's six",
+      "init_checkpoint_sha256": null,
+      "init_source": "run6b, imported from its NNUE container into a trainer checkpoint",
+      "init_source_network_sha256": "B71108587968AC544EB2E62C2333FECA880DA5ACA52866787F1402163444ADF7",
+      "precondition": "The importer must pass a round-trip: import run6b, re-export through the exporter's own serializer, and compare. Byte identity is the bar; anything short of it has to be justified in centipawns against the engine before run B may be launched. Without a green round-trip there is no run B.",
+      "role": "the direct shot",
+      "run_id": "legacy-corpusA-lineage-run6b",
+      "why_its_contract_is_not_here_yet": "The contract has to pin the SHA-256 of the imported checkpoint, which does not exist until the importer runs. The reading below is sealed now, with run A's, and the contract is registered later with no reading attached to it."
+    }
+  },
+  "schema": "HORDE_CORPUS_A_LINEAGE_PREREGISTRATION_V1",
+  "the_only_thing_that_moves": {
+    "checked_by": "tests/horde_training_data_campaign.py",
+    "enforced_by": "the trainer refuses to initialize a run whose contract declares no init, and refuses to run uninitialized under a contract that declares one; the declared checkpoint SHA-256 must be the one actually loaded",
+    "fresh_contract_sha256": "2708D6B1C426ACD2B8F41A7C4CD945FC9E8E8F25DCC7C876C92384CA54C7E91E",
+    "statement": "Each lineage contract is the fresh corpus A legacy contract with exactly one recipe field added, training.init. No other field of the recipe, the corpus, the books, the generation parameters, the validation selection or the gates differs."
+  },
+  "the_question": "Is the wall label quality, or is it generational stacking? A fresh run starts from a seeded network. run6b did not. If stacking is the variable, putting a previous generation under the identical recipe should move the result; if it is not, the identical recipe should land in the same place.",
+  "what_this_phase_cannot_show": [
+    "that six chained generations are reproducible here, since only one is trained",
+    "a label verdict, since the labels are held fixed at the corpus A budget",
+    "an architecture verdict, since both runs train the legacy control",
+    "anything about engine speed, since no NPS is measured",
+    "that any deficit run6b keeps is caused by lineage rather than by the depth schedule or the filters its generations used, since those moved together in its history and cannot be separated after the fact"
+  ],
+  "why_it_is_worth_asking": {
+    "sibling_evidence": "In the Spell project the from-scratch network finished below the predecessor it was meant to replace, and training with --init started the loss about twenty times lower. That is a pattern, not a proof, and it is recorded here as the reason the question was asked rather than as evidence for any answer.",
+    "what_run6b_is": {
+      "chained_initializations": 5,
+      "depth_schedule": "d5 to d7",
+      "filters": "check and promotion",
+      "generations": 6,
+      "note": "Read out of the project archive and confirmed by the owner. One bootstrap generation followed by five reinforcement cycles, each initialized from the previous generation. It is not a run this campaign can reproduce in one pass, which is precisely why the comparison against it needs this phase.",
+      "opening_book": "multi-PV",
+      "positions_total_approx": 1350000000
+    }
+  }
+}
