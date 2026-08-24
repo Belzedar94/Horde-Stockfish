@@ -254,7 +254,7 @@ def fit_once(
             if architecture in control.V3_ARCHITECTURES:
                 reach = _bucket_reach(model)
         optimizer.step()
-        control._clip_serialized_dense_weights(model)
+        control._clip_serialized_weights(model, architecture)
         if not control._all_finite(model):
             raise RuntimeError(f"{architecture} micro-fit produced non-finite parameters")
 

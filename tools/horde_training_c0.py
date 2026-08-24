@@ -21,16 +21,16 @@ except ImportError as error:  # pragma: no cover - exercised by the CLI failure 
 try:
     from .horde_training_control import (
         DEFAULT_LEARNING_RATE,
-        _clip_serialized_dense_weights,
         _make_optimizer,
+        _serialized_weight_limits,
     )
     from .horde_training_microfit import make_fixture_batch
     from .horde_training_models import C0SingleG0Model, C0SplitG0Model
 except ImportError:
     from horde_training_control import (
         DEFAULT_LEARNING_RATE,
-        _clip_serialized_dense_weights,
         _make_optimizer,
+        _serialized_weight_limits,
     )
     from horde_training_microfit import make_fixture_batch
     from horde_training_models import C0SingleG0Model, C0SplitG0Model
@@ -77,6 +77,30 @@ def _canonical_parts(model: nn.Module) -> dict[str, tuple[nn.Parameter, ...]]:
         "global_bias": global_bias,
         **{name: (getattr(model, name),) for name in CANONICAL_NAMES[2:]},
     }
+
+
+def _clip_serialized(model: nn.Module) -> None:
+    """Clip a C0 model exactly as the trainer clips the architecture it mirrors.
+
+    The shared helper resolves the feature stream by attribute name and fails
+    closed when it recognises none. That is right for the trainer and wrong
+    here: the split control cuts that one stream into two halves under names
+    only this module knows, and the trainer never builds it. The limits are
+    therefore taken from the shared table and applied through the canonical
+    view, so both controls stay clipped by one rule and the table cannot
+    drift. Clamping the halves is elementwise identical to clamping the table
+    they were cut from, which is what keeps the equality claim exact.
+    """
+    limits = _serialized_weight_limits("v2-c0-g0single-256")
+    dense = limits["dense"]
+    output = limits["output"]
+    feature = limits["feature_transformer"]
+    with torch.no_grad():
+        for tensor in _canonical_parts(model)["global_weights"]:
+            tensor.clamp_(-feature, feature)
+        model.hidden0_weights.clamp_(-dense, dense)
+        model.hidden1_weights.clamp_(-dense, dense)
+        model.output_weights.clamp_(-output, output)
 
 
 def _join(name: str, tensors: Sequence[Tensor]) -> Tensor:
@@ -369,8 +393,8 @@ def _run_split(first_lanes: int, steps: int, learning_rate: float) -> dict[str, 
         _assert_tensor_maps_equal(single_gradients, split_gradients, f"gradient step {step}")
         single_optimizer.step()
         split_optimizer.step()
-        _clip_serialized_dense_weights(single)
-        _clip_serialized_dense_weights(split)
+        _clip_serialized(single)
+        _clip_serialized(split)
 
         single_parameters = _parameter_tensors(single)
         split_parameters = _parameter_tensors(split)
