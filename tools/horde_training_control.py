@@ -1884,13 +1884,22 @@ def _contextual_extractor(architecture: str):
 # read the byte ranges it already authenticated. The mmap reader is a local
 # copy rather than an import from the selection or calibration tools, so that
 # three gate-critical tools do not share a failure mode for thirty lines.
-# Sized by the GPU ceiling, not by the core count. The serial loader runs at
-# 1.19 steps per second and the rest of the step (forward, backward, optimizer,
-# metrics) costs 0.267 s, so the run cannot go faster than about 3.75 steps per
-# second however many workers materialise for it. Five workers clear that with
-# margin. Twelve did not go faster, and each worker pays a full torch import on
-# Windows spawn because the child re-imports __main__: twelve of those exhausted
-# the commit limit and the pool died loading shm.dll.
+# The binding constraint is the memory commit limit, not the core count. Each
+# worker pays a full torch import because Windows spawn re-imports __main__ and
+# __main__ here is the trainer, so a worker costs committed address space
+# rather than a core. Twelve exhausted the commit limit and the pool died
+# loading shm.dll. Note that the expression below does not query the commit
+# limit: it counts cores only, and the low cap is what keeps the pool inside
+# commit rather than any measurement of it.
+#
+# Marginal return decays well before that cap. Seven workers deliver 4.76 CPU
+# seconds per wall second out of the 7 available while the parent drops to
+# 0.38; five leave the parent at 0.46. Raising five to seven therefore bought
+# nothing: the pool never converted the two extra workers into work, and past
+# about five the next worker returns close to none. The ceiling this comment
+# used to claim, 3.75 steps per second, was derived by subtracting a
+# single-chunk loader benchmark from the 50M wall time and is not repeated
+# here, because that subtraction was wrong.
 PREFETCH_WORKERS = max(1, min(7, (os.cpu_count() or 2) - 2))
 PREFETCH_DEPTH = 2
 _PREFETCH_STATE: dict[str, Any] = {}
