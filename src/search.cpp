@@ -1011,7 +1011,9 @@ Value Search::Worker::search(
     const bool whitePawnPruningMaterial =
       us == WHITE && pos.count<PAWN>(WHITE)
       && HORDE_PRUNING_ACTIVE(HordeDisableWhitePawnPruning);
-    const bool hasNmpMaterial     = bool(pos.non_pawn_material(us)) || whitePawnNmpMaterial;
+    // A promoted piece currently hands null-move pruning back to the Horde
+    // side; the pawn army it still commands is exactly where zugzwang lives.
+    const bool hasNmpMaterial = us == WHITE ? whitePawnNmpMaterial : bool(pos.non_pawn_material(us));
     const bool hasPruningMaterial = bool(pos.non_pawn_material(us)) || whitePawnPruningMaterial;
     ss->moveCount = 0;
     bestValue     = -VALUE_INFINITE;
