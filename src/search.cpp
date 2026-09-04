@@ -1493,6 +1493,10 @@ moves_loop:  // When in check, search starts here
 
         int r = reduction(improving, depth, moveCount, delta);
 
+        // The pawn side's late quiet moves are near-interchangeable.
+        if (us == WHITE)
+            r += r / 5;
+
         // Increase reduction for ttPv nodes (*Scaler)
         // Larger values scale well
         if (ss->ttPv)
