@@ -1002,8 +1002,9 @@ Value Search::Worker::search(
     ss->inCheck   = pos.checkers();
     priorCapture  = pos.captured_piece();
     Color us      = pos.side_to_move();
-    const bool whitePawnNmpMaterial =
-      us == WHITE && pos.count<PAWN>(WHITE) && HORDE_EXPERIMENT_ENABLED(HordeEnableWhitePawnNmp);
+    // A pawn-only horde still owns thirty-odd tempo moves, so null-move
+    // pruning is not the zugzwang trap it is for a pawn-only side in chess.
+    const bool whitePawnNmpMaterial = us == WHITE && pos.count<PAWN>(WHITE);
 
     // Physical White pawns keep PAWN semantics, but they are still active
     // Horde search material. Without this role bridge the modern shallow
