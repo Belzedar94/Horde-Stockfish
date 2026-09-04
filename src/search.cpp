@@ -1275,6 +1275,11 @@ Value Search::Worker::search(
                              - (2789 * improving + 335 * opponentWorsening) * futilityMult / 1024
                              + std::abs(correctionValue) / 198435;
 
+        // The Horde side owns no king to shelter, so its child-node futility
+        // margin can be tighter than the symmetric chess one.
+        if (us == WHITE)
+            futilityMargin = futilityMargin * 90 / 100;
+
         if (eval - futilityMargin >= beta && HORDE_PRUNING_ACTIVE(HordeDisableNodeFutility))
         {
 #if defined(HORDE_SEARCH_TELEMETRY)
