@@ -1567,20 +1567,6 @@ moves_loop:  // When in check, search starts here
                             + (*contHist[1])[movedPiece][move.to_sq()]
                             + sharedHistory.pawn_entry(pos)[movedPiece][move.to_sq()];
 
-                // Continuation history based pruning
-                if (history < -4136 * depth && HORDE_PRUNING_ACTIVE(HordeDisableQuietHistory))
-                {
-#if defined(HORDE_SEARCH_TELEMETRY)
-                    if (hordeMetrics)
-                    {
-                        ++hordeMetrics->quietHistoryPrunes;
-                        if (movedPiece == W_PAWN)
-                            ++hordeMetrics->quietPawnPrunes;
-                    }
-#endif
-                    continue;
-                }
-
                 history += 69 * mainHistory[us][move.raw()] / 32;
 
                 // (*Scaler): Generally, lower divisors scale well
