@@ -222,8 +222,6 @@ void Search::Worker::start_searching() {
     if (hordeV2PerformanceStack.reset(rootPos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
         std::abort();
 #endif
-    hordePreservePawnQsearchCaptureSee =
-      bool(options["HordePreservePawnQsearchCaptureSee"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -2315,10 +2313,10 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
                 continue;
             }
 
-            // Do not search moves with bad enough SEE values
-            if (!pos.see_ge(move, -74)
-                && !(hordePreservePawnQsearchCaptureSee
-                     && pos.piece_on(move.to_sq()) == W_PAWN))
+            // Do not search moves with bad enough SEE values, but never
+            // give up a capture of a Horde pawn: it is the only way to shrink
+            // the horde.
+            if (!pos.see_ge(move, -74) && pos.piece_on(move.to_sq()) != W_PAWN)
             {
 #if defined(HORDE_SEARCH_TELEMETRY)
                 if (hordeMetrics)
