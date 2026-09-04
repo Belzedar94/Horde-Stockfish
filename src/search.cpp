@@ -1609,22 +1609,6 @@ moves_loop:  // When in check, search starts here
                     continue;
                 }
 
-                lmrDepth = std::max(lmrDepth, 0);
-
-                // Prune moves with negative SEE
-                if (!pos.see_ge(move, -23 * lmrDepth * lmrDepth)
-                    && HORDE_PRUNING_ACTIVE(HordeDisableQuietSee))
-                {
-#if defined(HORDE_SEARCH_TELEMETRY)
-                    if (hordeMetrics)
-                    {
-                        ++hordeMetrics->quietSeePrunes;
-                        if (movedPiece == W_PAWN)
-                            ++hordeMetrics->quietPawnPrunes;
-                    }
-#endif
-                    continue;
-                }
             }
         }
 
