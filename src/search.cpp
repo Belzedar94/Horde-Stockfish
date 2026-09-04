@@ -1253,7 +1253,9 @@ Value Search::Worker::search(
     // Step 7. Razoring
     // If eval is really low, skip search entirely and return the qsearch value.
     // For PvNodes, we must have a guard against mates being returned.
-    if (!PvNode && eval < alpha - 483 - 318 * depth * depth
+    // The Horde side's static eval tracks pawn count; a deficit this large is
+    // not repaired by quiet play, so hand the node to qsearch sooner.
+    if (!PvNode && eval < alpha - (483 + 318 * depth * depth) * (us == WHITE ? 60 : 100) / 100
         && HORDE_PRUNING_ACTIVE(HordeDisableRazoring))
     {
 #if defined(HORDE_SEARCH_TELEMETRY)
