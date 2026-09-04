@@ -2253,7 +2253,9 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
             if (!givesCheck && move.to_sq() != prevSq && !is_loss(futilityBase)
                 && move.type_of() != PROMOTION)
             {
-                if (moveCount > 2)
+                // Captures of Horde pawns are the only way to reduce the
+                // horde, so they keep their qsearch slot past the move count.
+                if (moveCount > 2 && pos.piece_on(move.to_sq()) != W_PAWN)
                 {
 #if defined(HORDE_SEARCH_TELEMETRY)
                     if (hordeMetrics)
