@@ -1638,12 +1638,7 @@ moves_loop:  // When in check, search starts here
 
         // (*Scaler) Generally, higher singularBeta (i.e closer to ttValue)
         // and lower extension margins scale well.
-        // The one-king game has fewer interchangeable king-safety replies.
-        // Let singular verification start two plies earlier.
-        const int oneKingSingularBonus =
-          HORDE_PRUNING_ACTIVE(HordeDisableOneKingSingular) ? 2 : 0;
-        if (!rootNode && move == ttData.move && !excludedMove
-            && depth >= 6 + ss->ttPv - oneKingSingularBonus
+        if (!rootNode && move == ttData.move && !excludedMove && depth >= 6 + ss->ttPv
             && is_valid(ttData.value) && !is_decisive(ttData.value) && (ttData.bound & BOUND_LOWER)
             && ttData.depth >= depth - 3 && !is_shuffling(move, ss, pos))
         {
