@@ -1503,8 +1503,13 @@ moves_loop:  // When in check, search starts here
         if (!rootNode && hasPruningMaterial && !is_loss(bestValue))
         {
             // Skip quiet moves if movecount exceeds our threshold
-            if (moveCount >= (3 + depth * depth) / (2 - improving)
-                && HORDE_PRUNING_ACTIVE(HordeDisableLmp))
+            // Most Horde quiet moves are interchangeable pawn pushes: the tail of
+            // the move list is worth less to the pawn side than to the piece side.
+            int lmpThreshold = (3 + depth * depth) / (2 - improving);
+            if (us == WHITE)
+                lmpThreshold = lmpThreshold * 3 / 4;
+
+            if (moveCount >= lmpThreshold && HORDE_PRUNING_ACTIVE(HordeDisableLmp))
             {
 #if defined(HORDE_SEARCH_TELEMETRY)
                 if (hordeMetrics && !hordeLmpTriggered)
