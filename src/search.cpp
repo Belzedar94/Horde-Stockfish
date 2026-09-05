@@ -2264,24 +2264,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
                     continue;
                 }
 
-                Value futilityValue = futilityBase + PieceValue[pos.piece_on(move.to_sq())];
-
-                // If static eval + value of piece we are going to capture is
-                // much lower than alpha, we can prune this move.
-                if (futilityValue <= alpha)
-                {
-                    bestValue = std::max(bestValue, futilityValue);
-#if defined(HORDE_SEARCH_TELEMETRY)
-                    if (hordeMetrics)
-                    {
-                        ++hordeMetrics->qFutilityPrunes;
-                        if (!capture && pos.moved_piece(move) == W_PAWN)
-                            ++hordeMetrics->quietPawnPrunes;
-                    }
-#endif
-                    continue;
-                }
-
                 // If static exchange evaluation is low enough
                 // we can prune this move.
                 if (!pos.see_ge(move, alpha - futilityBase))
