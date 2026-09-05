@@ -2106,7 +2106,7 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
     Key   posKey;
     Move  move, bestMove;
     Value bestValue, value, futilityBase;
-    bool  pvHit, givesCheck, capture;
+    bool  pvHit, givesCheck;
     int   moveCount;
 
     // Step 1. Initialize node
@@ -2233,7 +2233,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
 #endif
 
         givesCheck = pos.gives_check(move);
-        capture    = pos.capture_stage(move);
         const bool extinctionCapture = pos.is_horde_extinction_capture(move);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
@@ -2242,89 +2241,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
 #endif
 
         moveCount++;
-
-        // Step 6. Pruning
-        if (!extinctionCapture && !is_loss(bestValue)
-            && HORDE_PRUNING_ACTIVE(HordeDisableQsearchPruning))
-        {
-            // Futility pruning and moveCount pruning
-            if (!givesCheck && move.to_sq() != prevSq && !is_loss(futilityBase)
-                && move.type_of() != PROMOTION)
-            {
-                if (moveCount > 2)
-                {
-#if defined(HORDE_SEARCH_TELEMETRY)
-                    if (hordeMetrics)
-                    {
-                        ++hordeMetrics->qMoveCountPrunes;
-                        if (!capture && pos.moved_piece(move) == W_PAWN)
-                            ++hordeMetrics->quietPawnPrunes;
-                    }
-#endif
-                    continue;
-                }
-
-                Value futilityValue = futilityBase + PieceValue[pos.piece_on(move.to_sq())];
-
-                // If static eval + value of piece we are going to capture is
-                // much lower than alpha, we can prune this move.
-                if (futilityValue <= alpha)
-                {
-                    bestValue = std::max(bestValue, futilityValue);
-#if defined(HORDE_SEARCH_TELEMETRY)
-                    if (hordeMetrics)
-                    {
-                        ++hordeMetrics->qFutilityPrunes;
-                        if (!capture && pos.moved_piece(move) == W_PAWN)
-                            ++hordeMetrics->quietPawnPrunes;
-                    }
-#endif
-                    continue;
-                }
-
-                // If static exchange evaluation is low enough
-                // we can prune this move.
-                if (!pos.see_ge(move, alpha - futilityBase))
-                {
-                    bestValue = std::max(bestValue, std::min(alpha, futilityBase));
-#if defined(HORDE_SEARCH_TELEMETRY)
-                    if (hordeMetrics)
-                    {
-                        ++hordeMetrics->qSeePrunes;
-                        if (!capture && pos.moved_piece(move) == W_PAWN)
-                            ++hordeMetrics->quietPawnPrunes;
-                    }
-#endif
-                    continue;
-                }
-            }
-
-            // Skip non-captures
-            if (!capture)
-            {
-#if defined(HORDE_SEARCH_TELEMETRY)
-                if (hordeMetrics)
-                {
-                    ++hordeMetrics->qNonCapturePrunes;
-                    if (pos.moved_piece(move) == W_PAWN)
-                        ++hordeMetrics->quietPawnPrunes;
-                }
-#endif
-                continue;
-            }
-
-            // Do not search moves with bad enough SEE values, but never
-            // give up a capture of a Horde pawn: it is the only way to shrink
-            // the horde.
-            if (!pos.see_ge(move, -74) && pos.piece_on(move.to_sq()) != W_PAWN)
-            {
-#if defined(HORDE_SEARCH_TELEMETRY)
-                if (hordeMetrics)
-                    ++hordeMetrics->qSeePrunes;
-#endif
-                continue;
-            }
-        }
 
         // Step 7. Make and search the move
 #if defined(HORDE_SEARCH_TELEMETRY)
