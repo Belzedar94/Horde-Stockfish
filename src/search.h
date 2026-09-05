@@ -469,8 +469,6 @@ class Worker {
     Eval::NNUE::HordeV2::PerformanceStack hordeV2PerformanceStack;
 #endif
 
-    bool hordePreservePawnQsearchCaptureSee = false;
-
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;
     u64                  hordeExperimentMask = 0;
