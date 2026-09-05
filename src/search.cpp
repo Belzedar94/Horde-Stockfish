@@ -2251,19 +2251,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
             if (!givesCheck && move.to_sq() != prevSq && !is_loss(futilityBase)
                 && move.type_of() != PROMOTION)
             {
-                if (moveCount > 2)
-                {
-#if defined(HORDE_SEARCH_TELEMETRY)
-                    if (hordeMetrics)
-                    {
-                        ++hordeMetrics->qMoveCountPrunes;
-                        if (!capture && pos.moved_piece(move) == W_PAWN)
-                            ++hordeMetrics->quietPawnPrunes;
-                    }
-#endif
-                    continue;
-                }
-
                 Value futilityValue = futilityBase + PieceValue[pos.piece_on(move.to_sq())];
 
                 // If static eval + value of piece we are going to capture is
