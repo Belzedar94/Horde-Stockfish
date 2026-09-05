@@ -2313,17 +2313,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
                 continue;
             }
 
-            // Do not search moves with bad enough SEE values, but never
-            // give up a capture of a Horde pawn: it is the only way to shrink
-            // the horde.
-            if (!pos.see_ge(move, -74) && pos.piece_on(move.to_sq()) != W_PAWN)
-            {
-#if defined(HORDE_SEARCH_TELEMETRY)
-                if (hordeMetrics)
-                    ++hordeMetrics->qSeePrunes;
-#endif
-                continue;
-            }
         }
 
         // Step 7. Make and search the move
