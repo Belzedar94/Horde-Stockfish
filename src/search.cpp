@@ -2299,20 +2299,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
                 }
             }
 
-            // Skip non-captures
-            if (!capture)
-            {
-#if defined(HORDE_SEARCH_TELEMETRY)
-                if (hordeMetrics)
-                {
-                    ++hordeMetrics->qNonCapturePrunes;
-                    if (pos.moved_piece(move) == W_PAWN)
-                        ++hordeMetrics->quietPawnPrunes;
-                }
-#endif
-                continue;
-            }
-
             // Do not search moves with bad enough SEE values, but never
             // give up a capture of a Horde pawn: it is the only way to shrink
             // the horde.
