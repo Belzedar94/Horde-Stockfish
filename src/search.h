@@ -469,6 +469,8 @@ class Worker {
     Eval::NNUE::HordeV2::PerformanceStack hordeV2PerformanceStack;
 #endif
 
+    bool hordeFortressPawnMobilityReject = false;
+
 #if defined(HORDE_SEARCH_TELEMETRY)
     HordeSearchTelemetry hordeTelemetry;
     u64                  hordeExperimentMask = 0;

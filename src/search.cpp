@@ -222,6 +222,7 @@ void Search::Worker::start_searching() {
     if (hordeV2PerformanceStack.reset(rootPos) != Eval::NNUE::HordeV2::LeanStackError::NONE)
         std::abort();
 #endif
+    hordeFortressPawnMobilityReject = bool(options["HordeFortressPawnMobilityReject"]);
 
 #if defined(HORDE_SEARCH_TELEMETRY)
     hordeExperimentMask = u64(int(options["HordeSearchExperimentMask"]));
@@ -240,7 +241,7 @@ void Search::Worker::start_searching() {
     tt.new_search();
     main_manager()->updates.onStart();
 
-    if (auto terminal = rootPos.outcome(0))
+    if (auto terminal = rootPos.outcome(0, hordeFortressPawnMobilityReject))
     {
         main_manager()->updates.onUpdateNoMoves({0, {terminal->result, rootPos}});
         main_manager()->updates.onBestmove(UCIEngine::move(Move::none()), "");
@@ -1040,7 +1041,7 @@ Value Search::Worker::search(
 
     if (!rootNode)
     {
-        if (auto terminal = pos.outcome(ss->ply))
+        if (auto terminal = pos.outcome(ss->ply, hordeFortressPawnMobilityReject))
             return terminal->result;
 
         // Step 2. Check for aborted search and immediate draw
@@ -2131,7 +2132,7 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
     if (PvNode && selDepth < ss->ply + 1)
         selDepth = ss->ply + 1;
 
-    if (auto terminal = pos.outcome(ss->ply))
+    if (auto terminal = pos.outcome(ss->ply, hordeFortressPawnMobilityReject))
         return terminal->result;
 
     // Step 2. Check for an immediate draw or maximum ply reached
