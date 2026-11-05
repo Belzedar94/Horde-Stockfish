@@ -2282,21 +2282,6 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
                     continue;
                 }
 
-                // If static exchange evaluation is low enough
-                // we can prune this move.
-                if (!pos.see_ge(move, alpha - futilityBase))
-                {
-                    bestValue = std::max(bestValue, std::min(alpha, futilityBase));
-#if defined(HORDE_SEARCH_TELEMETRY)
-                    if (hordeMetrics)
-                    {
-                        ++hordeMetrics->qSeePrunes;
-                        if (!capture && pos.moved_piece(move) == W_PAWN)
-                            ++hordeMetrics->quietPawnPrunes;
-                    }
-#endif
-                    continue;
-                }
             }
 
             // Skip non-captures
